@@ -7,6 +7,7 @@
   "main": "./out/main/index.js",
   "author": "Giorgi Macharashvili",
   "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
@@ -19,13 +20,15 @@
   },
   "dependencies": {
     "@ewe/shared": "workspace:*",
+    "electron-chrome-extensions": "4.9.0",
+    "electron-chrome-web-store": "0.13.0",
     "music-metadata": "^12.1.1"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^4.0.0",
     "@playwright/test": "^1.64.0",
     "dompurify": "^3.4.16",
-    "electron": "^44.7.0",
+    "electron": "github:castlabs/electron-releases#v44.5.1+wvcus",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "highlight.js": "^11.12.0",

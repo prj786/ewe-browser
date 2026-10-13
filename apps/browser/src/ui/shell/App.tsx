@@ -21,8 +21,8 @@ function rectOf(el: HTMLElement): Rect {
   return {
     x: Math.round(r.left),
     y: Math.round(r.top),
-    width: Math.round(r.width),
-    height: Math.round(r.height),
+    width: Math.round(r.right) - Math.round(r.left),
+    height: Math.round(r.bottom) - Math.round(r.top),
   }
 }
 

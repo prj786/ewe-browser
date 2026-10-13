@@ -1,5 +1,6 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
 import {
+  storeExtensionId,
   WORKSPACE_COLORS,
   displayUrl,
   hostOf,
@@ -12,6 +13,8 @@ import {
 import { api } from '../lib/api'
 import type { BrowserStore } from '../lib/store'
 import { Favicon } from './Favicon'
+import { createExtensions } from '../lib/extensions'
+import { ExtensionActions } from './Extensions'
 import { Icon, type IconName } from './Icon'
 import './Rail.css'
 
@@ -81,6 +84,11 @@ export function Rail(props: RailProps): JSX.Element {
   let listEl: HTMLDivElement | undefined
 
   const collapsed = () => props.mode === 'collapsed'
+  const extensions = createExtensions()
+  const storeOffer = () => {
+    const id = storeExtensionId(active()?.url ?? '')
+    return id !== null && !extensions().list.some((e) => e.id === id) ? id : null
+  }
   const activeId = () => store().state()?.activeTabId ?? null
   const active = () => store().activeTab()
   const workspace = () => store().activeWorkspace()
@@ -507,6 +515,20 @@ export function Rail(props: RailProps): JSX.Element {
             </button>
           </Show>
         </div>
+      </Show>
+
+      <ExtensionActions state={extensions()} vertical={collapsed()} />
+
+      <Show when={!collapsed() && storeOffer()}>
+        {(id) => (
+          <button
+            class="rail-store-add"
+            onClick={() => void api.send({ type: 'extension.install', source: id() })}
+          >
+            <Icon name="puzzle" />
+            <span>Add to ewe browser</span>
+          </button>
+        )}
       </Show>
 
       <Show when={pinned().length > 0}>

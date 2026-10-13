@@ -5,6 +5,9 @@ import {
   SIDEBAR_SECTIONS,
   type Account,
   type PasswordItem,
+  type ExtensionInstallRequest,
+  type ExtensionsState,
+  type SyncStatus,
   type PasswordStatus,
   type DownloadEntry,
   type HistorySuggestion,
@@ -21,7 +24,8 @@ import { isWorkspaceColor } from './workspaces'
 
 export type OverlayPart = 'none' | 'rail' | 'palette' | 'menu' | 'toast'
 export type InternalPage = 'newtab' | 'home' | 'settings' | 'files' | 'music'
-export type MenuTarget = { kind: 'tab'; id: TabId } | { kind: 'workspace'; id: string }
+export type MenuTarget =
+  { kind: 'tab'; id: TabId } | { kind: 'workspace'; id: string } | { kind: 'extension'; id: string }
 export type DownloadAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'open' | 'show' | 'remove'
 export type ToastIcon = 'star' | 'download' | 'check' | 'alert'
 
@@ -79,6 +83,12 @@ export type ShellCommand =
   | { type: 'passwords.fill'; id: string; what: 'login' | 'username' | 'password' }
   | { type: 'passwords.copy'; id: string; what: 'username' | 'password' }
   | { type: 'panel.add'; url: string; title?: string }
+  | { type: 'extension.activate'; id: string; x: number; y: number; width: number; height: number }
+  | { type: 'extension.options'; id: string }
+  | { type: 'extension.remove'; id: string }
+  | { type: 'extension.confirm'; requestId: string; allow: boolean }
+  | { type: 'extensions.update' }
+  | { type: 'extension.install'; source: string }
   | { type: 'panel.remove'; id: string }
   | { type: 'window.new' }
   | { type: 'window.close' }
@@ -95,6 +105,7 @@ export type UiEvent =
   | { type: 'toast'; message: string; icon?: ToastIcon }
   | { type: 'sidebar.focus' }
   | { type: 'passwords.open'; host: string }
+  | { type: 'extension.install'; request: ExtensionInstallRequest }
   | { type: 'workspace.rename'; id: string }
 
 export type ApiLayer = 'shell' | 'overlay' | 'sidebar' | 'page'
@@ -117,7 +128,11 @@ export interface BrowserApi {
   onFsChanged(listener: (path: string) => void): () => void
   music<T = MusicLibrary>(request: MusicRequest): Promise<FsResult<T>>
   onMusic(listener: (library: MusicLibrary) => void): () => void
+  getExtensions(): Promise<ExtensionsState>
+  onExtensions(listener: (state: ExtensionsState) => void): () => void
   passwords(query: string): Promise<{ status: PasswordStatus; items: PasswordItem[] }>
+  sync(run?: boolean): Promise<SyncStatus | null>
+  onSync(listener: (status: SyncStatus) => void): () => void
   startup(on?: boolean): Promise<{ available: boolean; on: boolean } | null>
   onState(listener: (snapshot: WindowSnapshot) => void): () => void
   onSettings(listener: (settings: Settings) => void): () => void
@@ -143,6 +158,10 @@ export const IPC = {
   fsChanged: 'ewe:fs-changed',
   music: 'ewe:music',
   passwords: 'ewe:passwords',
+  getExtensions: 'ewe:get-extensions',
+  sync: 'ewe:sync',
+  syncStatus: 'ewe:sync-status',
+  extensions: 'ewe:extensions',
   startup: 'ewe:startup',
   musicChanged: 'ewe:music-changed',
   state: 'ewe:state',
@@ -165,6 +184,10 @@ const PAGE_COMMANDS = new Set<ShellCommand['type']>([
   'bookmarks.importChrome',
   'panel.add',
   'panel.remove',
+  'extension.options',
+  'extension.remove',
+  'extensions.update',
+  'extension.install',
 ])
 
 export function isPageCommandAllowed(command: ShellCommand): boolean {
@@ -193,7 +216,7 @@ function isFiniteNumber(value: unknown): value is number {
 function isMenuTarget(value: unknown): value is MenuTarget {
   if (typeof value !== 'object' || value === null) return false
   const m = value as Record<string, unknown>
-  return (m.kind === 'tab' || m.kind === 'workspace') && isString(m.id)
+  return (m.kind === 'tab' || m.kind === 'workspace' || m.kind === 'extension') && isString(m.id)
 }
 
 const DOWNLOAD_ACTIONS = new Set<string>([
@@ -322,7 +345,20 @@ export function isShellCommand(value: unknown): value is ShellCommand {
     case 'panel.add':
       return isString(c.url) && /^https?:\/\//i.test(c.url) && isOptionalString(c.title)
     case 'panel.remove':
+    case 'extension.options':
+    case 'extension.remove':
       return isString(c.id)
+    case 'extension.activate':
+      return (
+        isString(c.id) &&
+        [c.x, c.y, c.width, c.height].every((n) => typeof n === 'number' && Number.isFinite(n))
+      )
+    case 'extension.install':
+      return isString(c.source) && c.source.length <= 2048
+    case 'extension.confirm':
+      return isString(c.requestId) && typeof c.allow === 'boolean'
+    case 'extensions.update':
+      return true
     case 'passwords.open':
     case 'sidebar.close':
     case 'downloads.clear':

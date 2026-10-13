@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Flock Counter",
+  "version": "1.2.0",
+  "description": "Counts the sheep on the page. A test extension for ewe browser.",
+  "action": {
+    "default_title": "Flock Counter",
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "icons": { "128": "icon.png" },
+  "options_page": "options.html",
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage", "tabs"]
+}

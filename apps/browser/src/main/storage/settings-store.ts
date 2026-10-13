@@ -47,6 +47,7 @@ export function sanitizeSettings(patch: unknown, base: Settings): Settings {
     next.sidebarWidth = Math.round(Math.min(Math.max(patch.sidebarWidth, SIDEBAR_MIN), SIDEBAR_MAX))
   if (patch.shortcuts !== undefined) next.shortcuts = sanitizeShortcuts(patch.shortcuts)
   if (typeof patch.background === 'boolean') next.background = patch.background
+  if (typeof patch.sync === 'boolean') next.sync = patch.sync
   if (Array.isArray(patch.panels)) next.panels = sanitizePanels(patch.panels)
   return next
 }
@@ -71,6 +72,11 @@ export class SettingsStore extends EventEmitter<{ change: [Settings] }> {
     const stored = await readJson(this.path, isObject)
     this.current = sanitizeSettings(stored, DEFAULT_SETTINGS)
     return this.current
+  }
+
+  async flush(): Promise<void> {
+    this.write.flush()
+    await writeJsonAtomic(this.path, this.current)
   }
 
   update(patch: unknown): Settings {

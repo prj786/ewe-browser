@@ -14,6 +14,8 @@ import {
 import type { DefaultHandler } from './files/default-handler'
 import type { FileService } from './files/service'
 import type { MusicLibraryStore } from './media/library'
+import type { ExtensionHost } from './extensions'
+import type { SyncService } from './sync/service'
 import { matchPasswords } from './passwords'
 import type { Startup } from './startup'
 import type { BookmarksStore } from './storage/bookmarks-store'
@@ -30,6 +32,8 @@ function senderFrameUrl(event: IpcMainInvokeEvent, layer: ApiLayer): string | nu
 }
 
 export interface IpcDeps {
+  sync: SyncService
+  extensions: ExtensionHost
   startup: Startup
   getTheme(): ThemeTokens | null
   getAccount(): Account | null
@@ -109,10 +113,29 @@ export function registerIpc(windows: WindowManager, settings: SettingsStore, dep
     return { ok: true, value: deps.music.snapshot() }
   })
 
+  ipcMain.handle(IPC.getExtensions, (event) => {
+    const owner = windows.fromContents(event.sender)
+    const empty = { partition: '', tabId: null, list: [] }
+    if (owner === null) return empty
+    const frameUrl = senderFrameUrl(event, owner.layer)
+    if (frameUrl === null) return empty
+    if (owner.layer === 'page' && !frameUrl.startsWith(SETTINGS_URL)) return empty
+    return deps.extensions.state()
+  })
+
   ipcMain.handle(IPC.passwords, async (event, query: unknown) => {
     const owner = windows.fromContents(event.sender)
     if (owner?.layer !== 'overlay') return null
     return matchPasswords(owner.controller.activeHost(), typeof query === 'string' ? query : '')
+  })
+
+  ipcMain.handle(IPC.sync, async (event, run: unknown) => {
+    const owner = windows.fromContents(event.sender)
+    if (owner?.layer !== 'page') return null
+    const frameUrl = senderFrameUrl(event, owner.layer)
+    if (!(frameUrl?.startsWith(SETTINGS_URL) ?? false)) return null
+    if (run === true) await deps.sync.run()
+    return deps.sync.status()
   })
 
   ipcMain.handle(IPC.startup, (event, on: unknown) => {

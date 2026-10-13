@@ -235,16 +235,36 @@ built, verified and handed to the owner for testing before the next starts.
    - Known: no automatic form detection or save-on-submit (ewe-pass reads, it does not write);
      ewe's QML plugin panels cannot be hosted (they are Quickshell components), so panels are
      web pages; no tray icon.
-6. [ ] **Extensions, DRM, sync**: license decision for electron-chrome-extensions, castlabs
-       Electron for Widevine, account sync.
+6. [x] **Extensions, DRM, sync** (landed 2026-10-13)
+   - Chrome extensions through electron-chrome-extensions (GPL-3.0, matching the project) and
+     electron-chrome-web-store: an "Add to ewe browser" button under the address field on any
+     Web Store extension page (the store's own "Add to Chrome" refuses non-Chrome browsers),
+     "Add by link or ID" in Settings, an ewe permission prompt, auto-update, extension buttons
+     with badges in the rail, popups inside the window, a menu (Options, Manage, Remove) and an
+     Extensions section in Settings. Verified live with uBlock Origin Lite.
+   - Widevine DRM through castlabs Electron for Content Security (`v44.5.1+wvcus`): the CDM
+     downloads on first launch and EME `com.widevine.alpha` works. The builds are VMP-signed for
+     development only; Netflix and similar services need production VMP signing through castlabs
+     EVS (a free account) before they play in high quality, or at all.
+   - Sync with Nextcloud: bookmarks, history and portable settings (search engine, theme, rail,
+     shortcuts, panels) in `ewe/browser/` on the ewe Nextcloud account, through `ewe-cloud`'s
+     app password. A three-way merge per record keeps edits from both machines and carries
+     deletions; a new machine adopts the account's settings. Every 10 minutes, 20 seconds after
+     a change, and with Sync now.
+   - Known: no page context menu yet, so extension context-menu items are not shown; extension
+     popups are measured after load (Electron 44 sends no preferred-size events for views);
+     `chrome.action.openPopup` still uses the library's own window; sync does not cover open
+     tabs, passwords (they stay in the password manager) or extensions themselves.
 
 ## Phase 3 — Chrome extensions
 
-- [ ] License decision (GPL-3.0 vs paid license for electron-chrome-extensions)
-- [ ] One `ElectronChromeExtensions` per session with tab/window callbacks wired to TabManager
-- [ ] `<browser-action-list>` in the strip, electron-chrome-context-menu, Web Store installs
-- [ ] MV3 service worker retry on startup
-- [ ] Extensions page, install prompt, pin/unpin
+- [x] License decision: GPL-3.0 for the whole project
+- [x] One `ElectronChromeExtensions` per session with tab/window callbacks wired to TabManager
+- [x] Own action buttons in the rail instead of `<browser-action-list>`; Web Store installs
+- [ ] electron-chrome-context-menu (needs a page context menu first)
+- [x] MV3 service workers (needs `app.enableSandbox()`, see AGENTS.md)
+- [x] Extensions in Settings, install prompt
+- [ ] Pin/unpin and reorder extension buttons
 - [ ] Test set: uBlock Origin Lite, Bitwarden, Dark Reader, React DevTools, a tab manager
 
 ## Phase 4 — browser essentials

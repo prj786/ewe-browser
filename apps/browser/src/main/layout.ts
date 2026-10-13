@@ -1,5 +1,6 @@
 import {
   EDGE_ZONE,
+  PAGE_GAP,
   RAIL_PEEK_SHADOW,
   RAIL_WIDTH,
   SIDEBAR_MAX,
@@ -30,7 +31,12 @@ export function clampRect(rect: Rect, size: Size): Rect {
 export function pageBounds(reported: Rect | null, size: Size, inset = 0): Rect {
   const area = { width: Math.max(0, size.width - inset), height: size.height }
   if (reported === null) return { x: 0, y: 0, width: area.width, height: area.height }
-  return clampRect(reported, area)
+  const rect = clampRect(reported, area)
+  const right = area.width - PAGE_GAP
+  const bottom = area.height - PAGE_GAP
+  if (Math.abs(rect.x + rect.width - right) <= 2) rect.width = Math.max(0, right - rect.x)
+  if (Math.abs(rect.y + rect.height - bottom) <= 2) rect.height = Math.max(0, bottom - rect.y)
+  return rect
 }
 
 export function sidebarBounds(width: number, size: Size): Rect {

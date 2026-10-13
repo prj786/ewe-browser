@@ -1,10 +1,19 @@
 import { basename, dirname, join, resolve } from 'node:path'
-import { app, nativeTheme, session, webContents, type Session, type WebContents } from 'electron'
+import {
+  app,
+  components,
+  nativeTheme,
+  session,
+  webContents,
+  type Session,
+  type WebContents,
+} from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
-import { HOME_URL, IPC, MUSIC_PAGE_URL, type SessionWindow } from '@ewe/shared'
+import { HOME_URL, IPC, MUSIC_PAGE_URL, NEW_TAB_URL, type SessionWindow } from '@ewe/shared'
 import { chromeBookmarkPaths, readChromeBookmarks } from './chrome-bookmarks'
 import { DownloadManager } from './downloads'
 import { DefaultHandler } from './files/default-handler'
+import { ExtensionHost } from './extensions'
 import { FileService } from './files/service'
 import { MusicLibraryStore } from './media/library'
 import { openArgs } from './open-args'
@@ -20,6 +29,7 @@ import { SessionStore } from './storage/session-store'
 import { setShortcuts } from './shortcuts'
 import { SettingsStore } from './storage/settings-store'
 import { Startup } from './startup'
+import { SyncService } from './sync/service'
 import { WindowManager, preloadPath, setEweBackground, type RendererEntry } from './window-manager'
 
 const WEB_PERMISSIONS = new Set([
@@ -64,6 +74,11 @@ function rendererUrl(entry: RendererEntry): string {
 
 async function main(): Promise<void> {
   await app.whenReady()
+  const widevine = components.whenReady().catch((error: unknown) => {
+    console.error('[ewe] widevine', error)
+    return []
+  })
+  await Promise.race([widevine, new Promise((resolve) => setTimeout(resolve, 2500))])
 
   const persistent = session.fromPartition('persist:default')
   applyIdentity(persistent)
@@ -136,10 +151,53 @@ async function main(): Promise<void> {
       onShow: (path) => windows.focused()?.openFiles(dirname(path), basename(path)),
     },
   )
+  let extensionTimer: NodeJS.Timeout | null = null
+  const extensions: ExtensionHost = new ExtensionHost({
+    session: persistent,
+    preload: preloadPath(),
+    createTab: (url, active, window): Electron.WebContents | null => {
+      const target = windows.controllerOf(window) ?? windows.focused() ?? windows.all()[0]
+      if (target === undefined) return null
+      return target.tabs.create(url === '' ? NEW_TAB_URL : url, { activate: active }).webContents
+    },
+    selectTab: (contents) => {
+      const owner = windows.fromContents(contents)
+      const tab = owner?.controller.tabs.byWebContents(contents)
+      if (owner !== null && tab !== undefined) owner.controller.tabs.activate(tab.id)
+    },
+    removeTab: (contents) => {
+      const owner = windows.fromContents(contents)
+      const tab = owner?.controller.tabs.byWebContents(contents)
+      if (owner !== null && tab !== undefined) owner.controller.tabs.close(tab.id)
+    },
+    createWindow: (url) =>
+      windows.open(
+        url === null ? undefined : { bounds: null, tabs: [{ url, title: url }], activeIndex: 0 },
+      ).win,
+    windowOf: (contents) => windows.fromContents(contents)?.controller.win ?? null,
+    focusedWindow: () => windows.focused()?.win ?? null,
+    confirmInstall: (request, window) =>
+      (windows.controllerOf(window) ?? windows.focused())?.confirmExtension(request) ??
+      Promise.resolve(false),
+    onChange: () => {
+      if (extensionTimer !== null) return
+      extensionTimer = setTimeout(() => {
+        extensionTimer = null
+        windows.broadcastExtensions(extensions.state())
+      }, 50)
+    },
+  })
+  const sync = new SyncService({ userData, settings, bookmarks, history })
+  sync.on('status', (status) => {
+    for (const contents of webContents.getAllWebContents())
+      if (!contents.isDestroyed() && contents.getURL().startsWith('app://settings'))
+        contents.send(IPC.syncStatus, status)
+  })
   const appCommand = app.isPackaged ? [process.execPath] : [process.execPath, app.getAppPath()]
   const startup = new Startup(appCommand)
   const launchedInBackground = process.argv.includes('--background')
-  const windows = new WindowManager({
+  const windows: WindowManager = new WindowManager({
+    extensions,
     session: persistent,
     settings,
     preload: preloadPath(),
@@ -191,6 +249,7 @@ async function main(): Promise<void> {
   app.on('will-quit', () => {
     unwatchTheme()
     files.dispose()
+    sync.dispose()
   })
   registerIpc(windows, settings, {
     getTheme: () => eweTheme,
@@ -201,6 +260,8 @@ async function main(): Promise<void> {
     files,
     music,
     defaultHandler: new DefaultHandler(userData, appCommand),
+    sync,
+    extensions,
     startup,
   })
 
@@ -218,6 +279,7 @@ async function main(): Promise<void> {
     openSession(settings.get().restoreSession ? await sessions.load() : [])
   }
   if (!launchedInBackground) openSession(restored)
+  sync.start()
 
   const openTargets = (targets: ReturnType<typeof openArgs>): boolean => {
     if (targets.length === 0) return false
@@ -250,6 +312,7 @@ async function main(): Promise<void> {
   app.on('before-quit', () => {
     if (windows.all().length > 0) sessions.save(windows.toSession())
     void sessions.flush()
+    void settings.flush()
     void history.flush()
     void bookmarks.flush()
     void downloadsStore.flush()
@@ -271,6 +334,7 @@ function bootstrap(): void {
     return
   }
 
+  app.enableSandbox()
   registerAppScheme()
   app.commandLine.appendSwitch('disable-features', 'FedCm')
   electronApp.setAppUserModelId('io.github.prj786.ewe-browser')

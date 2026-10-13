@@ -33,7 +33,12 @@ export default defineConfig({
     resolve: { alias: { '@ewe/shared': shared } },
     build: {
       externalizeDeps: { exclude: ['@ewe/shared'] },
-      rollupOptions: { input: { index: resolve(__dirname, 'src/preload/index.ts') } },
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          extension: resolve(__dirname, 'src/preload/extension.ts'),
+        },
+      },
     },
   },
   renderer: {

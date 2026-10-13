@@ -26,6 +26,7 @@ const MIME: Record<string, string> = {
 
 export function registerAppScheme(): void {
   protocol.registerSchemesAsPrivileged([
+    { scheme: 'crx', privileges: { bypassCSP: true } },
     {
       scheme: APP_SCHEME,
       privileges: {

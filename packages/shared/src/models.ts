@@ -79,6 +79,7 @@ export interface Settings {
   restoreSession: boolean
   sidebarWidth: number
   background: boolean
+  sync: boolean
   panels: WebPanel[]
   shortcuts: ShortcutMap
 }
@@ -87,6 +88,68 @@ export interface WebPanel {
   id: string
   url: string
   title: string
+}
+
+export interface ExtensionInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  optionsUrl: string | null
+  homepageUrl: string
+  action: {
+    title: string
+    badgeText: string
+    badgeColor: string | null
+    iconModified: number
+    hasPopup: boolean
+  } | null
+}
+
+export interface ExtensionsState {
+  partition: string
+  tabId: number | null
+  list: ExtensionInfo[]
+}
+
+export interface ExtensionInstallRequest {
+  requestId: string
+  id: string
+  name: string
+  icon: string | null
+  permissions: string[]
+}
+
+export const EXTENSION_PARTITION = 'persist:default'
+
+export function storeExtensionId(input: string): string | null {
+  const text = input.trim()
+  if (/^[a-p]{32}$/.test(text)) return text
+  try {
+    const url = new URL(text)
+    if (url.hostname !== 'chromewebstore.google.com' && url.hostname !== 'chrome.google.com')
+      return null
+    const id = url.pathname.split('/').find((part) => /^[a-p]{32}$/.test(part))
+    return id ?? null
+  } catch {
+    return null
+  }
+}
+
+export function extensionIconUrl(state: ExtensionsState, info: ExtensionInfo, size = 32): string {
+  const params = new URLSearchParams({ partition: state.partition })
+  if (state.tabId !== null) params.set('tabId', String(state.tabId))
+  if (info.action !== null && info.action.iconModified > 0)
+    params.set('t', String(info.action.iconModified))
+  return `crx://extension-icon/${info.id}/${size}/2?${params.toString()}`
+}
+
+export interface SyncStatus {
+  enabled: boolean
+  state: 'off' | 'idle' | 'syncing' | 'error'
+  lastSync: number | null
+  error: string | null
+  account: string | null
 }
 
 export interface PasswordItem {
@@ -112,6 +175,7 @@ export const DEFAULT_SETTINGS: Settings = {
   restoreSession: true,
   sidebarWidth: 360,
   background: false,
+  sync: false,
   panels: [],
   shortcuts: {},
 }

@@ -110,7 +110,7 @@ apps/browser/
   tests/unit/                     layout, shortcuts, settings-store, session-store, identity, protocol,
                                   ewe-theme, history, ewe-account, bookmarks-store, chrome-bookmarks, downloads-store
   tests/fixtures/                 chrome-bookmarks.json (a Chrome "Bookmarks" file for unit, e2e and screenshots)
-  tests/e2e/smoke.spec.ts         23 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
+  tests/e2e/smoke.spec.ts         25 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
 docs/PLAN.md                      roadmap, status, open bugs
 docs/DESIGN.md                    Ewe design mapping and browser-specific tokens
 docs/screenshots/                 generated, untracked
@@ -422,6 +422,58 @@ every tab.
   `default-handler.json`; "Give back" restores it (Nemo when unknown). `xdg-mime query` did not
   report what it had just set on this machine, so `gio mime` is used for both.
 
+## Extensions, DRM and sync (roadmap step 6)
+
+- Runtime: castlabs Electron for Content Security `v44.5.1+wvcus` (`electron` in
+  apps/browser/package.json points at the castlabs GitHub tag; its package has no postinstall,
+  so apps/browser's own `postinstall` runs `node_modules/electron/install.js`). Main waits up to
+  2.5s for `components.whenReady()` before opening windows; the Widevine CDM lands in
+  `<userData>/WidevineCdm` on first launch. Under Playwright the component updater does not run,
+  so tests cannot download the CDM.
+- `app.enableSandbox()` in `bootstrap()` is required: without it Electron runs with
+  `no-sandbox`, and service-worker preload scripts never execute (electron#54322), which breaks
+  every MV3 extension.
+- `ExtensionHost` (`main/extensions.ts`): one `ElectronChromeExtensions` (license `GPL-3.0`) on
+  `persist:default`, tabs registered through TabManager's `onTabCreated` / `onTabActivated`
+  (active tab follows the focused window), `createTab` / `selectTab` / `removeTab` /
+  `createWindow` wired to the window manager. `installChromeWebStore` loads and auto-updates
+  extensions from `$EWE_EXTENSIONS` or `<userData>/Extensions`. Action state is read from the
+  library's `api.browserAction.actionMap` (an observer object triggers a 50ms-coalesced
+  `ewe:extensions` broadcast of `ExtensionsState { partition, tabId, list }`).
+  `extensionIconUrl()` builds `crx://extension-icon/<id>/32/2?…`; `crx` is registered as a
+  privileged scheme in `registerAppScheme` (a second `registerSchemesAsPrivileged` call would
+  replace the library's) and handled on both sessions.
+- Extension pages and workers get one more preload, `out/preload/extension.js`, which points
+  `globalThis.browser` at the library's patched `chrome`: Chromium 152 ships a native `browser`
+  namespace without those APIs, and extensions such as uBlock Origin Lite prefer `browser`.
+- Popups: `PopupHost` shows `chrome-extension://…/popup.html` in a `WebContentsView` above the
+  overlay, laid out off-screen at 800×600 until `MEASURE_POPUP` (html `max-content`) gives its
+  size, then placed by `popupBounds` under the button (flipping up, clamped, 25–800 × 25–600),
+  rounded like the page. Blur, Escape, a second click or `window.close()` closes it.
+- Installs: the Web Store's own button refuses non-Chrome browsers (even with the
+  `Google Chrome` brand added to `navigator.userAgentData` and `Sec-CH-UA` for that host, which
+  `chrome-shim.ts` and `identity.ts` still do), so `extension.install {source}` (a store url or
+  id, `storeExtensionId`) downloads the CRX with `downloadExtension`, reads name (resolving
+  `__MSG_` keys), icon and permissions, shows the overlay `InstallPrompt` (UiEvent
+  `extension.install`, answered by `extension.confirm {requestId, allow}`), then loads it or
+  deletes the download. The rail shows `.rail-store-add` on store detail pages of extensions not
+  yet added; Settings has a link field.
+- Commands: `extension.activate {id, x, y, width, height}`, `extension.options {id}`,
+  `extension.remove {id}`, `extensions.update`, `extension.install {source}`,
+  `extension.confirm`; `menu.open {kind: 'extension', id}` builds `extension-menu.ts`.
+- Sync (`main/sync/`): `nextcloudAccount()` takes the app password from `ewe-cloud token
+--json` and the WebDAV root from `ewe-cloud webdav-url` (the login name is not the path
+  segment) and sends a browser user agent (Cloudflare in front of the owner's Nextcloud returns
+  error 1010 to Python/Node defaults). `$EWE_SYNC_URL` replaces all of it for tests. Files
+  `ewe/browser/{bookmarks,history,settings}.json` hold `{ version: 1, machine, savedAt, data }`;
+  `<userData>/sync/<kind>.base.json` keeps the last merged state. `merge3` decides per key
+  (one-sided changes win, an edit beats a delete, real conflicts use a resolver: bookmarks local,
+  history max count / newest title, settings local, or remote on a machine's first sync). Bookmarks
+  are flattened to `{kind, title, url, parent, index, added}` and rebuilt (orphans and cycles go to
+  the root). PUT uses `If-Match` / `If-None-Match: *` and retries twice on 412.
+  `Settings.sync` toggles it; `ewe:sync` (invoke, `app://settings` only) returns or runs
+  `SyncStatus`, pushed as `ewe:sync-status`. `SettingsStore.flush()` now runs on quit.
+
 ## ewe integration (roadmap step 5)
 
 - Passwords (`main/passwords.ts`): the tool is `$EWE_PASS`, else `ewe-pass` in the ewe bin dir,
@@ -583,10 +635,10 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   protocol, ewe-theme incl. base vars, history incl. `recentEntries`, ewe-account,
   downloads-store, bookmark reorder, sidebar layout, files: places parsing, the file service on a
   temp tree, ranges, argv, the desktop entry, archive parsing and a real bsdtar round trip).
-  plus music helpers, titles from file names). 159 tests (76 shared, 83 browser). Nothing reads
+  plus music helpers, titles from file names). 172 tests (76 shared, 96 browser). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
-- E2E (`smoke.spec.ts`, 23 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
+- E2E (`smoke.spec.ts`, 25 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending
   keys (keys are dropped in the first ~200ms of a load). `shellOf` also waits until the shell

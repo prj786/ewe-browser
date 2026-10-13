@@ -5,6 +5,7 @@ allowBuilds:
   electron: true
   esbuild: true
   electron-winstaller: true
+  electron@https://codeload.github.com/castlabs/electron-releases/tar.gz/9b90904e4fe174122b99eca5b7b967aa79681cc6: true
 minimumReleaseAgeExclude:
   - '@vitest/mocker@5.0.4'
   - '@vitest/spy@5.0.4'

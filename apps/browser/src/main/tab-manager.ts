@@ -35,6 +35,8 @@ export interface TabManagerHost {
   attachView(view: WebContentsView): void
   detachView(view: WebContentsView): void
   onContentsCreated(contents: WebContents): void
+  onTabCreated(contents: WebContents): void
+  onTabActivated(contents: WebContents): void
 }
 
 export class Tab {
@@ -318,6 +320,7 @@ export class TabManager {
       void next.webContents.loadURL(next.state.url).catch(() => undefined)
     }
     next.webContents.focus()
+    this.host.onTabActivated(next.webContents)
     this.host.onChange()
   }
 
@@ -543,6 +546,7 @@ export class TabManager {
   private wire(tab: Tab): void {
     const wc = tab.webContents
     this.host.onContentsCreated(wc)
+    this.host.onTabCreated(wc)
 
     wc.once('destroyed', () => this.remove(tab))
     wc.on('will-navigate', (event, url) => {

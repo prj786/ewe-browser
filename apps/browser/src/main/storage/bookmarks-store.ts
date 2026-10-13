@@ -141,6 +141,11 @@ export class BookmarksStore extends EventEmitter<{ change: [BookmarkFolder] }> {
     return folder
   }
 
+  replace(root: BookmarkFolder): void {
+    this.tree = sanitizeBookmarks(root, randomUUID)
+    this.changed()
+  }
+
   replaceFolder(folder: BookmarkFolder): void {
     this.tree.children = this.tree.children.filter(
       (child) => !(child.kind === 'folder' && child.title === folder.title),

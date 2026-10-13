@@ -29,6 +29,8 @@ import {
   type MenuTarget,
   type OverlayPart,
   type DownloadEntry,
+  type ExtensionInstallRequest,
+  type ExtensionsState,
   type Rect,
   type SessionWindow,
   type Settings,
@@ -49,6 +51,7 @@ import {
   sidebarWidthFor,
   type Point,
 } from './layout'
+import type { ExtensionHost } from './extensions'
 import { OverlayController } from './overlay'
 import { PanelHost, panelBounds, panelId } from './panels'
 import { copyPassword, fillPassword, focusScript } from './passwords'
@@ -71,6 +74,7 @@ export interface WindowDeps {
   history: HistoryStore
   bookmarks: BookmarksStore
   downloads: DownloadManager
+  extensions?: ExtensionHost | undefined
   importChromeBookmarks(): Promise<string>
   onSessionChange(): void
   onClosing(controller: WindowController): void
@@ -194,6 +198,11 @@ export class WindowController {
         if (!this.win.isDestroyed()) this.win.contentView.removeChildView(view)
       },
       onContentsCreated: (contents) => deps.onContentsCreated(contents),
+      onTabCreated: (contents) => deps.extensions?.addTab(contents, this.win),
+      onTabActivated: (contents) => {
+        if (this.win.isFocused() || this.deps.extensions?.state().tabId === null)
+          deps.extensions?.selectTab(contents)
+      },
     })
 
     this.win.on('resize', () => this.layout())
@@ -209,7 +218,11 @@ export class WindowController {
       this.htmlFullscreen = false
       this.layout()
     })
-    this.win.on('focus', () => this.scheduleBroadcast())
+    this.win.on('focus', () => {
+      const contents = this.tabs.active?.webContents
+      if (contents !== undefined) deps.extensions?.selectTab(contents)
+      this.scheduleBroadcast()
+    })
     this.win.on('blur', () => this.scheduleBroadcast())
     this.win.on('move', () => deps.onSessionChange())
     this.win.on('close', () => deps.onClosing(this))
@@ -312,6 +325,7 @@ export class WindowController {
     this.sidebar.show(section, sidebarBounds(1, this.contentSize()))
     this.panels.raise()
     this.overlay.raise()
+    this.deps.extensions?.popup.raise()
     this.layout()
   }
 
@@ -383,6 +397,22 @@ export class WindowController {
     for (const wc of this.listeners()) wc.send(IPC.bookmarks, root)
   }
 
+  sendExtensions(state: ExtensionsState): void {
+    for (const wc of this.listeners()) wc.send(IPC.extensions, state)
+  }
+
+  confirmExtension(request: ExtensionInstallRequest): Promise<boolean> {
+    const extensions = this.deps.extensions
+    if (extensions === undefined) return Promise.resolve(false)
+    this.win.focus()
+    this.overlayPinned = false
+    this.overlay.show('palette', this.contentSize(), { type: 'extension.install', request })
+    return extensions.waitFor(request.requestId).then((allow) => {
+      if (this.overlay.part === 'palette') this.showOverlay('none')
+      return allow
+    })
+  }
+
   sendDownloads(entries: DownloadEntry[]): void {
     for (const wc of this.listeners()) wc.send(IPC.downloads, entries)
   }
@@ -400,7 +430,11 @@ export class WindowController {
           command.type === 'shortcuts.recording' ||
           command.type === 'bookmarks.importChrome' ||
           command.type === 'panel.add' ||
-          command.type === 'panel.remove') &&
+          command.type === 'panel.remove' ||
+          command.type === 'extension.options' ||
+          command.type === 'extension.remove' ||
+          command.type === 'extensions.update' ||
+          command.type === 'extension.install') &&
         !frameUrl.startsWith(SETTINGS_URL)
       )
         return
@@ -586,6 +620,49 @@ export class WindowController {
       case 'passwords.open':
         this.openPasswords()
         break
+      case 'extension.activate': {
+        const origin = layer === 'overlay' ? this.overlay.view.getBounds() : { x: 0, y: 0 }
+        if (layer === 'overlay') this.showOverlay('none')
+        this.deps.extensions?.activate(
+          this.win,
+          command.id,
+          {
+            x: command.x + origin.x,
+            y: command.y + origin.y,
+            width: command.width,
+            height: command.height,
+          },
+          this.pageRadius(),
+        )
+        break
+      }
+      case 'extension.options': {
+        const url = this.deps.extensions?.optionsUrl(command.id) ?? null
+        if (url !== null) this.tabs.create(url)
+        if (layer === 'overlay') this.showOverlay('none')
+        break
+      }
+      case 'extension.remove':
+        void this.deps.extensions
+          ?.remove(command.id)
+          .then(() => this.toast('Extension removed', 'check'))
+        break
+      case 'extension.install': {
+        const extensions = this.deps.extensions
+        if (extensions === undefined) break
+        void extensions.installFromStore(command.source, this.win).then((result) => {
+          if (result !== null) this.toast(result.message, result.ok ? 'check' : 'alert')
+        })
+        break
+      }
+      case 'extension.confirm':
+        this.deps.extensions?.settle(command.requestId, command.allow)
+        break
+      case 'extensions.update':
+        void this.deps.extensions
+          ?.update()
+          .then(() => this.toast('Extensions are up to date', 'check'))
+        break
       case 'passwords.fill': {
         const { id, what } = command
         this.showOverlay('none')
@@ -696,7 +773,9 @@ export class WindowController {
     const exists =
       menu.kind === 'tab'
         ? this.tabs.get(menu.id) !== undefined
-        : this.tabs.workspaceList().some((w) => w.id === menu.id)
+        : menu.kind === 'extension'
+          ? this.deps.extensions?.state().list.some((e) => e.id === menu.id) === true
+          : this.tabs.workspaceList().some((w) => w.id === menu.id)
     if (!exists) return
     this.overlay.show('menu', this.contentSize(), { type: 'menu.open', menu, x: at.x, y: at.y })
   }
@@ -929,6 +1008,7 @@ export class WindowController {
     this.sidebar.raise()
     this.panels.raise()
     this.overlay.raise()
+    this.deps.extensions?.popup.raise()
   }
 
   private listeners(): WebContents[] {
@@ -1045,6 +1125,15 @@ export class WindowManager {
 
   broadcastBookmarks(root: BookmarkFolder): void {
     for (const c of this.windows.values()) c.sendBookmarks(root)
+  }
+
+  broadcastExtensions(state: ExtensionsState): void {
+    for (const c of this.windows.values()) c.sendExtensions(state)
+  }
+
+  controllerOf(window: BrowserWindow | null): WindowController | undefined {
+    if (window === null) return undefined
+    return this.all().find((c) => c.win.id === window.id)
   }
 
   broadcastDownloads(entries: DownloadEntry[]): void {

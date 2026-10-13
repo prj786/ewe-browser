@@ -506,3 +506,90 @@
     animation-duration: 2.4s;
   }
 }
+
+.ext-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--space-xxs);
+}
+
+.ext-actions.vertical {
+  flex-direction: column;
+  align-items: center;
+}
+
+.ext-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-md);
+  height: var(--control-md);
+  padding: 0;
+  border: 0;
+  border-radius: var(--secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.ext-action:hover {
+  background: var(--surface-raised);
+}
+
+.ext-action img {
+  width: var(--icon-md);
+  height: var(--icon-md);
+  object-fit: contain;
+}
+
+.ext-letter {
+  display: inline-grid;
+  place-items: center;
+  width: var(--icon-md);
+  height: var(--icon-md);
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ext-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.rail-store-add {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-s);
+  height: var(--control-lg);
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--primary);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  animation: ewe-fade-in var(--dur-base) var(--ease-out);
+}
+
+.rail-store-add:hover {
+  filter: brightness(1.06);
+}

@@ -1442,3 +1442,198 @@ test('ewe plugins: password picker through ewe-pass, web panels, background star
   await background.close()
   server.close()
 })
+
+test('extensions: load, rail button with badge, popup in the window, menu, settings, remove', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ewe-e2e-ext-'))
+  const fixture = join(__dirname, '../fixtures/extension')
+  const app = await launch(join(dir, 'profile'), { EWE_EXTENSIONS: join(dir, 'Extensions') })
+  const shell = await shellOf(app)
+  const server = await serve({
+    '/flock.html': { body: '<!doctype html><title>Flock</title><p>sheep</p>', type: 'text/html' },
+  })
+  await shell.evaluate(
+    (url) => window.ewe.send({ type: 'tab.navigate', input: url }),
+    `${server.url}/flock.html`,
+  )
+  await expect.poll(() => activeLoading(shell)).toBe(false)
+  const id = await app.evaluate(async ({ session }, path) => {
+    const ext = await session.fromPartition('persist:default').extensions.loadExtension(path)
+    return ext.id
+  }, fixture)
+  const button = shell.locator(`.ext-action[data-extension="${id}"]`)
+  await expect(button).toBeVisible()
+  await expect(button.locator('img')).toHaveJSProperty('naturalWidth', 32)
+  await expect(button.locator('.ext-badge')).toHaveText('3', { timeout: 15_000 })
+
+  const views = () =>
+    app.evaluate(({ BrowserWindow, WebContentsView }) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win === undefined) return []
+      return win.contentView.children
+        .filter((v): v is Electron.WebContentsView => v instanceof WebContentsView)
+        .filter(
+          (v) =>
+            v.getVisible() &&
+            v.getBounds().x >= 0 &&
+            v.webContents.getURL().startsWith('chrome-extension://'),
+        )
+        .map((v) => ({ bounds: v.getBounds(), title: v.webContents.getTitle() }))
+    })
+  await button.click()
+  await expect.poll(async () => (await views()).length).toBe(1)
+  await expect.poll(async () => (await views())[0]?.title).toBe('popup:1')
+  await expect.poll(async () => (await views())[0]?.bounds.width).toBe(260)
+  const [popup] = await views()
+  const box = await button.boundingBox()
+  expect(popup?.bounds.x).toBe(Math.round(box?.x ?? 0))
+  expect(popup?.bounds.y).toBeGreaterThan((box?.y ?? 0) + (box?.height ?? 0))
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+  await button.click()
+  await expect.poll(async () => (await views()).length).toBe(0)
+
+  await button.click({ button: 'right' })
+  const overlay = await windowWith(app, '/ui/overlay/')
+  await expect(overlay.locator('.menu-item', { hasText: 'Options' })).toBeVisible()
+  await overlay.locator('.menu-item', { hasText: 'Options' }).click()
+  await expect.poll(() => activeUrl(shell)).toBe(`chrome-extension://${id}/options.html`)
+
+  await shell.evaluate(() => window.ewe.send({ type: 'open.internal', page: 'settings' }))
+  const settings = await windowWith(app, 'app://settings')
+  const row = settings.locator(`.settings-extension[data-extension="${id}"]`)
+  await expect(row).toContainText('Flock Counter')
+  await expect(row).toContainText('1.2.0')
+  await row.locator('.settings-ext-remove').click()
+  await expect(row).toHaveCount(0)
+  await expect(shell.locator('.ext-action')).toHaveCount(0)
+  await app.close()
+  server.close()
+})
+
+function davServer() {
+  const files = new Map<string, { body: string; etag: string }>()
+  let n = 0
+  const server = createServer((req, res) => {
+    const path = decodeURIComponent((req.url ?? '/').split('?')[0] ?? '/')
+    if (req.headers.authorization === undefined) {
+      res.writeHead(401)
+      res.end()
+      return
+    }
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', () => {
+      const file = files.get(path)
+      if (req.method === 'MKCOL') {
+        res.writeHead(201)
+      } else if (req.method === 'GET') {
+        if (file === undefined) res.writeHead(404)
+        else {
+          res.writeHead(200, { etag: file.etag, 'content-type': 'application/json' })
+          res.end(file.body)
+          return
+        }
+      } else if (req.method === 'PUT') {
+        const ifMatch = req.headers['if-match']
+        const ifNone = req.headers['if-none-match']
+        if (
+          (ifNone === '*' && file !== undefined) ||
+          (ifMatch !== undefined && file?.etag !== ifMatch)
+        ) {
+          res.writeHead(412)
+        } else {
+          files.set(path, { body: Buffer.concat(chunks).toString('utf8'), etag: `"${++n}"` })
+          res.writeHead(201)
+        }
+      } else res.writeHead(405)
+      res.end()
+    })
+  })
+  return new Promise<{ url: string; files: typeof files; close: () => void }>((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address !== null ? address.port : 0
+      resolve({
+        url: `http://127.0.0.1:${port}/dav/ewe/browser/`,
+        files,
+        close: () => server.close(),
+      })
+    })
+  })
+}
+
+test('sync: two profiles merge bookmarks, history and settings through Nextcloud WebDAV', async () => {
+  const dav = await davServer()
+  const dir = mkdtempSync(join(tmpdir(), 'ewe-e2e-sync-'))
+  const env = { EWE_SYNC_URL: dav.url }
+  const remote = (name: string) => {
+    const file = dav.files.get(`/dav/ewe/browser/${name}.json`)
+    return file === undefined ? null : (JSON.parse(file.body) as { data: Record<string, unknown> })
+  }
+  const urls = (shell: Page) =>
+    shell.evaluate(async () => {
+      const root = await window.ewe.getBookmarks()
+      const out: string[] = []
+      const walk = (nodes: NonNullable<typeof root>['children']) => {
+        for (const n of nodes) {
+          if (n.kind === 'bookmark') out.push(n.url)
+          else walk(n.children)
+        }
+      }
+      walk(root?.children ?? [])
+      return out.sort()
+    })
+  const syncNow = async (app: ElectronApplication, shell: Page) => {
+    await shell.evaluate(() => window.ewe.send({ type: 'open.internal', page: 'settings' }))
+    const settings = await windowWith(app, 'app://settings')
+    await expect(settings.locator('.settings-sync-now')).toBeEnabled()
+    await settings.locator('.settings-sync-now').click()
+    await expect(settings.locator('.settings-sync-status')).toContainText('Synced')
+    return settings
+  }
+
+  const a = await launch(join(dir, 'a'), env)
+  const shellA = await shellOf(a)
+  await shellA.evaluate(() => {
+    void window.ewe.send({ type: 'bookmark.add', url: 'https://ewe.example/x', title: 'X' })
+    void window.ewe.send({
+      type: 'settings.update',
+      patch: { sync: true, searchEngine: 'duckduckgo' },
+    })
+  })
+  await syncNow(a, shellA)
+  expect(
+    Object.values(remote('bookmarks')?.data ?? {}).map((b) => (b as { url?: string }).url),
+  ).toContain('https://ewe.example/x')
+  expect(remote('settings')?.data.searchEngine).toBe('duckduckgo')
+  await a.close()
+
+  const b = await launch(join(dir, 'b'), env)
+  const shellB = await shellOf(b)
+  await shellB.evaluate(() => {
+    void window.ewe.send({ type: 'bookmark.add', url: 'https://ewe.example/y', title: 'Y' })
+    void window.ewe.send({ type: 'settings.update', patch: { sync: true } })
+  })
+  await syncNow(b, shellB)
+  await expect.poll(() => urls(shellB)).toEqual(['https://ewe.example/x', 'https://ewe.example/y'])
+  expect(await shellB.evaluate(async () => (await window.ewe.getSettings())?.searchEngine)).toBe(
+    'duckduckgo',
+  )
+  const xId = await shellB.evaluate(async () => {
+    const root = await window.ewe.getBookmarks()
+    return root?.children.find((n) => n.kind === 'bookmark' && n.url.endsWith('/x'))?.id ?? ''
+  })
+  await shellB.evaluate((id) => window.ewe.send({ type: 'bookmark.remove', id }), xId)
+  await syncNow(b, shellB)
+  await expect
+    .poll(() =>
+      Object.values(remote('bookmarks')?.data ?? {}).map((x) => (x as { url?: string }).url),
+    )
+    .toEqual(['https://ewe.example/y'])
+  await b.close()
+
+  const a2 = await launch(join(dir, 'a'), env)
+  const shellA2 = await shellOf(a2)
+  await expect.poll(() => urls(shellA2), { timeout: 20_000 }).toEqual(['https://ewe.example/y'])
+  await a2.close()
+  dav.close()
+})

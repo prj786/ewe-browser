@@ -8,7 +8,13 @@ import {
   untrack,
   type JSX,
 } from 'solid-js'
-import { type MenuTarget, type OverlayPart, type Point, type ToastIcon } from '@ewe/shared'
+import {
+  type ExtensionInstallRequest,
+  type MenuTarget,
+  type OverlayPart,
+  type Point,
+  type ToastIcon,
+} from '@ewe/shared'
 import { Icon, type IconName } from '../components/Icon'
 import { Menu } from '../components/Menu'
 import { Passwords } from '../components/Passwords'
@@ -19,6 +25,9 @@ import { createDownloads, isActiveDownload } from '../lib/downloads'
 import { applyTheme, createBrowserStore } from '../lib/store'
 import { tabMenuItems } from './tab-menu'
 import { workspaceMenuItems } from './workspace-menu'
+import { extensionMenuItems } from './extension-menu'
+import { createExtensions } from '../lib/extensions'
+import { InstallPrompt } from '../components/InstallPrompt'
 import './App.css'
 
 const MENU_FADE_MS = 160
@@ -53,6 +62,8 @@ export function OverlayApp(): JSX.Element {
     icon: 'star',
   })
   const downloads = createDownloads()
+  const extensions = createExtensions()
+  const [install, setInstall] = createSignal<ExtensionInstallRequest | null>(null)
   const activeDownloads = createMemo(() => downloads().filter(isActiveDownload).length)
   let entered = false
 
@@ -70,6 +81,10 @@ export function OverlayApp(): JSX.Element {
       const tab = s.tabs.find((t) => t.id === target.id)
       return tab === undefined ? undefined : { kind: 'tab' as const, tab, snapshot: s }
     }
+    if (target.kind === 'extension') {
+      const info = extensions().list.find((e) => e.id === target.id)
+      return info === undefined ? undefined : { kind: 'extension' as const, info }
+    }
     const workspace = s.workspaces.find((w) => w.id === target.id)
     return workspace === undefined
       ? undefined
@@ -79,6 +94,7 @@ export function OverlayApp(): JSX.Element {
     const target = menuTarget()
     if (target === undefined) return []
     if (target.kind === 'tab') return tabMenuItems(target.tab, target.snapshot)
+    if (target.kind === 'extension') return extensionMenuItems(target.info)
     const id = target.workspace.id
     return workspaceMenuItems(target.workspace, target.snapshot, () => {
       pendingRename = id
@@ -121,11 +137,22 @@ export function OverlayApp(): JSX.Element {
         else setMenu(null)
         setPart(event.part)
         if (event.part === 'none' || event.part === 'palette') setEditing(false)
-        if (event.part !== 'palette') setPasswordsHost(null)
+        if (event.part !== 'palette') {
+          setPasswordsHost(null)
+          const pending = untrack(install)
+          if (pending !== null) {
+            setInstall(null)
+            void api.send({ type: 'extension.confirm', requestId: pending.requestId, allow: false })
+          }
+        }
       } else if (event.type === 'overlay.hide') {
         setLeaving(true)
       } else if (event.type === 'passwords.open') {
+        setInstall(null)
         setPasswordsHost(event.host)
+      } else if (event.type === 'extension.install') {
+        setPasswordsHost(null)
+        setInstall(event.request)
       } else if (event.type === 'palette.open') {
         setPasswordsHost(null)
         setPaletteQuery(event.query ?? '')
@@ -183,21 +210,37 @@ export function OverlayApp(): JSX.Element {
           onMouseDown={(e) => e.target === e.currentTarget && close()}
         >
           <Show
-            when={passwordsHost() === null}
-            fallback={<Passwords host={passwordsHost() ?? ''} onClose={close} />}
+            when={install()}
+            fallback={
+              <Show
+                when={passwordsHost() === null}
+                fallback={<Passwords host={passwordsHost() ?? ''} onClose={close} />}
+              >
+                <Palette
+                  tabs={store.tabs()}
+                  bookmarks={store.bookmarks()}
+                  engine={store.settings().searchEngine}
+                  initial={paletteQuery()}
+                  newTab={paletteNewTab()}
+                  onNavigate={(input) =>
+                    void api.send({ type: 'tab.navigate', input, newTab: paletteNewTab() })
+                  }
+                  onActivate={(id) => void api.send({ type: 'tab.activate', id })}
+                  onClose={close}
+                />
+              </Show>
+            }
           >
-            <Palette
-              tabs={store.tabs()}
-              bookmarks={store.bookmarks()}
-              engine={store.settings().searchEngine}
-              initial={paletteQuery()}
-              newTab={paletteNewTab()}
-              onNavigate={(input) =>
-                void api.send({ type: 'tab.navigate', input, newTab: paletteNewTab() })
-              }
-              onActivate={(id) => void api.send({ type: 'tab.activate', id })}
-              onClose={close}
-            />
+            {(request) => (
+              <InstallPrompt
+                request={request()}
+                onDecide={(allow) => {
+                  const requestId = request().requestId
+                  setInstall(null)
+                  void api.send({ type: 'extension.confirm', requestId, allow })
+                }}
+              />
+            )}
           </Show>
         </div>
       </Show>

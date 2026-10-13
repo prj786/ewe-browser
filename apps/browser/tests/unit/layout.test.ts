@@ -115,3 +115,20 @@ describe('sidebar layout', () => {
     expect(sidebarWidthFor(600, 500)).toBe(280)
   })
 })
+
+describe('page rect snapping', () => {
+  it('snaps a rect reported from a fractionally scaled shell to the page gap', () => {
+    expect(
+      pageBounds({ x: 264, y: 8, width: 562, height: 818 }, { width: 1193, height: 834 }, 360),
+    ).toEqual({
+      x: 264,
+      y: 8,
+      width: 825 - 264,
+      height: 818,
+    })
+    expect(
+      pageBounds({ x: 264, y: 8, width: 500, height: 818 }, { width: 1193, height: 834 }, 360)
+        .width,
+    ).toBe(500)
+  })
+})

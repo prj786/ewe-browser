@@ -26,6 +26,33 @@ const SHIM = `
 })();
 `
 
+export const STORE_HOST = 'chromewebstore.google.com'
+
+const BRANDS = `
+(() => {
+  const data = navigator.userAgentData;
+  if (!data) return;
+  const major = (data.brands.find((b) => b.brand === 'Chromium') || { version: '0' }).version;
+  const brands = [...data.brands, { brand: 'Google Chrome', version: major }];
+  const proto = Object.getPrototypeOf(data);
+  const original = proto.getHighEntropyValues;
+  Object.defineProperty(proto, 'brands', { get: () => brands, configurable: true });
+  proto.getHighEntropyValues = function (hints) {
+    return original.call(this, hints).then((values) => {
+      const full = values.fullVersionList;
+      if (Array.isArray(full)) {
+        const chromium = full.find((b) => b.brand === 'Chromium');
+        values.fullVersionList = [...full, { brand: 'Google Chrome', version: chromium ? chromium.version : major }];
+      }
+      values.brands = brands;
+      return values;
+    });
+  };
+})();
+`
+
 export function installChromeShim(): void {
   void webFrame.executeJavaScript(SHIM).catch(() => undefined)
+  if (location.hostname === STORE_HOST)
+    void webFrame.executeJavaScript(BRANDS).catch(() => undefined)
 }

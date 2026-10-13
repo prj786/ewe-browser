@@ -101,6 +101,18 @@ export class HistoryStore extends EventEmitter<{ change: [] }> {
     return completeHost(this.entries.values(), typed)
   }
 
+  all(): HistoryEntry[] {
+    return [...this.entries.values()]
+  }
+
+  replaceAll(entries: HistoryEntry[]): void {
+    this.entries.clear()
+    for (const entry of entries) if (recordable(entry.url)) this.entries.set(entry.url, entry)
+    this.prune()
+    this.write()
+    this.emit('change')
+  }
+
   size(): number {
     return this.entries.size
   }

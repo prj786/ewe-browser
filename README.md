@@ -23,6 +23,10 @@ toasts) and a right sidebar.
   motion); passwords fill through ewe Passwords (1Password, Bitwarden or pass); web panels in
   the sidebar; an optional resident process and "start with ewe" for instant windows.
 
+- **Extensions, DRM, sync**: Chrome Web Store extensions (an "Add to ewe browser" button on
+  store pages), Widevine DRM through castlabs Electron, and sync of bookmarks, history and
+  settings with your ewe Nextcloud account.
+
 ## Shortcuts
 
 | Keys                                 | Action                          |
@@ -72,8 +76,9 @@ AGENTS.md              architecture map (start here)
 
 ## Status
 
-Roadmap steps 1–5 of `docs/PLAN.md` are done: the sidebar, the ewe-styled chrome, files, media
-and viewers, and the ewe integration. Step 6 (Chrome extensions, Widevine DRM, sync) is next.
+All six roadmap steps of `docs/PLAN.md` are done: the sidebar, the ewe-styled chrome, files,
+media and viewers, the ewe integration, and extensions, DRM and sync. Open bugs and next ideas
+live in `docs/PLAN.md`.
 
 ## License
 

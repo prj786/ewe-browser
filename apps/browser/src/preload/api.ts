@@ -9,6 +9,8 @@ import {
   type MusicLibrary,
   type MusicRequest,
   type PasswordItem,
+  type ExtensionsState,
+  type SyncStatus,
   type PasswordStatus,
   type FsResult,
   type HistoryVisit,
@@ -51,11 +53,15 @@ export function createApi(layer: ApiLayer): BrowserApi {
       } | null>,
     music: <T>(request: MusicRequest) =>
       ipcRenderer.invoke(IPC.music, request) as Promise<FsResult<T>>,
+    getExtensions: () => ipcRenderer.invoke(IPC.getExtensions) as Promise<ExtensionsState>,
+    onExtensions: (listener) => subscribe(IPC.extensions, (p) => listener(p as ExtensionsState)),
     passwords: (query) =>
       ipcRenderer.invoke(IPC.passwords, query) as Promise<{
         status: PasswordStatus
         items: PasswordItem[]
       }>,
+    sync: (run) => ipcRenderer.invoke(IPC.sync, run) as Promise<SyncStatus | null>,
+    onSync: (listener) => subscribe(IPC.syncStatus, (p) => listener(p as SyncStatus)),
     startup: (on) =>
       ipcRenderer.invoke(IPC.startup, on) as Promise<{ available: boolean; on: boolean } | null>,
     onMusic: (listener) => subscribe(IPC.musicChanged, (p) => listener(p as MusicLibrary)),

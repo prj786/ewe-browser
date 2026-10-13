@@ -1,6 +1,9 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { render } from 'solid-js/web'
 import {
+  extensionIconUrl,
+  type SyncStatus,
+  storeExtensionId,
   DEFAULT_SHORTCUTS,
   SEARCH_ENGINES,
   SHORTCUT_IDS,
@@ -19,6 +22,7 @@ import {
 import '../../ui/styles/base.css'
 import '../pages.css'
 import { Icon, type IconName } from '../../ui/components/Icon'
+import { createExtensions } from '../../ui/lib/extensions'
 import { api } from '../../ui/lib/api'
 import { applyTheme, createBrowserStore } from '../../ui/lib/store'
 
@@ -284,6 +288,177 @@ function Files(): JSX.Element {
   )
 }
 
+function Extensions(): JSX.Element {
+  const state = createExtensions()
+  const [link, setLink] = createSignal('')
+  const add = () => {
+    if (storeExtensionId(link()) === null) return
+    void api.send({ type: 'extension.install', source: link() })
+    setLink('')
+  }
+  return (
+    <>
+      <h2 class="section-header">Extensions</h2>
+      <div class="list">
+        <div class="row">
+          <span class="row-tile">
+            <Icon name="puzzle" />
+          </span>
+          <span class="row-text">
+            <span class="row-title">Chrome Web Store</span>
+            <span class="row-desc">
+              Open an extension on the store and press “Add to ewe browser” under the address field.
+              Extensions update by themselves; their buttons sit there too.
+            </span>
+          </span>
+          <button
+            class="btn btn--ghost btn--sm settings-ext-update"
+            disabled={state().list.length === 0}
+            onClick={() => void api.send({ type: 'extensions.update' })}
+          >
+            Update
+          </button>
+          <button
+            class="btn btn--secondary btn--sm settings-ext-store"
+            onClick={() =>
+              void api.send({ type: 'tab.create', url: 'https://chromewebstore.google.com/' })
+            }
+          >
+            Open store
+          </button>
+        </div>
+        <div class="list-divider" />
+        <div class="row">
+          <span class="row-tile">
+            <Icon name="plus" />
+          </span>
+          <span class="row-text">
+            <span class="row-title">Add by link or ID</span>
+            <span class="row-desc">
+              Paste a Chrome Web Store link, or the 32-letter extension ID.
+            </span>
+          </span>
+          <input
+            class="settings-ext-link"
+            value={link()}
+            placeholder="chromewebstore.google.com/detail/…"
+            spellcheck={false}
+            aria-label="Chrome Web Store link or extension ID"
+            onInput={(e) => setLink(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') add()
+            }}
+          />
+          <button
+            class="btn btn--secondary btn--sm settings-ext-add"
+            disabled={storeExtensionId(link()) === null}
+            onClick={add}
+          >
+            Add
+          </button>
+        </div>
+        <For each={state().list}>
+          {(info) => (
+            <>
+              <div class="list-divider" />
+              <div class="row settings-extension" data-extension={info.id}>
+                <span class="row-tile">
+                  <img class="ext-tile" src={extensionIconUrl(state(), info)} alt="" />
+                </span>
+                <span class="row-text">
+                  <span class="row-title">
+                    {info.name} <span class="row-meta">{info.version}</span>
+                  </span>
+                  <span class="row-desc">{info.description}</span>
+                </span>
+                <Show when={info.optionsUrl !== null}>
+                  <button
+                    class="btn btn--ghost btn--sm"
+                    onClick={() => void api.send({ type: 'extension.options', id: info.id })}
+                  >
+                    Options
+                  </button>
+                </Show>
+                <button
+                  class="btn btn--ghost btn--sm settings-ext-remove"
+                  onClick={() => void api.send({ type: 'extension.remove', id: info.id })}
+                >
+                  Remove
+                </button>
+              </div>
+            </>
+          )}
+        </For>
+      </div>
+    </>
+  )
+}
+
+function Sync(props: {
+  settings: () => Settings
+  update: (patch: Partial<Settings>) => void
+}): JSX.Element {
+  const [status, setStatus] = createSignal<SyncStatus | null>(null)
+  onMount(() => {
+    const off = api.onSync(setStatus)
+    void api.sync().then((next) => {
+      if (next !== null) setStatus(next)
+    })
+    onCleanup(off)
+  })
+  const describe = () => {
+    const s = status()
+    if (!props.settings().sync) return 'Off. Bookmarks, history and settings stay on this computer.'
+    if (s === null || s.state === 'off') return 'Starting…'
+    if (s.state === 'syncing') return 'Syncing…'
+    if (s.state === 'error') return s.error ?? 'Sync failed'
+    const when =
+      s.lastSync === null
+        ? 'not yet'
+        : new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return `Synced ${when}${s.account === null ? '' : ` · ${s.account}`}`
+  }
+  return (
+    <>
+      <h2 class="section-header">Sync</h2>
+      <div class="list">
+        <SettingRow
+          icon="refresh-cw"
+          title="Sync with Nextcloud"
+          description="Bookmarks, history, shortcuts, panels and appearance, in ewe/browser on your ewe Nextcloud account."
+        >
+          <select
+            aria-label="Sync with Nextcloud"
+            class="settings-sync"
+            value={props.settings().sync ? 'on' : 'off'}
+            onChange={(e) => props.update({ sync: e.currentTarget.value === 'on' })}
+          >
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </SettingRow>
+        <div class="list-divider" />
+        <div class="row">
+          <span class="row-tile" classList={{ 'row-tile--alert': status()?.state === 'error' }}>
+            <Icon name={status()?.state === 'error' ? 'circle-alert' : 'cloud'} />
+          </span>
+          <span class="row-text">
+            <span class="row-title">Status</span>
+            <span class="row-desc settings-sync-status">{describe()}</span>
+          </span>
+          <button
+            class="btn btn--secondary btn--sm settings-sync-now"
+            disabled={!props.settings().sync || status()?.state === 'syncing'}
+            onClick={() => void api.sync(true).then((next) => next !== null && setStatus(next))}
+          >
+            Sync now
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 function Ewe(props: {
   settings: () => Settings
   update: (patch: Partial<Settings>) => void
@@ -485,6 +660,8 @@ function SettingsPage(): JSX.Element {
         </div>
         <Bookmarks count={bookmarkCount()} />
         <Files />
+        <Extensions />
+        <Sync settings={() => store.settings()} update={update} />
         <Ewe settings={() => store.settings()} update={update} />
         <Shortcuts settings={() => store.settings()} update={update} />
       </div>
