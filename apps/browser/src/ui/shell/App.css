@@ -1,0 +1,24 @@
+.shell {
+  display: flex;
+  height: 100%;
+  background: var(--surface-base);
+}
+
+.shell-rail {
+  display: flex;
+  flex: none;
+  height: 100%;
+}
+
+.page-slot {
+  flex: 1;
+  min-width: 0;
+  margin: var(--page-gap) var(--page-gap) var(--page-gap) 0;
+  border-radius: var(--rounded);
+  background: var(--surface-raised);
+}
+
+.shell.fullscreen .page-slot {
+  margin: 0;
+  border-radius: 0;
+}

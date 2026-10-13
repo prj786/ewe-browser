@@ -1,0 +1,78 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+}
+
+.overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: calc(100vh / 6);
+  background: transparent;
+}
+
+.overlay-backdrop.leaving .palette {
+  animation: ewe-fade-out var(--dur-fast) var(--ease-out) forwards;
+}
+
+.menu-backdrop {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+
+.toast-host {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-s);
+  height: var(--control-lg);
+  padding: 0 var(--space-md) 0 calc(var(--space-s) + var(--space-xs));
+  background: var(--surface-overlay);
+  border: var(--border-width-1) solid var(--border-subtle);
+  border-radius: var(--fully-rounded);
+  box-shadow: var(--shadow-float);
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-md);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  animation: ewe-slide-up var(--dur-base) var(--ease-out);
+}
+
+.toast .icon {
+  color: var(--accent-text);
+}
+
+.toast.leaving {
+  animation: ewe-fade-out var(--dur-fast) var(--ease-out) forwards;
+}
+
+.toast .icon.toast-alert {
+  color: var(--danger);
+}
+
+.rail-peek-host {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: calc(var(--rail-width) + var(--space-md));
+}
+
+.rail-peek-host.leaving .rail {
+  animation: rail-peek-out var(--dur-fast) var(--ease-out) forwards;
+}

@@ -1,0 +1,121 @@
+{
+  "checksum": "0b7a3c8f1f2e4d5a6b7c8d9e0f1a2b3c",
+  "roots": {
+    "bookmark_bar": {
+      "children": [
+        {
+          "date_added": "13435286400000000",
+          "date_last_used": "0",
+          "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000001",
+          "id": "5",
+          "name": "Example Domain",
+          "type": "url",
+          "url": "https://example.com/"
+        },
+        {
+          "children": [
+            {
+              "date_added": "13435286400000000",
+              "date_last_used": "0",
+              "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000002",
+              "id": "7",
+              "name": "Electron",
+              "type": "url",
+              "url": "https://www.electronjs.org/"
+            },
+            {
+              "date_added": "13435286400000000",
+              "date_last_used": "0",
+              "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000003",
+              "id": "8",
+              "name": "Solid",
+              "type": "url",
+              "url": "https://www.solidjs.com/"
+            },
+            {
+              "date_added": "13435286400000000",
+              "date_last_used": "0",
+              "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000004",
+              "id": "9",
+              "name": "Chrome internals",
+              "type": "url",
+              "url": "chrome://flags/"
+            }
+          ],
+          "date_added": "13435286400000000",
+          "date_last_used": "0",
+          "date_modified": "13435286400000000",
+          "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000005",
+          "id": "6",
+          "name": "Dev",
+          "type": "folder"
+        },
+        {
+          "date_added": "13435286400000000",
+          "date_last_used": "0",
+          "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000006",
+          "id": "10",
+          "name": "Sheep - Wikipedia",
+          "type": "url",
+          "url": "https://en.wikipedia.org/wiki/Sheep"
+        }
+      ],
+      "date_added": "13435286400000000",
+      "date_last_used": "0",
+      "date_modified": "13435286400000000",
+      "guid": "0bc5d13f-2cba-5d74-951f-3f233fe6c908",
+      "id": "1",
+      "name": "Bookmarks bar",
+      "type": "folder"
+    },
+    "other": {
+      "children": [
+        {
+          "date_added": "13435286400000000",
+          "date_last_used": "0",
+          "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000007",
+          "id": "11",
+          "name": "Hyprland Wiki",
+          "type": "url",
+          "url": "https://wiki.hyprland.org/"
+        },
+        {
+          "date_added": "junk",
+          "date_last_used": "0",
+          "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000008",
+          "id": "12",
+          "name": "",
+          "type": "url",
+          "url": "https://geist.vercel.app/"
+        },
+        {
+          "date_added": "13435286400000000",
+          "date_last_used": "0",
+          "guid": "5a2b0a1e-1111-4a6e-9b1c-000000000009",
+          "id": "13",
+          "name": "Local file",
+          "type": "url",
+          "url": "file:///home/someone/notes.html"
+        }
+      ],
+      "date_added": "13435286400000000",
+      "date_last_used": "0",
+      "date_modified": "13435286400000000",
+      "guid": "82b081ec-3dd3-529c-8475-ab6c344590dd",
+      "id": "2",
+      "name": "Other bookmarks",
+      "type": "folder"
+    },
+    "synced": {
+      "children": [],
+      "date_added": "13435286400000000",
+      "date_last_used": "0",
+      "date_modified": "0",
+      "guid": "4cf2e351-0e85-532b-bb37-df045d8f8d0f",
+      "id": "3",
+      "name": "Mobile bookmarks",
+      "type": "folder"
+    }
+  },
+  "version": 1
+}

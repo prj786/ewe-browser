@@ -1,0 +1,193 @@
+.glass {
+  --surface-hover: var(--glass-hover);
+  --surface-pressed: var(--glass-pressed);
+  --border-subtle: var(--glass-border);
+  --text-muted: var(--text-secondary);
+  --accent-text: var(--glass-accent);
+}
+
+.iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--control-md);
+  height: var(--control-md);
+  padding: 0;
+  border: var(--border-width-1) solid transparent;
+  border-radius: var(--primary);
+  background: transparent;
+  color: var(--text-secondary);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.iconbtn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.iconbtn:active {
+  background: var(--surface-pressed);
+  color: var(--text-primary);
+}
+
+.iconbtn--sm {
+  width: var(--control-sm);
+  height: var(--control-sm);
+}
+
+.iconbtn--sm .icon {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+.iconbtn--lg {
+  width: var(--control-lg);
+  height: var(--control-lg);
+}
+
+.iconbtn--round {
+  border-radius: var(--fully-rounded);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--control-lg);
+  height: var(--control-lg);
+  border-radius: var(--fully-rounded);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.avatar:hover {
+  background: var(--surface-pressed);
+  color: var(--text-primary);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  height: var(--control-md);
+  padding: 0 calc(var(--space-s) + var(--space-xs));
+  border: var(--border-width-1) solid transparent;
+  border-radius: var(--primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-md);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.btn--secondary {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn--primary:active {
+  background: var(--accent-pressed);
+}
+
+.btn--secondary:hover,
+.btn--ghost:hover {
+  background: var(--surface-hover);
+}
+
+.btn--secondary:active,
+.btn--ghost:active {
+  background: var(--surface-pressed);
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--line-height-s) + 3 * var(--border-width-1));
+  padding: 0 var(--space-xs);
+  border: var(--border-width-1) solid var(--border-strong);
+  border-bottom-width: var(--border-width-2);
+  border-radius: var(--slight);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-s);
+  font-weight: var(--font-weight-medium);
+}
+
+.kbd-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  color: var(--text-muted);
+}
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 1;
+  bottom: calc(100% + var(--space-xs));
+  left: 50%;
+  translate: -50% 0;
+  max-width: calc(8 * var(--control-md) + var(--space-md));
+  padding: var(--space-xxs) var(--space-s);
+  background: var(--surface-overlay);
+  border: var(--border-width-1) solid var(--border-subtle);
+  border-radius: var(--slight);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+  font-weight: var(--font-weight-regular);
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+  transition-delay: var(--tooltip-delay);
+}
+
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+.btn--sm {
+  height: var(--control-sm);
+  padding: 0 var(--space-s);
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+}
+
+.btn:disabled {
+  color: var(--text-disabled);
+  pointer-events: none;
+}

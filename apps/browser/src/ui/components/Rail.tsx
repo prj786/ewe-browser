@@ -1,0 +1,677 @@
+import { For, Index, Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
+import {
+  WORKSPACE_COLORS,
+  displayUrl,
+  hostOf,
+  isBookmarkableUrl,
+  pathFromFilesUrl,
+  type SidebarSection,
+  type TabState,
+  type Workspace,
+} from '@ewe/shared'
+import { api } from '../lib/api'
+import type { BrowserStore } from '../lib/store'
+import { Favicon } from './Favicon'
+import { Icon, type IconName } from './Icon'
+import './Rail.css'
+
+export type RailMode = 'expanded' | 'collapsed' | 'peek'
+
+export interface RailProps {
+  store: BrowserStore
+  mode: RailMode
+  downloadsActive: number
+  editRequest?: number | undefined
+  renameRequest?: { id: string; n: number } | undefined
+  onEditingChange?: ((editing: boolean) => void) | undefined
+}
+
+interface Drag {
+  id: string
+  startY: number
+  moved: boolean
+  target: number | null
+  workspace: string | null
+}
+
+const WORKSPACE_NAME_MAX = 40
+
+const SIDEBAR_BUTTONS: { section: SidebarSection; label: string; icon: IconName }[] = [
+  { section: 'bookmarks', label: 'Bookmarks', icon: 'bookmark' },
+  { section: 'downloads', label: 'Downloads', icon: 'download' },
+  { section: 'history', label: 'History', icon: 'history' },
+]
+
+function tabTitle(tab: TabState): string {
+  if (tab.kind === 'newtab') return 'New tab'
+  return tab.title === '' ? displayUrl(tab.url) || 'Untitled' : tab.title
+}
+
+function kindIcon(tab: TabState): IconName {
+  if (tab.kind === 'home') return 'house'
+  if (tab.kind === 'files') return 'folder'
+  if (tab.kind === 'music') return 'music'
+  if (tab.kind === 'newtab') return 'search'
+  return 'app-window'
+}
+
+function TabGlyph(props: { tab: TabState }): JSX.Element {
+  return (
+    <span class="rail-fav" classList={{ loading: props.tab.loading }}>
+      <Show when={props.tab.kind === 'page'} fallback={<Icon name={kindIcon(props.tab)} />}>
+        <Favicon src={props.tab.favicon} />
+      </Show>
+    </span>
+  )
+}
+
+function openMenu(e: MouseEvent, menu: { kind: 'tab' | 'workspace'; id: string }): void {
+  e.preventDefault()
+  void api.send({ type: 'menu.open', menu, x: e.clientX, y: e.clientY })
+}
+
+export function Rail(props: RailProps): JSX.Element {
+  const store = () => props.store
+  const [editing, setEditing] = createSignal(false)
+  const [draft, setDraft] = createSignal('')
+  const [renaming, setRenaming] = createSignal<string | null>(null)
+  const [nameDraft, setNameDraft] = createSignal('')
+  const [drag, setDrag] = createSignal<Drag | null>(null)
+  let addressInput: HTMLInputElement | undefined
+  let listEl: HTMLDivElement | undefined
+
+  const collapsed = () => props.mode === 'collapsed'
+  const activeId = () => store().state()?.activeTabId ?? null
+  const active = () => store().activeTab()
+  const workspace = () => store().activeWorkspace()
+  const accent = () => {
+    const ws = workspace()
+    return ws === undefined ? undefined : WORKSPACE_COLORS[ws.color]
+  }
+  const pinned = createMemo(() =>
+    store()
+      .visibleTabs()
+      .filter((t) => t.pinned),
+  )
+  const unpinned = createMemo(() =>
+    store()
+      .visibleTabs()
+      .filter((t) => !t.pinned),
+  )
+  const sidebar = () => store().state()?.sidebar?.section ?? null
+  const isBookmarked = () => {
+    const tab = active()
+    return tab !== undefined && store().bookmarked().has(tab.url)
+  }
+  const canBookmark = () => {
+    const tab = active()
+    return tab !== undefined && tab.kind !== 'newtab' && isBookmarkableUrl(tab.url)
+  }
+
+  const beginEdit = () => {
+    const tab = active()
+    if (tab === undefined || collapsed()) return
+    setDraft(tab.kind === 'newtab' ? '' : (pathFromFilesUrl(tab.url) ?? tab.url))
+    setEditing(true)
+    props.onEditingChange?.(true)
+  }
+
+  const endEdit = () => {
+    if (!editing()) return
+    setEditing(false)
+    props.onEditingChange?.(false)
+  }
+
+  const submit = () => {
+    const input = (addressInput?.value ?? draft()).trim()
+    const id = active()?.id
+    endEdit()
+    if (input !== '' && id !== undefined) void api.send({ type: 'tab.navigate', id, input })
+  }
+
+  const onAddressInput = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+    const el = e.currentTarget
+    const typed = el.value
+    setDraft(typed)
+    if (e.inputType.startsWith('delete') || typed.trim() === '' || /\s/.test(typed)) return
+    void api.suggest(typed).then((rows) => {
+      if (el.value !== typed || !editing()) return
+      const host = rows.find((r) => r.host.toLowerCase().startsWith(typed.toLowerCase()))?.host
+      if (host === undefined || host.toLowerCase() === typed.toLowerCase()) return
+      el.value = host
+      el.setSelectionRange(typed.length, host.length)
+      setDraft(host)
+    })
+  }
+
+  createEffect(
+    on(
+      () => props.editRequest,
+      (req, prev) => {
+        if (req !== undefined && req !== prev) beginEdit()
+      },
+      { defer: true },
+    ),
+  )
+  createEffect(on(activeId, endEdit, { defer: true }))
+
+  const startRename = (ws: Workspace) => {
+    if (collapsed()) return
+    setNameDraft(ws.name)
+    setRenaming(ws.id)
+    props.onEditingChange?.(true)
+  }
+
+  const endRename = () => {
+    if (renaming() === null) return
+    setRenaming(null)
+    props.onEditingChange?.(false)
+  }
+
+  const commitRename = () => {
+    const id = renaming()
+    if (id === null) return
+    const next = nameDraft().trim().slice(0, WORKSPACE_NAME_MAX)
+    const current = store()
+      .workspaces()
+      .find((w) => w.id === id)
+    if (next !== '' && current !== undefined && next !== current.name)
+      void api.send({ type: 'workspace.update', id, name: next })
+    endRename()
+  }
+
+  createEffect(
+    on(
+      () => props.renameRequest?.n,
+      () => {
+        const request = props.renameRequest
+        const ws = store()
+          .workspaces()
+          .find((w) => w.id === request?.id)
+        if (ws !== undefined && (request?.n ?? 0) > 0) startRename(ws)
+      },
+      { defer: true },
+    ),
+  )
+
+  createEffect(
+    on(activeId, () => {
+      listEl?.querySelector<HTMLElement>('.rail-tab.active')?.scrollIntoView({ block: 'nearest' })
+    }),
+  )
+
+  const indexFromPointer = (y: number): number => {
+    const rows = [...(listEl?.querySelectorAll<HTMLElement>('.rail-tab[data-tab]') ?? [])]
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]?.getBoundingClientRect()
+      if (r !== undefined && y < r.top + r.height / 2) return i
+    }
+    return rows.length
+  }
+
+  const workspaceAt = (x: number, y: number): string | null => {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-ws]')
+    const id = el?.dataset.ws ?? null
+    return id === workspace()?.id ? null : id
+  }
+
+  const onPointerDown = (e: PointerEvent, tab: TabState) => {
+    if (e.button === 1) {
+      e.preventDefault()
+      void api.send({ type: 'tab.close', id: tab.id })
+      return
+    }
+    if (e.button !== 0) return
+    setDrag({ id: tab.id, startY: e.clientY, moved: false, target: null, workspace: null })
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const onPointerMove = (e: PointerEvent) => {
+    const d = drag()
+    if (d === null) return
+    if ((e.buttons & 1) === 0) {
+      setDrag(null)
+      return
+    }
+    const moved = d.moved || Math.abs(e.clientY - d.startY) > 6
+    if (!moved) return
+    const ws = workspaceAt(e.clientX, e.clientY)
+    setDrag({
+      ...d,
+      moved,
+      workspace: ws,
+      target: ws === null ? indexFromPointer(e.clientY) : null,
+    })
+  }
+
+  const onPointerUp = (tab: TabState) => {
+    const d = drag()
+    setDrag(null)
+    if (d === null) return
+    if (!d.moved) {
+      void api.send({ type: 'tab.activate', id: tab.id })
+      return
+    }
+    if (d.workspace !== null) {
+      void api.send({ type: 'tab.moveToWorkspace', id: d.id, workspaceId: d.workspace })
+      return
+    }
+    if (d.target === null) return
+    const from = unpinned().findIndex((t) => t.id === d.id)
+    const to = d.target > from ? d.target - 1 : d.target
+    if (from === -1 || to === from) return
+    void api.send({ type: 'tab.move', id: d.id, index: pinned().length + to })
+  }
+
+  const dropClass = (i: number) => {
+    const d = drag()
+    if (d === null || !d.moved || d.target === null) return {}
+    const list = unpinned()
+    const from = list.findIndex((t) => t.id === d.id)
+    if (d.target === from || d.target === from + 1) return {}
+    return {
+      'drop-before': d.target === i,
+      'drop-after': d.target === list.length && i === list.length - 1,
+    }
+  }
+
+  const newTab = () => void api.send({ type: 'overlay.request', part: 'palette', newTab: true })
+  const toggleRail = () => {
+    const next = props.mode === 'expanded' ? 'collapsed' : 'expanded'
+    void api.send({ type: 'settings.update', patch: { rail: next } })
+  }
+
+  const addressIcon = (): IconName => {
+    const tab = active()
+    if (tab === undefined || tab.kind === 'newtab') return 'search'
+    if (tab.kind === 'files') return 'folder'
+    if (tab.url.startsWith('https://')) return 'lock'
+    if (tab.url.startsWith('app://')) return 'app-window'
+    return 'globe'
+  }
+
+  const addressParts = () => {
+    const tab = active()
+    if (tab === undefined || tab.kind === 'newtab') return null
+    const filesPath = pathFromFilesUrl(tab.url)
+    if (filesPath !== null) {
+      const slash = filesPath.lastIndexOf('/')
+      if (slash <= 0) return { host: filesPath, rest: '' }
+      return { host: filesPath.slice(0, slash + 1), rest: filesPath.slice(slash + 1) }
+    }
+    try {
+      const u = new URL(tab.url)
+      if (u.protocol === 'app:') return { host: u.host, rest: '' }
+      const rest = `${u.pathname === '/' ? '' : u.pathname}${u.search}`
+      return { host: hostOf(tab.url), rest }
+    } catch {
+      return { host: tab.url, rest: '' }
+    }
+  }
+
+  const TabRow = (rowProps: { tab: () => TabState; index: number }): JSX.Element => {
+    const tab = () => rowProps.tab()
+    const isActive = () => tab().id === activeId()
+    return (
+      <div
+        class="rail-tab"
+        classList={{
+          active: isActive(),
+          dragging: drag()?.id === tab().id && (drag()?.moved ?? false),
+          ...dropClass(rowProps.index),
+        }}
+        role="tab"
+        aria-selected={isActive()}
+        data-tab={tab().id}
+        title={tab().kind === 'newtab' ? 'New tab' : `${tabTitle(tab())}\n${tab().url}`}
+        onPointerDown={(e) => onPointerDown(e, tab())}
+        onPointerMove={onPointerMove}
+        onPointerUp={() => onPointerUp(tab())}
+        onPointerCancel={() => setDrag(null)}
+        onLostPointerCapture={() => {
+          if (drag()?.id === tab().id) queueMicrotask(() => setDrag(null))
+        }}
+        onAuxClick={(e) => e.preventDefault()}
+        onContextMenu={(e) => openMenu(e, { kind: 'tab', id: tab().id })}
+      >
+        <TabGlyph tab={tab()} />
+        <Show when={!collapsed()}>
+          <span class="rail-tab-label">{tabTitle(tab())}</span>
+          <Show when={tab().audible || tab().muted}>
+            <button
+              class="iconbtn iconbtn--sm rail-audio"
+              classList={{ muted: tab().muted }}
+              title={tab().muted ? 'Unmute tab' : 'Mute tab'}
+              aria-label={tab().muted ? 'Unmute tab' : 'Mute tab'}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => void api.send({ type: 'tab.mute', id: tab().id, muted: !tab().muted })}
+            >
+              <Icon name={tab().muted ? 'volume-x' : 'volume-2'} />
+            </button>
+          </Show>
+          <button
+            class="iconbtn iconbtn--sm rail-close"
+            title="Close tab"
+            aria-label="Close tab"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => void api.send({ type: 'tab.close', id: tab().id })}
+          >
+            <Icon name="x" />
+          </button>
+        </Show>
+      </div>
+    )
+  }
+
+  return (
+    <nav
+      class="rail"
+      classList={{
+        collapsed: collapsed(),
+        peek: props.mode === 'peek',
+        dragging: drag()?.moved ?? false,
+      }}
+      style={accent() === undefined ? undefined : { '--ws-accent': accent() }}
+      aria-label="Tabs"
+    >
+      <div class="rail-top">
+        <button
+          class="iconbtn rail-toggle"
+          title={props.mode === 'expanded' ? 'Collapse tabs' : 'Keep tabs open'}
+          aria-label={props.mode === 'expanded' ? 'Collapse tabs' : 'Expand tabs'}
+          onClick={toggleRail}
+        >
+          <Icon name="panel-left" />
+        </button>
+        <Show when={!collapsed()}>
+          <span class="rail-grow" />
+          <button
+            class="iconbtn rail-back"
+            title="Back"
+            aria-label="Back"
+            disabled={!(active()?.canGoBack ?? false)}
+            onClick={() => void api.send({ type: 'nav.back' })}
+          >
+            <Icon name="arrow-left" />
+          </button>
+          <button
+            class="iconbtn rail-forward"
+            title="Forward"
+            aria-label="Forward"
+            disabled={!(active()?.canGoForward ?? false)}
+            onClick={() => void api.send({ type: 'nav.forward' })}
+          >
+            <Icon name="arrow-right" />
+          </button>
+          <Show
+            when={active()?.loading}
+            fallback={
+              <button
+                class="iconbtn rail-reload"
+                title="Reload"
+                aria-label="Reload"
+                onClick={() => void api.send({ type: 'nav.reload' })}
+              >
+                <Icon name="rotate-cw" />
+              </button>
+            }
+          >
+            <button
+              class="iconbtn rail-reload"
+              title="Stop"
+              aria-label="Stop"
+              onClick={() => void api.send({ type: 'nav.stop' })}
+            >
+              <Icon name="x" />
+            </button>
+          </Show>
+        </Show>
+      </div>
+
+      <Show when={!collapsed()}>
+        <div
+          class="rail-address"
+          classList={{ editing: editing() }}
+          onClick={() => {
+            if (!editing()) beginEdit()
+          }}
+        >
+          <Icon name={addressIcon()} size={14} />
+          <Show
+            when={editing()}
+            fallback={
+              <Show
+                when={addressParts()}
+                fallback={<span class="rail-address-placeholder">Search or type a URL</span>}
+              >
+                {(parts) => (
+                  <span class="rail-address-text" classList={{ files: active()?.kind === 'files' }}>
+                    <span class="rail-host">{parts().host}</span>
+                    <span class="rail-path">{parts().rest}</span>
+                  </span>
+                )}
+              </Show>
+            }
+          >
+            <input
+              ref={(el) => {
+                addressInput = el
+                queueMicrotask(() => {
+                  el.focus()
+                  el.select()
+                })
+              }}
+              class="rail-address-input"
+              value={draft()}
+              placeholder="Search or type a URL"
+              spellcheck={false}
+              onInput={onAddressInput}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+                else if (e.key === 'Escape') endEdit()
+                e.stopPropagation()
+              }}
+              onBlur={endEdit}
+            />
+          </Show>
+          <Show when={/^https?:/i.test(active()?.url ?? '')}>
+            <button
+              class="iconbtn iconbtn--sm rail-key"
+              title="Fill a password (Ctrl+Shift+L)"
+              aria-label="Fill a password"
+              tabindex="-1"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation()
+                void api.send({ type: 'passwords.open' })
+              }}
+            >
+              <Icon name="key-round" />
+            </button>
+          </Show>
+          <Show when={canBookmark()}>
+            <button
+              class="iconbtn iconbtn--sm rail-star"
+              classList={{ on: isBookmarked() }}
+              title={isBookmarked() ? 'Remove bookmark' : 'Bookmark this page'}
+              aria-label={isBookmarked() ? 'Remove bookmark' : 'Bookmark this page'}
+              aria-pressed={isBookmarked()}
+              tabindex="-1"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation()
+                void api.send({ type: 'bookmark.toggle' })
+              }}
+            >
+              <Icon name="star" class={isBookmarked() ? 'filled' : undefined} />
+            </button>
+          </Show>
+        </div>
+      </Show>
+
+      <Show when={pinned().length > 0}>
+        <div class="rail-pins">
+          <For each={pinned()}>
+            {(tab) => (
+              <button
+                class="rail-pin"
+                classList={{ active: tab.id === activeId() }}
+                data-tab={tab.id}
+                title={`${tabTitle(tab)}\n${tab.url}`}
+                aria-label={tabTitle(tab)}
+                onClick={() => void api.send({ type: 'tab.activate', id: tab.id })}
+                onAuxClick={(e) => {
+                  if (e.button !== 1) return
+                  e.preventDefault()
+                  void api.send({ type: 'tab.close', id: tab.id })
+                }}
+                onContextMenu={(e) => openMenu(e, { kind: 'tab', id: tab.id })}
+              >
+                <TabGlyph tab={tab} />
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <Show when={!collapsed()} fallback={<div class="rail-sep" />}>
+        <Show when={workspace()}>
+          {(ws) => (
+            <div
+              class="rail-ws-head"
+              onDblClick={() => startRename(ws())}
+              onContextMenu={(e) => openMenu(e, { kind: 'workspace', id: ws().id })}
+            >
+              <span class="rail-ws-head-dot" />
+              <Show
+                when={renaming() === ws().id}
+                fallback={<span class="rail-ws-head-name">{ws().name}</span>}
+              >
+                <input
+                  ref={(el) => {
+                    queueMicrotask(() => {
+                      el.focus()
+                      el.select()
+                    })
+                  }}
+                  class="rail-ws-input"
+                  value={nameDraft()}
+                  maxLength={WORKSPACE_NAME_MAX}
+                  spellcheck={false}
+                  aria-label="Workspace name"
+                  onInput={(e) => setNameDraft(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') commitRename()
+                    else if (e.key === 'Escape') endRename()
+                  }}
+                  onBlur={commitRename}
+                />
+              </Show>
+              <span class="rail-ws-count">{store().visibleTabs().length}</span>
+            </div>
+          )}
+        </Show>
+      </Show>
+
+      <div class="rail-tabs" role="tablist" aria-label="Open tabs" ref={listEl}>
+        <Index each={unpinned()}>{(tab, i) => <TabRow tab={tab} index={i} />}</Index>
+        <button class="rail-tab rail-new" title="New tab (Ctrl+T)" onClick={newTab}>
+          <span class="rail-fav">
+            <Icon name="plus" />
+          </span>
+          <Show when={!collapsed()}>
+            <span class="rail-tab-label">New tab</span>
+          </Show>
+        </button>
+      </div>
+
+      <div class="rail-foot">
+        <div class="rail-ws-dots" role="tablist" aria-label="Workspaces">
+          <For each={store().workspaces()}>
+            {(ws) => (
+              <button
+                class="rail-ws-dot"
+                classList={{
+                  on: ws.id === workspace()?.id,
+                  target: drag()?.workspace === ws.id,
+                }}
+                style={{ '--dot': WORKSPACE_COLORS[ws.color] }}
+                data-ws={ws.id}
+                role="tab"
+                aria-selected={ws.id === workspace()?.id}
+                aria-label={ws.name}
+                title={ws.name}
+                onClick={() => void api.send({ type: 'workspace.activate', id: ws.id })}
+                onDblClick={() => void api.send({ type: 'workspace.rename', id: ws.id })}
+                onContextMenu={(e) => openMenu(e, { kind: 'workspace', id: ws.id })}
+              >
+                <i />
+              </button>
+            )}
+          </For>
+          <Show when={!collapsed()}>
+            <button
+              class="iconbtn iconbtn--sm rail-ws-add"
+              title="New workspace"
+              aria-label="New workspace"
+              onClick={() => void api.send({ type: 'workspace.create' })}
+            >
+              <Icon name="plus" />
+            </button>
+          </Show>
+        </div>
+        <div class="rail-actions">
+          <For each={SIDEBAR_BUTTONS}>
+            {(b) => (
+              <Show when={!collapsed() || b.section === 'downloads'}>
+                <button
+                  class="iconbtn rail-sidebar-btn"
+                  classList={{ on: sidebar() === b.section }}
+                  data-section={b.section}
+                  title={b.label}
+                  aria-label={b.label}
+                  aria-pressed={sidebar() === b.section}
+                  onClick={() => void api.send({ type: 'sidebar.toggle', section: b.section })}
+                >
+                  <Icon name={b.icon} />
+                  <Show when={b.section === 'downloads' && props.downloadsActive > 0}>
+                    <span class="rail-dot" />
+                  </Show>
+                </button>
+              </Show>
+            )}
+          </For>
+          <Show when={!collapsed()}>
+            <button
+              class="iconbtn rail-music"
+              title="Music"
+              aria-label="Music"
+              onClick={() => void api.send({ type: 'open.internal', page: 'music' })}
+            >
+              <Icon name="music" />
+            </button>
+          </Show>
+          <Show when={!collapsed()}>
+            <button
+              class="iconbtn rail-files"
+              title="Files (Ctrl+Shift+E)"
+              aria-label="Files"
+              onClick={() => void api.send({ type: 'open.internal', page: 'files' })}
+            >
+              <Icon name="folder" />
+            </button>
+          </Show>
+          <button
+            class="iconbtn rail-settings"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => void api.send({ type: 'open.internal', page: 'settings' })}
+          >
+            <Icon name="settings" />
+          </button>
+        </div>
+      </div>
+    </nav>
+  )
+}

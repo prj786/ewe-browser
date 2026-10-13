@@ -1,0 +1,34 @@
+{
+  "name": "ewe-browser-monorepo",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @ewe/browser dev",
+    "build": "pnpm --filter @ewe/shared build && pnpm --filter @ewe/browser build",
+    "preview": "pnpm --filter @ewe/browser preview",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @ewe/browser test:e2e",
+    "package": "pnpm build && pnpm --filter @ewe/browser package"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^24.19.2",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.0",
+    "eslint-plugin-solid": "^0.18.1",
+    "globals": "^16.0.0",
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.4"
+  },
+  "type": "module"
+}
