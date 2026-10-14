@@ -11,6 +11,7 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   _electron as electron,
   expect,
@@ -171,7 +172,12 @@ async function openWorkspaceMenu(
   index: number,
 ): Promise<void> {
   await expect.poll(() => overlay.locator('.menu').count()).toBe(0)
-  const box = await shell.locator('.rail-ws-dot').nth(index).boundingBox()
+  const dot = shell.locator('.rail-ws-dot').nth(index)
+  let box = await dot.boundingBox()
+  for (let i = 0; box === null && i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 100))
+    box = await dot.boundingBox()
+  }
   if (box === null) throw new Error(`workspace dot ${index} not found`)
   await rightClick(
     app,
@@ -1224,18 +1230,18 @@ test('settings can hand folders to ewe browser and give them back, in a temp XDG
     await expect(button).toHaveText('Use ewe browser')
     await button.click()
     await expect(button).toHaveText('Give back')
-    expect(readFileSync(join(data, 'applications', 'ewe-browser.desktop'), 'utf8')).toContain(
-      'MimeType=inode/directory;',
-    )
+    expect(
+      readFileSync(join(data, 'applications', 'ewe-browser-folders.desktop'), 'utf8'),
+    ).toContain('MimeType=inode/directory;')
     expect(readFileSync(join(config, 'mimeapps.list'), 'utf8')).toContain(
-      'inode/directory=ewe-browser.desktop',
+      'inode/directory=ewe-browser-folders.desktop',
     )
     await button.click()
     await expect(button).toHaveText('Use ewe browser')
     const defaults = readFileSync(join(config, 'mimeapps.list'), 'utf8')
       .split('[Default Applications]')[1]
       ?.split('\n[')[0]
-    expect(defaults).not.toContain('inode/directory=ewe-browser.desktop')
+    expect(defaults).not.toContain('inode/directory=ewe-browser-folders.desktop')
     expect(await shell.evaluate(() => window.ewe.defaultHandler(true))).toBeNull()
   } finally {
     await app.close()
@@ -1318,6 +1324,149 @@ test('music: library views, playback, next track and MPRIS', async () => {
     await page.locator('.mu-search input').fill('lone')
     await expect(page.locator('.mu-track .mu-title')).toHaveText(['Lone Ewe'])
   } finally {
+    await app.close()
+  }
+})
+
+const TINY_PDF = [
+  '%PDF-1.4',
+  '1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj',
+  '2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj',
+  '3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 200 260]>> endobj',
+  'trailer <</Root 1 0 R>>',
+  '%%EOF',
+  '',
+].join('\n')
+
+function recentXbel(entries: { path: string; ago: number }[]): string {
+  const now = Date.now()
+  const rows = entries.map(({ path, ago }) => {
+    const t = new Date(now - ago).toISOString()
+    return `  <bookmark href="${pathToFileURL(path).href}" added="${t}" modified="${t}" visited="${t}"></bookmark>`
+  })
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<xbel version="1.0">\n${rows.join('\n')}\n</xbel>\n`
+}
+
+test('home: big search, folder shortcuts, recent docs, videos, music and sites', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'ewe-e2e-home-'))
+  const dataHome = mkdtempSync(join(tmpdir(), 'ewe-e2e-home-data-'))
+  const cache = mkdtempSync(join(tmpdir(), 'ewe-e2e-home-cache-'))
+  const docs = mkdtempSync(join(tmpdir(), 'ewe-e2e-home-docs-'))
+  const musicDir = mkdtempSync(join(tmpdir(), 'ewe-e2e-home-music-'))
+  const pdf = join(docs, 'handbook.pdf')
+  const notes = join(docs, 'notes.md')
+  const clip = join(docs, 'clip.mp4')
+  const song = join(musicDir, '01 Morning.mp3')
+  writeFileSync(pdf, TINY_PDF)
+  writeFileSync(notes, '# Shearing plan\n\nStart at eight.\n')
+  execFileSync('ffmpeg', [
+    '-loglevel',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc=duration=1:size=320x180:rate=10',
+    clip,
+  ])
+  silentTrack(song, { title: 'Morning', artist: 'The Flock', album: 'Pasture', track: '1' })
+  writeFileSync(
+    join(dataHome, 'recently-used.xbel'),
+    recentXbel([
+      { path: pdf, ago: 60_000 },
+      { path: notes, ago: 30 * 60_000 },
+      { path: clip, ago: 2 * 3600_000 },
+      { path: join(docs, 'gone.pdf'), ago: 1000 },
+    ]),
+  )
+  const server = await serve({
+    '/flock.html': { body: '<!doctype html><title>Flock news</title>', type: 'text/html' },
+  })
+  const app = await launch(userData, {
+    XDG_DATA_HOME: dataHome,
+    XDG_CACHE_HOME: cache,
+    EWE_MUSIC_DIR: musicDir,
+  })
+  try {
+    const shell = await shellOf(app)
+    const send = (command: ShellCommand) => shell.evaluate((c) => window.ewe.send(c), command)
+    const home = await windowWith(app, 'app://home/')
+    await expect(home.locator('.home-head h1')).toContainText('Good')
+    await expect(home.locator('.palette.hero input')).toBeFocused()
+    await expect(home.locator('.home-place-label').first()).toHaveText('Home')
+
+    expect(await shell.evaluate(() => window.ewe.home({ op: 'token' }))).toEqual({
+      ok: false,
+      error: 'Not allowed',
+    })
+    expect(
+      await home.evaluate(async () => (await fetch('app://home/raw?path=/etc/hostname')).status),
+    ).toBe(403)
+
+    await send({ type: 'tab.create', url: `${server.url}/flock.html` })
+    await expect.poll(() => activeLoading(shell), { timeout: 15_000 }).toBe(false)
+    await send({ type: 'open.internal', page: 'music' })
+    const music = await windowWith(app, 'app://music/')
+    await music.locator('.mu-tile', { hasText: 'Pasture' }).click()
+    await music.locator('.mu-play-all').click()
+    await expect(music.locator('.mu-now .mu-title')).toHaveText('Morning')
+    await music.keyboard.press('Space')
+    const homeId = await shell.evaluate(
+      async () => (await window.ewe.getState())?.tabs.find((t) => t.kind === 'home')?.id ?? '',
+    )
+    await send({ type: 'tab.activate', id: homeId })
+
+    const titles = () => home.locator('.rc-card .rc-title').allTextContents()
+    await expect
+      .poll(async () => (await titles()).sort())
+      .toEqual(['Flock news', 'Morning', 'clip', 'handbook.pdf', 'notes.md'])
+    await expect(home.locator('.rc-card[data-kind="audio"] .rc-meta-where')).toHaveText('The Flock')
+    await expect(home.locator('.rc-card[data-kind="web"] .rc-meta-where')).toHaveText(
+      new URL(server.url).host,
+    )
+    await expect(home.locator('.rc-card[data-kind="video"] img.rc-img')).toHaveCount(1)
+    await expect(home.locator('.rc-card[data-kind="doc"] img.rc-page')).toHaveAttribute(
+      'src',
+      /^data:image\/png/,
+    )
+
+    await home.locator('.home-seg [data-filter="doc"]').click()
+    await expect.poll(titles).toEqual(['handbook.pdf', 'notes.md'])
+    await expect(home.locator('.rc-snippet')).toContainText('Shearing plan')
+    await home.locator('.rc-card', { hasText: 'handbook.pdf' }).click()
+    await expect
+      .poll(() => activeUrl(shell))
+      .toBe(`app://files/?${new URLSearchParams({ path: docs, select: 'handbook.pdf' })}&view=1`)
+    await send({ type: 'nav.back' })
+    await expect.poll(() => activeUrl(shell)).toBe('app://home/')
+    await expect(home.locator('.home-seg [data-filter="doc"]')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await home.locator('.home-seg [data-filter="all"]').click()
+
+    const tabs = await tabCount(shell)
+    await home.locator('.rc-card[data-kind="audio"]').click()
+    await expect.poll(() => activeUrl(shell)).toBe('app://music/')
+    expect(await tabCount(shell)).toBe(tabs)
+    await expect
+      .poll(() => music.evaluate(() => document.querySelector('audio')?.paused))
+      .toBe(false)
+    await music.keyboard.press('Space')
+    await send({ type: 'tab.activate', id: homeId })
+
+    await home.locator('.rc-card[data-kind="web"]').click({ button: 'right' })
+    await home.locator('.menu-item', { hasText: 'Remove from Recent' }).click()
+    await expect(home.locator('.rc-card[data-kind="web"]')).toHaveCount(0)
+
+    await home.locator('.home-places').click({ position: { x: 1, y: 1 } })
+    await home.keyboard.type('xyz')
+    await expect(home.locator('.palette.hero input')).toHaveValue('xyz')
+    await expect(home.locator('.palette.hero .palette-results')).toBeVisible()
+    await home.locator('.palette.hero input').fill(docs)
+    await home.keyboard.press('Enter')
+    await expect.poll(() => pathOfActive(shell)).toBe(docs)
+  } finally {
+    server.close()
     await app.close()
   }
 })

@@ -27,6 +27,8 @@ npx -y pnpm@11.13.0 exec prettier --write <files>
 npx -y pnpm@11.13.0 test           # vitest: packages/shared/src/*.test.ts + apps/browser/tests/unit
 npx -y pnpm@11.13.0 test:e2e       # playwright _electron, needs a prior build
 cd apps/browser && node scripts/visual.mjs ../../docs/screenshots   # screenshots, needs a build
+npx -y pnpm@11.13.0 package        # build + electron-builder → apps/browser/dist/linux-unpacked
+makepkg -d --skipchecksums         # the Arch package (see Packaging), from a source tarball
 ```
 
 Run the whole loop after any change: typecheck, lint, unit tests, build, e2e, screenshots, then
@@ -41,6 +43,10 @@ directory belongs to the ewe desktop itself.
 ```
 package.json                      pnpm workspace scripts (dev, build, typecheck, lint, test, test:e2e, package)
 pnpm-workspace.yaml               packages + allowBuilds (electron, esbuild)
+PKGBUILD                          the Arch package (Komble pattern: _tag/pkgver rewritten by release.yml)
+packaging/                        ewe-browser.desktop, ewe-browser.svg (the app icon), icons/*.png
+scripts/gen-icons.sh              rsvg-convert the SVG into packaging/icons/{32..512}x*.png (committed)
+.github/workflows/                release.yml (tag → makepkg → GitHub release), ci.yml (static checks, unit tests)
 packages/shared/src/
   models.ts                       TabState, WindowSnapshot, Settings, Session*, ThemeTokens, Workspace, Account,
                                   constants (RAIL_WIDTH 264, RAIL_COLLAPSED_WIDTH 56, PAGE_GAP 8,
@@ -58,8 +64,11 @@ packages/shared/src/
                                   compareTracks, shuffled, formatDuration
   bookmarks.ts                    BookmarkItem/BookmarkFolder tree, isBookmarkableUrl, find*/flatten/count,
                                   rankBookmarks (palette), isBookmarkNode validator, sanitizeBookmarks
+  home.ts                         RecentItem/RecentKind/RecentFilter, HomeRequest + isHomeRequest,
+                                  recentKindOf, isSearchResultUrl, dedupeRecents, pickRecents
 apps/browser/
   electron.vite.config.ts         main/preload/renderer builds, seven HTML inputs, devCsp plugin, @ewe/shared alias
+  electron-builder.yml            dir target, castlabs runtime from node_modules/electron/dist, app.asar
   src/main/index.ts               bootstrap: app name, EWE_USER_DATA, single instance, app:// scheme, stores, windows
   src/main/window-manager.ts      WindowController (one BrowserWindow + overlay + TabManager), WindowManager
   src/main/tab-manager.ts         tabs, workspaces, navigation, per-tab event wiring, popups, shortcuts, mouse hooks
@@ -84,9 +93,12 @@ apps/browser/
   src/main/open-args.ts           command line paths and urls → folder tabs / file tabs
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
   src/main/history.ts             frecency scoring and ranking
+  src/main/home/recents.ts        RecentsService: recent docs, videos, music and sites from recent.json, GTK
+                                  recently-used.xbel, finished downloads and history; parseRecentlyUsed, snippetOf
+  src/main/home/service.ts        HomeService: the `ewe:home` ops (token, places, recents, open, mpv, forget)
   src/main/chrome-bookmarks.ts    parseChromeBookmarks() (pure), chromeBookmarkPaths(), readChromeBookmarks() (read-only)
   src/main/storage/               json-file (atomic, serialized writes), settings-store, session-store, history-store,
-                                  bookmarks-store, downloads-store
+                                  bookmarks-store, downloads-store, recent-store
   src/preload/index.ts            the only preload; picks the layer from --ewe-layer=shell|overlay|sidebar|page
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
@@ -102,7 +114,8 @@ apps/browser/
   src/ui/lib/api.ts               typed access to window.ewe
   src/ui/styles/                  tokens.css (Ewe tokens + browser tokens), base.css, components.css, fonts.css
   src/ui/fonts/                   Geist and Geist Mono (OFL)
-  src/pages/{newtab,home,settings,sad} app:// pages (Solid), pages.css; home = greeting + search pill
+  src/pages/{newtab,settings,sad}  app:// pages (Solid), pages.css
+  src/pages/home/                 the home page (main.tsx, pdf.ts = pdf.js first-page previews, home.css)
   src/pages/files/                the file manager page (main.tsx, viewer.tsx, textview.tsx, archive.tsx, files.css)
   src/pages/music/                the music app (main.tsx, music.css)
   src/main/media/library.ts       MusicLibraryStore (scan, tags via music-metadata, music-index.json), coverResponse
@@ -170,25 +183,29 @@ invoke, validated by `isFsRequest`, answered by `FileService`); every other laye
 `app://files/raw?path=&t=` and `app://files/thumb?path=&t=` are served by the protocol handler only
 with the per-run random token, which the page fetches through `fs({op: 'token'})`, so ordinary
 web pages cannot read local files through `app://`. `app://settings` may call
-`defaultHandler(set?)` (`ewe:default-handler`).
+`defaultHandler(set?)` (`ewe:default-handler`). `app://home` (main frame only) may call
+`home(request)` (`ewe:home`, validated by `isHomeRequest`, answered by `HomeService`) and gets
+`ewe:home-changed` pushes; it uses `app://home/raw|thumb|cover?path=&t=` with the same token.
 
 `window.ewe` (BrowserApi): `send(command)`, `getState()`, `getSettings()`, `getTheme()`,
-`getAccount()`, `getBookmarks()`, `suggest(query)`, `getDownloads()`, `history(query, limit)`, and
-subscriptions `onState`, `onSettings`, `onTheme`, `onBookmarks`, `onDownloads`, `onHistory`, `onUi`.
+`getAccount()`, `getBookmarks()`, `suggest(query)`, `getDownloads()`, `history(query, limit)`,
+`home(request)`, and subscriptions `onState`, `onSettings`, `onTheme`, `onBookmarks`, `onDownloads`,
+`onHistory`, `onHomeChanged`, `onUi`.
 `getDownloads` and `history` answer only the shell, overlay and sidebar layers (pages get `[]`).
 
 IPC channels (`IPC` in ipc-contract.ts): `ewe:command`, `ewe:get-state`, `ewe:get-settings`,
 `ewe:get-theme`, `ewe:get-account`, `ewe:get-bookmarks`, `ewe:suggest`, `ewe:get-downloads`,
-`ewe:history` (invoke), and `ewe:state`, `ewe:settings`, `ewe:theme`, `ewe:bookmarks`,
-`ewe:downloads`, `ewe:history-changed` (sidebars only, throttled to 500ms), `ewe:ui`
-(main → renderer).
+`ewe:history`, `ewe:home` (invoke), and `ewe:state`, `ewe:settings`, `ewe:theme`, `ewe:bookmarks`,
+`ewe:downloads`, `ewe:history-changed` (sidebars only, throttled to 500ms), `ewe:home-changed`
+(home tabs only, throttled to 400ms), `ewe:ui` (main → renderer).
 
 Main validates every command at runtime (`isShellCommand`), checks the sender frame
 (`senderFrameUrl`: main frame only, `app://` for the page layer), and applies the per-layer policy
 in `WindowController.dispatch`: the page layer may only send `PAGE_COMMANDS`
 (`workspace.activate`, `tab.create`, `tab.activate`, `tab.navigate`, `tab.close`, `nav.reload`,
-`settings.update`, `open.internal`, `shortcuts.recording`, `bookmarks.importChrome`),
+`settings.update`, `open.internal`, `music.play`, `shortcuts.recording`, `bookmarks.importChrome`),
 `settings.update`, `shortcuts.recording` and `bookmarks.importChrome` only from `app://settings`,
+`music.play` only from `app://home`,
 and `tab.navigate` from a page is pinned to that page's own tab. Pages get no `bookmark.*` editing
 commands yet; a future bookmarks page adds what it needs.
 
@@ -208,7 +225,9 @@ shifted by the overlay view origin in main, so the peek can send its own client 
 `overlay.pin {pinned}`, `workspace.create {name?, color?}`, `workspace.activate {id}`,
 `workspace.update {id, name?, color?}`, `workspace.remove {id}`, `workspace.mergeInto {from, to}` (moves every tab of `from` into `to`,
 keeps `from` as an empty workspace), `settings.update {patch}`,
-`open.internal {page}`, `shortcuts.recording {on}`, `bookmark.toggle {tabId?}` (the active tab by
+`open.internal {page}`, `music.play {path}` (a library track: activates the one music tab and sends
+it the `music.play` UiEvent, or opens `app://music/?play=<path>`; any other file opens in the files
+viewer), `shortcuts.recording {on}`, `bookmark.toggle {tabId?}` (the active tab by
 default; adds or removes every bookmark with that url and shows a toast), `bookmark.add {url,
 title, folderId?}`, `bookmark.remove {id}`, `bookmark.update {id, title?, url?, folderId?, index?}`
 (`folderId` and/or `index` move the node: `index` is the insertion point in the target folder as
@@ -224,7 +243,7 @@ is ignored (the sidebar renders its own menus).
 UiEvent types (main → a renderer): `focus-address`, `overlay.show {part}`, `overlay.hide`,
 `palette.open {query?, newTab?}` (the palette reacts to a new `query` while mounted),
 `menu.open {menu, x, y}`, `toast {message, icon?: star | download | check | alert}`,
-`sidebar.focus`, `workspace.rename {id}`.
+`sidebar.focus`, `workspace.rename {id}`, `music.play {path}` (to the music tab).
 
 State: `WindowSnapshot { windowId, tabs: TabState[], activeTabId, workspaces, activeWorkspaceId,
 focused, maximized, fullscreen, sidebar: { section, width } | null }` is broadcast (coalesced to one per 16ms) to the shell, the
@@ -375,7 +394,8 @@ every tab.
   Nextcloud and Google Drive from `~/.local/share/ewe/bin/ewe-files status` / `ewe-drive status`
   (`$EWE_BIN` overrides; `ready` when mounted, `offline` → "Connect" runs `… mount`, `setup` →
   a hint to sign in from ewe Settings; hidden when the tool is missing), GTK bookmarks
-  (`~/.config/gtk-3.0/bookmarks`), `/run/media/$USER/*`, GVFS mounts under
+  (`~/.config/gtk-3.0/bookmarks`; trailing slashes are stripped, so `file:///home/me/Nextcloud/`
+  gets a label and dedupes with the Nextcloud place), `/run/media/$USER/*`, GVFS mounts under
   `/run/user/$UID/gvfs` (labels from `gvfsLabel`), other `fuse.rclone` mounts, File system and
   Trash (`$XDG_DATA_HOME/Trash/files`).
 - Operations (all in main): list (lstat in batches, symlinks resolved, writable, free space),
@@ -417,10 +437,46 @@ every tab.
   version added `has-thumb` to the DOM by hand, and `<Index>` reused that node for a folder in the
   next listing, hiding the folder glyph.
 - Default handler: Settings → Files → "Use ewe browser" writes
-  `$XDG_DATA_HOME/applications/ewe-browser.desktop` (`Exec` = this Electron binary and app path)
-  and runs `gio mime inode/directory ewe-browser.desktop`, saving the previous default in
+  `$XDG_DATA_HOME/applications/ewe-browser-folders.desktop` (`NoDisplay`, only `inode/directory`,
+  `Exec` = this Electron binary, plus the app path in dev) and runs
+  `gio mime inode/directory ewe-browser-folders.desktop`, saving the previous default in
   `default-handler.json`; "Give back" restores it (Nemo when unknown). `xdg-mime query` did not
   report what it had just set on this machine, so `gio mime` is used for both.
+
+## Home (`app://home`)
+
+- Opened on first launch, by Alt+Home and `open.internal home`. Top to bottom: greeting and date,
+  a hero search (the `Palette` with `hero`: a `control-2xl`-plus pill, results drop down over the
+  page only while focused and only once something is typed, Escape clears then blurs), folder
+  shortcuts and Recent. Typing anywhere on the page focuses the search.
+- Shortcuts are `computePlaces()` minus the `other` group and `setup` clouds (12 at most): Home,
+  the XDG dirs, Nextcloud / Google Drive (an `offline` cloud gets a `warning` dot), GTK bookmarks,
+  devices. Rows are balanced (`ceil(n / ceil(n / 9))` columns). Click opens the folder in this
+  tab, Ctrl or middle click in a new one.
+- Recent shows 5 cards (`HOME_RECENT_LIMIT`) with a filter (All, Docs, Videos, Music, Web, kept in
+  `localStorage`). `RecentsService.collect(filter, limit)` merges: `recent.json` (files the files
+  page opened in its viewer, with the default app or mpv, and tracks the music page played),
+  `$XDG_DATA_HOME/recently-used.xbel` (GTK recent files, so Nemo/mpv opens count; read-only,
+  cached by mtime, the newest of a bookmark's stamps), completed downloads, and history (search
+  result pages skipped, one page per host). Only existing files whose `recentKindOf` is doc (pdf,
+  office documents, sheets, slides, txt/md/rst/org), video or audio count; images, code and
+  configs do not. `pickRecents` takes the newest of each kind first and fills by time, so web
+  visits cannot crowd out files. Audio is enriched from the music library (title, artist, cover),
+  text docs get a 16-line snippet. "Remove from Recent" (`forget`) hides a key until it is used
+  again after that time.
+- Cards: videos show the thumbnail route's frame, music the cover (blurred backdrop plus the art),
+  PDFs their first page rendered by pdf.js (`pages/home/pdf.ts`, worker from
+  `pdfjs-dist/build/pdf.worker.min.mjs?url`, cached per path and size), text docs their snippet,
+  other docs a paper with an extension label (or a freedesktop cached thumbnail), sites the
+  favicon on a white tile over its blurred copy. Click: sites navigate, music goes through
+  `music.play`, viewable files open the files viewer (`viewerUrl(path)`), other documents open
+  with the default app (`home {op: 'open'}`, allowed only for paths the last `recents` answers
+  returned). Ctrl/middle click opens a new tab. The context menu adds Play in mpv, Open with
+  default app, Show in folder, Copy path/link and Remove from Recent.
+- Refresh: on load, on `ewe:home-changed` (main pushes it when `recent.json`, history, the music
+  library or the number of completed downloads change), on `visibilitychange` and window focus.
+  `visibilitychange` and `focus` do not fire for a window on a hidden Hyprland workspace, so the
+  push is what keeps the page current in tests.
 
 ## Extensions, DRM and sync (roadmap step 6)
 
@@ -558,6 +614,10 @@ title, children, added }` and children are `{ id, kind: 'bookmark', title, url, 
   "Imported from Chrome (YYYY-MM-DD)", converts `date_added` (microseconds since 1601) and skips
   non-http(s) urls and empty roots; `replaceFolder` swaps out an existing folder with the same
   title, so importing twice on one day does not duplicate.
+- `recent.json`: `{ version: 1, entries: [{ path, time, source: opened | played, count }],
+hidden: [{ key, time }] }`, 300 entries and 500 hidden keys at most, writes debounced 1s,
+  flushed on quit. Only paths with a `recentKindOf` are recorded (`FsRequest {op: 'recent'}`,
+  the files `open`/`mpv` ops, `MusicRequest {op: 'played'}` for library tracks, home `open`/`mpv`).
 - `downloads.json`: `{ version: 1, entries: DownloadEntry[] }` (`id, url, filename, path, mime,
 received, total, speed, status, started, ended`, times in epoch ms), newest first, at most 200,
   writes debounced 1s, flushed on quit. Entries that were running at quit load as `interrupted`.
@@ -618,6 +678,11 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   Mute / Unmute | Move to workspace ▸ (other workspaces with colour dots, New workspace), Copy url
   | Close, Close others, Close to the right; the last two are disabled when only pinned tabs would
   qualify).
+- Page CSS order: in a built `app://` page the shared `pages.css` chunk is linked AFTER the
+  page's own CSS, so a page rule that overrides `.page` (display, background, padding) must be
+  `.page.page-<name>`; with a bare `.page-home` the home page stayed `display: grid`, lost its
+  glow, and its card row pushed the page wider than a narrow window. Home is a flex column
+  whose `.home` has `margin: auto` (centred when it fits, scrolls when it does not).
 - CSS: Ewe tokens only (`--surface-*`, `--text-*`, `--border-*`, `--accent`, `--space-*`,
   `--dur-fast 150ms`, `--dur-base 200ms`, `--dur-slow 250ms`, `--ease-out`), plus browser tokens
   `--rail-width 264px`, `--rail-collapsed-width 56px`, `--page-gap 8px` (mirror `RAIL_WIDTH`,
@@ -635,10 +700,12 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   protocol, ewe-theme incl. base vars, history incl. `recentEntries`, ewe-account,
   downloads-store, bookmark reorder, sidebar layout, files: places parsing, the file service on a
   temp tree, ranges, argv, the desktop entry, archive parsing and a real bsdtar round trip).
-  plus music helpers, titles from file names). 172 tests (76 shared, 96 browser). Nothing reads
+  plus music helpers, titles from file names, home: recent kinds, picking, request validation, the
+  xbel parser, snippets, the recent store and the recents service over a temp tree). 186 tests
+  (84 shared, 102 browser). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
-- E2E (`smoke.spec.ts`, 25 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
+- E2E (`smoke.spec.ts`, 26 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending
   keys (keys are dropped in the first ~200ms of a load). `shellOf` also waits until the shell
@@ -668,14 +735,26 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   with ffmpeg in `EWE_MUSIC_DIR`: albums, artists, songs, the album hero with its embedded cover,
   playback, the tab title, MPRIS on the bus, Next, Space, search, one music tab), Markdown and
   code in the files viewer (Use / Give back, and the owner's
-  real `~/.config/mimeapps.list` is compared before and after).
+  real `~/.config/mimeapps.list` is compared before and after), and home (a temp `XDG_DATA_HOME`
+  xbel, a tiny PDF rendered by pdf.js, a video frame, a played track, a visited page; filters,
+  the viewer and back, `music.play` reusing the music tab, Remove from Recent, type-ahead into the
+  search, a path typed into it; the shell is refused `home`, raw without a token is 403).
 - Hyprland: `tests/e2e/hyprland.ts` and `scripts/visual.mjs` register a temporary rule
   (`hl.window_rule({ match = { class = '(?i)^(ewe-browser|electron)$' }, workspace = '2 silent' })`)
   through `hyprctl repl` so test windows open on workspace 2 next to the owner's terminal, and
   disable it afterwards. This Hyprland build uses a Lua config: `hyprctl dispatch` takes Lua
   dispatcher expressions, `hyprctl repl '<lua>'` prints a return value, globals persist.
   Never move the real cursor; the owner may be in a game on the other monitor.
-- `scripts/visual.mjs` captures with `grim -g` using `hyprctl clients -j` geometry: home, new-tab
+  The owner's machine currently has one laptop panel showing another workspace, so workspace 2
+  is never visible (hence capturing through Electron). The rule matches class `ewe-browser`,
+  so if the owner's own `pnpm dev` app restarts while it is enabled (electron-vite restarts
+  main on every `src/main` edit), that window opens on workspace 2 too.
+- `scripts/visual.mjs` captures through Electron, never from the screen: `capturePage()` of the
+  window and of every visible view, composited in the main process (page views masked to the
+  10px card radius) and cropped for the rail, sidebar and toast shots. `grim` used to capture
+  screen coordinates, which recorded whatever the owner had on screen whenever workspace 2 was
+  not the visible one. Scenes: home (fresh, then with recents seeded through a temp
+  `XDG_DATA_HOME` xbel, the search dropdown, the card menu, the Docs filter, light), new-tab
   page, the rail with six tabs (full and a hover crop), the address editor, the Ctrl+D toast,
   the starred address, pinned tiles (and an active one), the tab menu and its Move submenu, a
   second workspace, a workspace dot hover, the workspace menu and inline rename, the collapsed
@@ -689,6 +768,38 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   launches with `EWE_CHROME_BOOKMARKS` pointing at the fixture and `EWE_DOWNLOADS` at a temp
   directory.
 - Do not `pkill -f <pattern>`; it has killed the agent's own shell before. Kill by pid.
+
+## Packaging (an ewe first-party app, like Komble)
+
+- `PKGBUILD` at the repo root: `build()` runs `npx -y pnpm@11.13.0 install --frozen-lockfile`
+  (the postinstall fetches castlabs' Electron), `pnpm build`, then `electron-builder --linux`
+  with `electron-builder.yml` (target `dir`, `electronDist: node_modules/electron/dist`, so
+  the runtime is always castlabs' build with Widevine, never a download of upstream Electron;
+  `npmRebuild: false`, there are no native modules). `package()` copies
+  `apps/browser/dist/linux-unpacked` to `/usr/lib/ewe-browser`, drops `default_app.asar`,
+  clears group write bits, symlinks `/usr/bin/ewe-browser`, and installs
+  `ewe-browser.desktop`, the hicolor icons and the license. ~120 MB compressed.
+- `chrome-sandbox` is not setuid: Arch allows unprivileged user namespaces; checked on the
+  package that renderers run in their own user namespace with seccomp mode 2.
+- Versions: tag `vX.Y.Z-beta` → pkgver `X.Y.Zbeta` (the only spelling vercmp sorts below the
+  final release); both `package.json` files carry `X.Y.Z-beta`. `release.yml` rewrites `_tag`
+  and `pkgver`, archives the checkout as the source and attaches
+  `ewe-browser-X.Y.Zbeta-1-x86_64.pkg.tar.zst` to a prerelease.
+- In ewe: `ewe-repo`'s `publish` collects that asset, the `ewe` package depends on
+  `ewe-browser`, phase 20 installs it on the tarball path, Komble lists it in
+  `first_party.rs`, and the desktop seeds `ewe-browser.desktop` as the default browser
+  (Helium was replaced; Nemo keeps folders). The wave order is this release first, then ewe,
+  then the publish, because the fresh-install gate refuses an `ewe` that depends on a package
+  the repo does not carry.
+- Desktop entry: `Exec=ewe-browser %U`, `StartupWMClass=ewe-browser`, MIME types for http(s),
+  html, xhtml and pdf (never `inode/directory`), and a "New window" action
+  (`ewe-browser --new-window`, handled on `second-instance`: a new window, plus any url or
+  path arguments opened in it).
+- Local test of the package: make a tarball of the working tree named
+  `ewe-browser-<pkgver>.tar.gz` with the prefix `ewe-browser-<tag without v>/`, copy the
+  PKGBUILD next to it and run `makepkg -d --noconfirm --skipchecksums`. Run the result from an
+  extracted copy (`usr/lib/ewe-browser/ewe-browser`) with `EWE_USER_DATA`, never by installing
+  it on the owner's machine.
 
 ## Code conventions
 

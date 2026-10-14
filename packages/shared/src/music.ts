@@ -36,12 +36,15 @@ export interface Artist {
   tracks: number
 }
 
-export type MusicRequest = { op: 'library' } | { op: 'rescan' } | { op: 'token' }
+export type MusicRequest =
+  { op: 'library' } | { op: 'rescan' } | { op: 'token' } | { op: 'played'; path: string }
 
 export function isMusicRequest(value: unknown): value is MusicRequest {
   if (typeof value !== 'object' || value === null) return false
-  const op = (value as Record<string, unknown>).op
-  return op === 'library' || op === 'rescan' || op === 'token'
+  const r = value as Record<string, unknown>
+  if (r.op === 'played')
+    return typeof r.path === 'string' && r.path.startsWith('/') && r.path.length <= 4096
+  return r.op === 'library' || r.op === 'rescan' || r.op === 'token'
 }
 
 export const MUSIC_PAGE_URL = 'app://music/'

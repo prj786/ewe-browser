@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # the archive unit tests run a real bsdtar round trip (libarchive on Arch)
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libarchive-tools
+
+      # The end-to-end tests need a Wayland session, so CI runs the static
+      # checks and the unit tests; e2e and screenshots stay local.
+      - name: Install
+        run: npx -y pnpm@11.13.0 install --frozen-lockfile
+
+      # Type-aware ESLint over the whole workspace peaks at ~2.7 GB RSS; the
+      # runner's default Node heap is smaller, so give it the 4 GB a desktop has.
+      - name: Check
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          npx -y pnpm@11.13.0 typecheck
+          npx -y pnpm@11.13.0 lint
+          npx -y pnpm@11.13.0 format:check
+          npx -y pnpm@11.13.0 test
+          npx -y pnpm@11.13.0 build
+
+      # A syntax error in the PKGBUILD only shows up in the release job otherwise.
+      - name: Shell syntax
+        run: |
+          bash -n PKGBUILD
+          bash -n scripts/gen-icons.sh

@@ -1,6 +1,6 @@
 {
   "name": "@ewe/browser",
-  "version": "0.1.0",
+  "version": "0.1.0-beta",
   "private": true,
   "license": "GPL-3.0-only",
   "description": "ewe browser — Chromium engine, Electron runtime, minimal shell",
@@ -33,6 +33,7 @@
     "electron-vite": "^5.0.0",
     "highlight.js": "^11.12.0",
     "marked": "^18.1.1",
+    "pdfjs-dist": "^6.4.299",
     "solid-js": "^1.9.17",
     "vite": "^7.3.7",
     "vite-plugin-solid": "^2.11.14",

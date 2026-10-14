@@ -20,6 +20,8 @@ export interface PaletteProps {
   bookmarks?: BookmarkFolder | null | undefined
   engine: SearchEngineId
   large?: boolean
+  hero?: boolean
+  placeholder?: string
   autofocus?: boolean
   initial?: string
   newTab?: boolean
@@ -47,6 +49,7 @@ export function Palette(props: PaletteProps): JSX.Element {
   const [value, setValue] = createSignal(props.initial ?? '')
   const [selected, setSelected] = createSignal(0)
   const [history, setHistory] = createSignal<HistorySuggestion[]>([])
+  const [focused, setFocused] = createSignal(false)
 
   createEffect(
     on(value, (v) => {
@@ -108,7 +111,7 @@ export function Palette(props: PaletteProps): JSX.Element {
 
     if (r.kind === 'tabs') return tabRows(r.query, 12)
     if (r.kind === 'bookmarks') return bookmarkRows(r.query, 12, new Set())
-    if (v === '') return tabRows('', 6)
+    if (v === '') return props.hero === true ? [] : tabRows('', 6)
     if (r.kind === 'url') {
       list.push({
         key: 'go',
@@ -196,6 +199,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     } else if (e.key === 'Escape') {
       e.preventDefault()
       if (value() !== '') setValue('')
+      else if (props.hero === true) input?.blur()
       else props.onClose?.()
     }
   }
@@ -214,7 +218,7 @@ export function Palette(props: PaletteProps): JSX.Element {
   }
 
   return (
-    <div class="palette" classList={{ large: props.large ?? false }}>
+    <div class="palette" classList={{ large: props.large ?? false, hero: props.hero ?? false }}>
       <div class="palette-search">
         <span class={`palette-mode ${mode()}`}>
           <Icon name={modeIcon()} />
@@ -227,7 +231,11 @@ export function Palette(props: PaletteProps): JSX.Element {
           value={value()}
           onInput={(e) => setValue(e.currentTarget.value)}
           onKeyDown={onKey}
-          placeholder="Search or type a URL. w: web search, t: open tabs, b: bookmarks"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={
+            props.placeholder ?? 'Search or type a URL. w: web search, t: open tabs, b: bookmarks'
+          }
           aria-label="Search or type a URL"
           spellcheck={false}
           autocomplete="off"
@@ -236,7 +244,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           <span class="kbd">Esc</span>
         </Show>
       </div>
-      <Show when={rows().length > 0}>
+      <Show when={rows().length > 0 && (props.hero !== true || focused())}>
         <div class="palette-results" role="listbox" ref={list}>
           <For each={rows()}>
             {(row, i) => (
@@ -266,7 +274,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           </For>
         </div>
       </Show>
-      <Show when={props.large}>
+      <Show when={props.large === true && props.hero !== true}>
         <div class="palette-legend">
           <span>
             <span class="kbd">w:</span> Web search

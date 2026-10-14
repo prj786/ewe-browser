@@ -25,6 +25,7 @@ import {
   type Artist,
   type MusicLibrary,
   type Track,
+  type UiEvent,
 } from '@ewe/shared'
 import '../../ui/styles/base.css'
 import './music.css'
@@ -112,6 +113,8 @@ function MusicApp(): JSX.Element {
   let audio: HTMLAudioElement | undefined
   let search: HTMLInputElement | undefined
   let restored = false
+  let pendingPlay = new URLSearchParams(location.search).get('play')
+  if (pendingPlay !== null) history.replaceState(null, '', location.pathname)
 
   const tracks = createMemo(() => [...(library()?.tracks ?? [])].sort(compareTracks))
   const albums = createMemo(() => groupAlbums(tracks()))
@@ -132,6 +135,23 @@ function MusicApp(): JSX.Element {
     setIndex(Math.max(0, first === undefined ? 0 : q.indexOf(first)))
     setError(null)
     play()
+  }
+
+  const playPath = (path: string) => {
+    const track = tracks().find((t) => t.path === path)
+    if (track === undefined) {
+      pendingPlay = path
+      return
+    }
+    pendingPlay = null
+    const album = albums().find((a) => a.tracks.includes(track))
+    setQuery('')
+    if (album !== undefined) setView({ kind: 'album', key: album.key })
+    playList(album?.tracks ?? [track], track)
+  }
+
+  const onUiEvent = (event: UiEvent) => {
+    if (event.type === 'music.play') playPath(event.path)
   }
 
   const togglePlay = () => {
@@ -202,6 +222,7 @@ function MusicApp(): JSX.Element {
       if (r.ok) setLibrary(r.value)
     })
     const off = api.onMusic(setLibrary)
+    const offUi = api.onUi(onUiEvent)
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target?.tagName === 'INPUT') return
@@ -225,13 +246,20 @@ function MusicApp(): JSX.Element {
     }
     onCleanup(() => {
       off()
+      offUi()
       window.removeEventListener('keydown', onKey)
     })
   })
 
   createEffect(
     on(tracks, (list) => {
-      if (restored || list.length === 0) return
+      if (list.length === 0) return
+      if (pendingPlay !== null) {
+        restored = true
+        playPath(pendingPlay)
+        return
+      }
+      if (restored) return
       restored = true
       const byPath = new Map(list.map((t) => [t.path, t]))
       const q = saved.queue.map((p) => byPath.get(p)).filter((t): t is Track => t !== undefined)
@@ -714,7 +742,11 @@ function MusicApp(): JSX.Element {
       <audio
         ref={audio}
         preload="auto"
-        onPlay={() => setPlaying(true)}
+        onPlay={() => {
+          setPlaying(true)
+          const track = current()
+          if (track !== undefined) void api.music({ op: 'played', path: track.path })
+        }}
         onPause={() => setPlaying(false)}
         onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
         onDurationChange={(e) => {

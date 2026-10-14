@@ -6,6 +6,7 @@ import {
   type BookmarkFolder,
   type DownloadEntry,
   type FsRequest,
+  type HomeRequest,
   type MusicLibrary,
   type MusicRequest,
   type PasswordItem,
@@ -53,6 +54,9 @@ export function createApi(layer: ApiLayer): BrowserApi {
       } | null>,
     music: <T>(request: MusicRequest) =>
       ipcRenderer.invoke(IPC.music, request) as Promise<FsResult<T>>,
+    home: <T>(request: HomeRequest) =>
+      ipcRenderer.invoke(IPC.home, request) as Promise<FsResult<T>>,
+    onHomeChanged: (listener) => subscribe(IPC.homeChanged, () => listener()),
     getExtensions: () => ipcRenderer.invoke(IPC.getExtensions) as Promise<ExtensionsState>,
     onExtensions: (listener) => subscribe(IPC.extensions, (p) => listener(p as ExtensionsState)),
     passwords: (query) =>

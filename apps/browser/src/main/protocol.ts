@@ -7,6 +7,15 @@ import { rawResponse, thumbResponse } from './files/thumbs'
 import { coverResponse } from './media/library'
 
 const PAGES = new Set(['newtab', 'home', 'settings', 'sad', 'files', 'music'])
+const TOKEN_ROUTES = new Set([
+  'files/raw',
+  'files/thumb',
+  'music/raw',
+  'music/cover',
+  'home/raw',
+  'home/thumb',
+  'home/cover',
+])
 const DEV_PREFIXES = ['/@', '/node_modules/', '/pages/', '/ui/', '/assets/']
 
 export const PAGE_CSP =
@@ -70,13 +79,13 @@ export function installAppProtocol(
     if (!PAGES.has(host)) return notFound()
 
     const route = `${host}${url.pathname.replace(/^\/(raw|thumb|cover)\/.*$/, '/$1')}`
-    if (['files/raw', 'files/thumb', 'music/raw', 'music/cover'].includes(route)) {
+    if (TOKEN_ROUTES.has(route)) {
       const token = filesToken()
       const path = url.searchParams.get('path') ?? ''
       if (token === '' || url.searchParams.get('t') !== token || !(path?.startsWith('/') ?? false))
         return new Response('Forbidden', { status: 403 })
-      if (route === 'files/thumb') return thumbResponse(path)
-      if (route === 'music/cover') return coverResponse(path)
+      if (route.endsWith('/thumb')) return thumbResponse(path)
+      if (route.endsWith('/cover')) return coverResponse(path)
       return rawResponse(path, request.headers.get('range'))
     }
 

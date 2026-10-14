@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const out = resolve(process.argv[2] ?? 'docs/screenshots')
 const targetWorkspace = process.env.EWE_VISUAL_WORKSPACE ?? '2'
@@ -104,6 +105,27 @@ try {
 } catch {
   console.log('no ffmpeg, skipping the sample video')
 }
+const dataHome = mkdtempSync(join(tmpdir(), 'ewe-visual-data-'))
+const recentNow = Date.now()
+writeFileSync(
+  join(dataHome, 'recently-used.xbel'),
+  [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<xbel version="1.0">',
+    ...[
+      [join(filesDir, 'manual.pdf'), 20 * 60_000],
+      [join(filesDir, 'notes.md'), 45 * 60_000],
+      [join(filesDir, 'Photos', 'lambs.mp4'), 3 * 3_600_000],
+      [join(musicDir, 'The Flock', 'Pasture', '2 Shearing Day.mp3'), 26 * 3_600_000],
+      [join(filesDir, 'budget.ods'), 4 * 86_400_000],
+    ].map(([path, ago]) => {
+      const t = new Date(recentNow - ago).toISOString()
+      return `  <bookmark href="${pathToFileURL(path).href}" added="${t}" modified="${t}" visited="${t}"></bookmark>`
+    }),
+    '</xbel>',
+    '',
+  ].join('\n'),
+)
 const passDir = mkdtempSync(join(tmpdir(), 'ewe-visual-pass-'))
 const passTool = join(passDir, 'ewe-pass')
 const passItems = [
@@ -200,6 +222,7 @@ const app = await electron.launch({
     EWE_CHROME_BOOKMARKS: resolve('tests/fixtures/chrome-bookmarks.json'),
     EWE_DOWNLOADS: downloadsDir,
     XDG_CACHE_HOME: cacheDir,
+    XDG_DATA_HOME: dataHome,
     EWE_MUSIC_DIR: musicDir,
     EWE_PASS: passTool,
   },
@@ -235,11 +258,69 @@ if (String(geometry().workspace) !== targetWorkspace) {
   process.exit(2)
 }
 
-const shot = (name) => {
-  const g = geometry()
-  execFileSync('grim', ['-g', `${g.x},${g.y} ${g.w}x${g.h}`, join(out, `${name}.png`)])
+const PAGE_RADIUS = 10
+const capture = (crop) =>
+  app.evaluate(
+    async ({ BrowserWindow, WebContentsView, nativeImage }, p) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      const base = await win.webContents.capturePage()
+      const { width, height } = base.getSize()
+      const scale = width / win.getContentBounds().width
+      const pixels = Buffer.from(base.toBitmap())
+      for (const view of win.contentView.children) {
+        if (!(view instanceof WebContentsView) || !view.getVisible()) continue
+        const b = view.getBounds()
+        if (b.width === 0 || b.height === 0) continue
+        const image = await view.webContents.capturePage()
+        const size = image.getSize()
+        const src = image.toBitmap()
+        const ox = Math.round(b.x * scale)
+        const oy = Math.round(b.y * scale)
+        const round = view.webContents.getURL().includes('/ui/') ? 0 : p.radius * scale
+        const outside = (x, y) => {
+          if (round === 0) return false
+          const cx = x < round ? round : x > size.width - round ? size.width - round : x
+          const cy = y < round ? round : y > size.height - round ? size.height - round : y
+          return (x - cx) ** 2 + (y - cy) ** 2 > round ** 2
+        }
+        for (let y = 0; y < size.height; y++) {
+          const ty = oy + y
+          if (ty < 0 || ty >= height) continue
+          for (let x = 0; x < size.width; x++) {
+            const tx = ox + x
+            if (tx < 0 || tx >= width || outside(x, y)) continue
+            const si = (y * size.width + x) * 4
+            const ti = (ty * width + tx) * 4
+            const a = src[si + 3] / 255
+            if (a === 0) continue
+            for (let c = 0; c < 3; c++)
+              pixels[ti + c] = Math.round(src[si + c] + pixels[ti + c] * (1 - a))
+            pixels[ti + 3] = 255
+          }
+        }
+      }
+      let out = nativeImage.createFromBitmap(pixels, { width, height })
+      if (p.crop !== null)
+        out = out.crop({
+          x: Math.round(p.crop.x * scale),
+          y: Math.round(p.crop.y * scale),
+          width: Math.round(p.crop.width * scale),
+          height: Math.round(p.crop.height * scale),
+        })
+      return out.toPNG().toString('base64')
+    },
+    { crop: crop ?? null, radius: PAGE_RADIUS },
+  )
+const save = async (name, crop) => {
+  writeFileSync(join(out, `${name}.png`), Buffer.from(await capture(crop), 'base64'))
   console.log('shot', name)
 }
+const contentSize = () =>
+  app.evaluate(({ BrowserWindow }) => {
+    const b = BrowserWindow.getAllWindows()[0].getContentBounds()
+    return { w: b.width, h: b.height }
+  })
+const shot = (name) => save(name)
 const send = (cmd) => shell.evaluate((c) => window.ewe.send(c), cmd)
 const state = () => shell.evaluate(() => window.ewe.getState())
 const pageView = `(win) => win.contentView.children
@@ -276,24 +357,17 @@ const closeOverlay = async () => {
 void pageView
 void hoverPage
 
-const railShot = (name, h) => {
-  const g = geometry()
-  execFileSync('grim', ['-g', `${g.x},${g.y} 300x${h ?? g.h}`, join(out, `${name}.png`)])
-  console.log('shot', name)
+const railShot = async (name, h) => {
+  const size = await contentSize()
+  await save(name, { x: 0, y: 0, width: 300, height: h ?? size.h })
 }
-const rightShot = (name, w = 520) => {
-  const g = geometry()
-  execFileSync('grim', ['-g', `${g.x + g.w - w},${g.y} ${w}x${g.h}`, join(out, `${name}.png`)])
-  console.log('shot', name)
+const rightShot = async (name, w = 520) => {
+  const size = await contentSize()
+  await save(name, { x: size.w - w, y: 0, width: w, height: size.h })
 }
-const bottomShot = (name, w = 720, h = 140) => {
-  const g = geometry()
-  execFileSync('grim', [
-    '-g',
-    `${g.x + Math.round((g.w - w) / 2)},${g.y + g.h - h} ${w}x${h}`,
-    join(out, `${name}.png`),
-  ])
-  console.log('shot', name)
+const bottomShot = async (name, w = 720, h = 140) => {
+  const size = await contentSize()
+  await save(name, { x: Math.round((size.w - w) / 2), y: size.h - h, width: w, height: h })
 }
 const settle = async (ms = 2500) => {
   for (let i = 0; i < 60; i++) {
@@ -305,10 +379,10 @@ const settle = async (ms = 2500) => {
 }
 
 await sleep(1500)
-shot('01-home')
+await shot('01-home')
 await send({ type: 'open.internal', page: 'newtab' })
 await sleep(1200)
-shot('01-newtab')
+await shot('01-newtab')
 const homeTab = (await state())?.tabs.find((t) => t.kind === 'home')
 if (homeTab) await send({ type: 'tab.close', id: homeTab.id })
 await sleep(300)
@@ -330,35 +404,35 @@ for (const id of ids) {
 }
 await send({ type: 'tab.activate', id: ids[0] })
 await settle(1500)
-shot('02-rail')
+await shot('02-rail')
 await shell.locator('.rail-tab').nth(2).hover()
 await sleep(300)
-railShot('02a-rail-hover')
+await railShot('02a-rail-hover')
 await shell.locator('.rail-address').click()
 await sleep(300)
 await shell.keyboard.type('hypr')
 await sleep(600)
-railShot('02b-address-edit', 140)
+await railShot('02b-address-edit', 140)
 await shell.keyboard.press('Escape')
 await sleep(200)
 await key('d', ['control'])
 await sleep(350)
-shot('02c-bookmark-toast')
-bottomShot('02c-bookmark-toast-detail')
+await shot('02c-bookmark-toast')
+await bottomShot('02c-bookmark-toast-detail')
 await sleep(2200)
-railShot('02d-address-starred', 140)
+await railShot('02d-address-starred', 140)
 const pinIds = (await state()).tabs.slice(4, 6).map((t) => t.id)
 for (const id of pinIds) await send({ type: 'tab.pin', id, pinned: true })
 await sleep(500)
-railShot('02e-pinned')
+await railShot('02e-pinned')
 await send({ type: 'tab.activate', id: pinIds[0] })
 await sleep(500)
-railShot('02e-pinned-active')
+await railShot('02e-pinned-active')
 await send({ type: 'tab.activate', id: ids[0] })
 await sleep(300)
 await shell.locator('.rail-tab').nth(1).click({ button: 'right' })
 await sleep(450)
-shot('02f-tab-menu')
+await shot('02f-tab-menu')
 await overlay.keyboard.press('ArrowDown')
 await overlay.keyboard.press('ArrowDown')
 await overlay.keyboard.press('ArrowDown')
@@ -366,7 +440,7 @@ await overlay.keyboard.press('ArrowDown')
 await overlay.keyboard.press('ArrowDown')
 await overlay.keyboard.press('ArrowRight')
 await sleep(400)
-shot('02f-tab-menu-move')
+await shot('02f-tab-menu-move')
 await overlay.keyboard.press('Escape')
 await overlay.keyboard.press('Escape')
 await sleep(400)
@@ -383,34 +457,34 @@ await send({ type: 'workspace.create', name: 'A really long workspace name', col
 await sleep(300)
 await send({ type: 'workspace.activate', id: (await state()).workspaces[1].id })
 await settle(800)
-shot('03-workspace-work')
+await shot('03-workspace-work')
 await send({ type: 'workspace.activate', id: (await state()).workspaces[0].id })
 await sleep(600)
 await shell.locator('.rail-ws-dot').nth(1).hover()
 await sleep(700)
-railShot('03a-workspace-dot-hover')
+await railShot('03a-workspace-dot-hover')
 await shell.locator('.rail-ws-dot').nth(1).click({ button: 'right' })
 await sleep(450)
-shot('03b-workspace-menu')
+await shot('03b-workspace-menu')
 await overlay.keyboard.press('Escape')
 await sleep(400)
 await shell.locator('.rail-ws-head').dblclick()
 await sleep(300)
 await shell.keyboard.type('Flock')
 await sleep(200)
-railShot('03c-workspace-rename', 260)
+await railShot('03c-workspace-rename', 260)
 await shell.keyboard.press('Escape')
 await sleep(300)
 
 await send({ type: 'settings.update', patch: { rail: 'collapsed' } })
 await sleep(700)
-shot('04-collapsed')
+await shot('04-collapsed')
 await shell.locator('.rail-tab').nth(2).hover()
 await sleep(1000)
-shot('04a-collapsed-peek')
+await shot('04a-collapsed-peek')
 await overlay.locator('.rail-tab').nth(3).hover()
 await sleep(300)
-railShot('04b-peek-hover')
+await railShot('04b-peek-hover')
 await closeOverlay()
 await sleep(300)
 await send({ type: 'settings.update', patch: { rail: 'expanded' } })
@@ -427,15 +501,15 @@ await sidebar.locator('.sb-row.folder', { hasText: 'Bookmarks bar' }).click()
 await sleep(200)
 await sidebar.locator('.sb-row.folder', { hasText: 'Dev' }).click()
 await sleep(400)
-shot('05-sidebar-bookmarks')
+await shot('05-sidebar-bookmarks')
 await sidebar.locator('.sb-row', { hasText: 'Sheep' }).first().click({ button: 'right' })
 await sleep(450)
-rightShot('05a-sidebar-bookmark-menu')
+await rightShot('05a-sidebar-bookmark-menu')
 await sidebar.keyboard.press('Escape')
 await sleep(300)
 await sidebar.locator('.sb-search input').fill('wiki')
 await sleep(400)
-rightShot('05b-sidebar-search')
+await rightShot('05b-sidebar-search')
 await sidebar.locator('.sb-search input').fill('')
 await send({ type: 'tab.create', url: `${origin}/page.html` })
 await sleep(1200)
@@ -445,32 +519,32 @@ await send({ type: 'tab.navigate', input: `${origin}/flock-photos.zip` })
 await sleep(300)
 await send({ type: 'sidebar.toggle', section: 'downloads' })
 await sleep(1800)
-shot('05c-sidebar-downloads')
+await shot('05c-sidebar-downloads')
 await sidebar.locator('.sb-download').first().locator('.sb-pause').click()
 await sleep(700)
 await sidebar.locator('.sb-download').first().locator('.sb-cancel').click()
 await sleep(600)
-rightShot('05d-sidebar-downloads-done')
+await rightShot('05d-sidebar-downloads-done')
 await sidebar.locator('.sb-tab[data-section="history"]').click()
 await sleep(700)
-shot('05e-sidebar-history')
+await shot('05e-sidebar-history')
 await send({ type: 'sidebar.close' })
 await sleep(500)
 
 await send({ type: 'overlay.request', part: 'palette', newTab: true })
 await sleep(500)
-shot('06-new-tab-palette')
+await shot('06-new-tab-palette')
 await overlay.keyboard.type('t: wiki')
 await sleep(400)
-shot('06a-palette-tabs')
+await shot('06a-palette-tabs')
 await overlay.keyboard.press('Control+a')
 await overlay.keyboard.type('b: sheep')
 await sleep(400)
-shot('06b-palette-bookmarks')
+await shot('06b-palette-bookmarks')
 await closeOverlay()
 await key('l', ['control'])
 await sleep(400)
-railShot('06c-ctrl-l', 140)
+await railShot('06c-ctrl-l', 140)
 await shell.keyboard.press('Escape')
 await sleep(300)
 
@@ -478,10 +552,10 @@ await send({ type: 'tab.create', url: `${origin}/login.html` })
 await sleep(1200)
 await send({ type: 'passwords.open' })
 await sleep(900)
-shot('11-passwords')
+await shot('11-passwords')
 await overlay.keyboard.press('ArrowDown')
 await sleep(200)
-shot('11a-passwords-row')
+await shot('11a-passwords-row')
 await closeOverlay()
 await send({ type: 'tab.create', url: `${origin}/chat.html` })
 await sleep(1000)
@@ -491,7 +565,7 @@ await sidebar.locator('.sb-add-panel').click()
 await sleep(400)
 await send({ type: 'tab.navigate', input: `${origin}/login.html` })
 await sleep(1200)
-shot('11b-web-panel')
+await shot('11b-web-panel')
 await send({ type: 'sidebar.close' })
 await sleep(400)
 
@@ -503,39 +577,39 @@ await sleep(1500)
 const extButton = shell.locator(`.ext-action[data-extension="${extensionId}"]`)
 await extButton.hover()
 await sleep(300)
-railShot('12-extension-button', 200)
+await railShot('12-extension-button', 200)
 await extButton.click()
 await sleep(1200)
-shot('12a-extension-popup')
+await shot('12a-extension-popup')
 await extButton.click()
 await sleep(400)
 await extButton.click({ button: 'right' })
 await sleep(450)
-shot('12b-extension-menu')
+await shot('12b-extension-menu')
 await overlay.keyboard.press('Escape')
 await sleep(400)
 
 for (let i = 0; i < 24; i++)
   await send({ type: 'tab.create', url: `${origin}/page.html?n=${i}`, activate: false })
 await sleep(2500)
-shot('07-many-tabs')
+await shot('07-many-tabs')
 
 await send({ type: 'tab.navigate', input: filesDir })
 await sleep(1500)
 const filesPage = await find('app://files')
-shot('07a-files-grid')
+await shot('07a-files-grid')
 await filesPage.locator('.fm-tile', { hasText: 'Photos' }).dblclick()
 await sleep(2500)
-shot('07b-files-photos')
+await shot('07b-files-photos')
 await filesPage.locator('.fm-tile', { hasText: 'A1 mockup.png' }).dblclick()
 await sleep(700)
-shot('07j-viewer-image')
+await shot('07j-viewer-image')
 await filesPage.keyboard.press('ArrowRight')
 await sleep(600)
-shot('07j-viewer-next')
+await shot('07j-viewer-next')
 await filesPage.keyboard.press('End')
 await sleep(1200)
-shot('07k-viewer-video')
+await shot('07k-viewer-video')
 await filesPage.keyboard.press('Escape')
 await sleep(300)
 await filesPage.locator('.fm-tile').nth(1).click()
@@ -544,51 +618,51 @@ await filesPage
   .nth(3)
   .click({ modifiers: ['Shift'] })
 await sleep(300)
-shot('07c-files-selection')
+await shot('07c-files-selection')
 await filesPage.keyboard.press('Backspace')
 await sleep(800)
 await filesPage.locator('.fm-tile', { hasText: 'notes.md' }).dblclick()
 await sleep(700)
-shot('07n-viewer-markdown')
+await shot('07n-viewer-markdown')
 await filesPage.locator('.mv-close').click()
 await filesPage.locator('.fm-tile', { hasText: 'shear.ts' }).dblclick()
 await sleep(700)
-shot('07o-viewer-code')
+await shot('07o-viewer-code')
 await filesPage.locator('.mv-close').click()
 await filesPage.locator('.fm-tile', { hasText: 'manual.pdf' }).dblclick()
 await sleep(2500)
-shot('07p-viewer-pdf')
+await shot('07p-viewer-pdf')
 await filesPage.locator('.mv-close').click()
 await sleep(300)
 await filesPage.locator('.fm-tile', { hasText: 'mockups.zip' }).dblclick()
 await sleep(800)
-shot('07l-archive-dialog')
+await shot('07l-archive-dialog')
 await filesPage.keyboard.press('Escape')
 await sleep(300)
 await filesPage.locator('.fm-tile', { hasText: 'Obsidian' }).click({ button: 'right' })
 await filesPage.locator('.menu-item', { hasText: 'Compress' }).hover()
 await sleep(450)
-shot('07m-compress-menu')
+await shot('07m-compress-menu')
 await filesPage.keyboard.press('Escape')
 await filesPage.keyboard.press('Escape')
 await sleep(300)
 await filesPage.locator('.fm-view[title="List"]').click()
 await sleep(500)
-shot('07d-files-list')
+await shot('07d-files-list')
 await filesPage.locator('.fm-row', { hasText: 'notes.md' }).click({ button: 'right' })
 await sleep(450)
-shot('07e-files-menu')
+await shot('07e-files-menu')
 await filesPage.keyboard.press('Escape')
 await sleep(300)
 await filesPage.locator('.fm-view[title="Grid"]').click()
 await filesPage.locator('.fm-tile', { hasText: 'notes.md' }).click()
 await filesPage.keyboard.press('F2')
 await sleep(300)
-shot('07f-files-rename')
+await shot('07f-files-rename')
 await filesPage.keyboard.press('Escape')
 await filesPage.locator('.fm-content').click({ button: 'right', position: { x: 600, y: 420 } })
 await sleep(450)
-shot('07g-files-background-menu')
+await shot('07g-files-background-menu')
 await filesPage.keyboard.press('Escape')
 await sleep(300)
 const crumbsBox = await filesPage.locator('.fm-crumbs').boundingBox()
@@ -596,68 +670,90 @@ await filesPage.locator('.fm-crumbs').click({
   position: { x: (crumbsBox?.width ?? 100) - 12, y: (crumbsBox?.height ?? 20) / 2 },
 })
 await sleep(300)
-shot('07h-files-path-edit')
+await shot('07h-files-path-edit')
 await filesPage.keyboard.press('Escape')
 await sleep(300)
-railShot('07i-rail-files-tab', 260)
+await railShot('07i-rail-files-tab', 260)
 
 await send({ type: 'open.internal', page: 'music' })
 await sleep(3000)
 const musicPage = await find('app://music')
-shot('07q-music-albums')
+await shot('07q-music-albums')
 await musicPage.locator('.mu-tile').first().click()
 await sleep(600)
 await musicPage.locator('.mu-play-all').click()
 await sleep(1500)
-shot('07r-music-album-playing')
+await shot('07r-music-album-playing')
 await musicPage.locator('.mu-nav-item[data-view="songs"]').click()
 await sleep(500)
-shot('07s-music-songs')
+await shot('07s-music-songs')
 await musicPage.locator('.mu-nav-item[data-view="artists"]').click()
 await sleep(500)
-shot('07t-music-artists')
+await shot('07t-music-artists')
 await musicPage.keyboard.press('Space')
 await sleep(300)
 
+await send({ type: 'open.internal', page: 'home' })
+await sleep(2500)
+await shot('01b-home-recent')
+const homePage = await find('app://home')
+await homePage.locator('.palette.hero input').fill('wiki')
+await sleep(700)
+await shot('01c-home-search')
+await homePage.locator('.palette.hero input').fill('')
+await homePage.locator('.palette.hero input').blur()
+await homePage.locator('.rc-card').first().click({ button: 'right' })
+await sleep(400)
+await shot('01d-home-menu')
+await homePage.keyboard.press('Escape')
+await homePage.locator('.home-seg [data-filter="doc"]').click()
+await sleep(1000)
+await shot('01e-home-docs')
+await homePage.locator('.home-seg [data-filter="all"]').click()
+await sleep(500)
+
 await send({ type: 'open.internal', page: 'settings' })
 await sleep(1200)
-shot('08-settings')
+await shot('08-settings')
 const settingsPage = await find('app://settings')
 await settingsPage.locator('.settings-startup').scrollIntoViewIfNeeded()
 await sleep(400)
-shot('08a-settings-ewe')
+await shot('08a-settings-ewe')
 await settingsPage.locator('.settings-ext-store').scrollIntoViewIfNeeded()
 await sleep(400)
-shot('08b-settings-extensions-sync')
+await shot('08b-settings-extensions-sync')
 await send({ type: 'settings.update', patch: { theme: 'light' } })
 await sleep(800)
-shot('09-light')
+await shot('09-light')
 await send({ type: 'tab.activate', id: ids[0] })
 await sleep(800)
 await shell.locator('.rail-tab').nth(1).hover()
 await sleep(300)
-shot('09a-light-rail')
+await shot('09a-light-rail')
 await shell.locator('.rail-tab').nth(2).click({ button: 'right' })
 await sleep(450)
-shot('09b-light-tab-menu')
+await shot('09b-light-tab-menu')
 await overlay.keyboard.press('Escape')
 await sleep(400)
 await send({ type: 'sidebar.toggle', section: 'bookmarks' })
 await sleep(700)
-shot('09c-light-sidebar')
+await shot('09c-light-sidebar')
 await send({ type: 'sidebar.close' })
 await sleep(300)
 await send({ type: 'tab.navigate', input: join(filesDir, 'Photos') })
 await sleep(2500)
-shot('09e-light-files')
+await shot('09e-light-files')
 await send({ type: 'open.internal', page: 'music' })
 await sleep(1500)
-shot('09f-light-music')
+await shot('09f-light-music')
+await send({ type: 'open.internal', page: 'home' })
+await sleep(2000)
+await shot('09g-light-home')
 await send({ type: 'settings.update', patch: { rail: 'collapsed' } })
 await sleep(500)
 await shell.locator('.rail-tab').nth(1).hover()
 await sleep(1000)
-shot('09d-light-peek')
+await shot('09d-light-peek')
 await closeOverlay()
 await send({ type: 'settings.update', patch: { rail: 'expanded', theme: 'dark' } })
 await sleep(800)
@@ -666,6 +762,6 @@ await send({
   input: 'app://sad/?url=https%3A%2F%2Fexample.com%2F&error=crashed',
 })
 await sleep(1000)
-shot('10-sad')
+await shot('10-sad')
 await Promise.race([app.close(), sleep(5000)])
 process.exit(0)

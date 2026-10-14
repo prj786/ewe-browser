@@ -5,7 +5,15 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['**/node_modules/**', '**/out/**', '**/dist/**', '**/release/**', '**/tests/fixtures/**'] },
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/out/**',
+      '**/dist/**',
+      '**/release/**',
+      '**/tests/fixtures/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,

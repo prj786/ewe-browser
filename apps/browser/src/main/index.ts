@@ -15,6 +15,8 @@ import { DownloadManager } from './downloads'
 import { DefaultHandler } from './files/default-handler'
 import { ExtensionHost } from './extensions'
 import { FileService } from './files/service'
+import { RecentsService } from './home/recents'
+import { HomeService } from './home/service'
 import { MusicLibraryStore } from './media/library'
 import { openArgs } from './open-args'
 import { readEweAccount } from './ewe-account'
@@ -25,12 +27,19 @@ import { installAppProtocol, registerAppScheme } from './protocol'
 import { BookmarksStore } from './storage/bookmarks-store'
 import { DownloadsStore } from './storage/downloads-store'
 import { HistoryStore } from './storage/history-store'
+import { RecentStore } from './storage/recent-store'
 import { SessionStore } from './storage/session-store'
 import { setShortcuts } from './shortcuts'
 import { SettingsStore } from './storage/settings-store'
 import { Startup } from './startup'
 import { SyncService } from './sync/service'
-import { WindowManager, preloadPath, setEweBackground, type RendererEntry } from './window-manager'
+import {
+  WindowManager,
+  preloadPath,
+  setEweBackground,
+  type RendererEntry,
+  type WindowController,
+} from './window-manager'
 
 const WEB_PERMISSIONS = new Set([
   'fullscreen',
@@ -86,7 +95,13 @@ async function main(): Promise<void> {
   installPermissionHandlers(persistent)
   installPermissionHandlers(session.defaultSession)
 
-  const files = new FileService({ trashDir: process.env.EWE_TRASH_DIR })
+  const userData = app.getPath('userData')
+  const recentStore = new RecentStore(userData)
+  await recentStore.load()
+  const files = new FileService({
+    trashDir: process.env.EWE_TRASH_DIR,
+    onOpened: (path) => recentStore.record(path, 'opened'),
+  })
   installAppProtocol(
     persistent,
     join(__dirname, '../renderer'),
@@ -94,7 +109,6 @@ async function main(): Promise<void> {
     () => files.token,
   )
 
-  const userData = app.getPath('userData')
   const settings = new SettingsStore(userData)
   const sessions = new SessionStore(userData)
   const history = new HistoryStore(userData)
@@ -208,6 +222,7 @@ async function main(): Promise<void> {
     bookmarks,
     downloads,
     importChromeBookmarks: () => importChromeBookmarks(bookmarks),
+    isMusicTrack: (path) => music.track(path) !== undefined,
     onSessionChange: () => {
       if (saveTimer !== null) return
       saveTimer = setTimeout(() => {
@@ -228,8 +243,26 @@ async function main(): Promise<void> {
     windows.applyWindowColors()
     for (const c of windows.all()) c.layout()
   })
+  let homeTimer: NodeJS.Timeout | null = null
+  const homeChanged = (): void => {
+    if (homeTimer !== null) return
+    homeTimer = setTimeout(() => {
+      homeTimer = null
+      for (const wc of webContents.getAllWebContents())
+        if (!wc.isDestroyed() && wc.getURL().startsWith(HOME_URL)) wc.send(IPC.homeChanged)
+    }, 400)
+  }
+  recentStore.on('change', homeChanged)
+  history.on('change', homeChanged)
+  music.on('change', homeChanged)
+  let completed = 0
   bookmarks.on('change', (root) => windows.broadcastBookmarks(root))
-  downloadsStore.on('change', (entries) => windows.broadcastDownloads(entries))
+  downloadsStore.on('change', (entries) => {
+    windows.broadcastDownloads(entries)
+    const done = entries.filter((e) => e.status === 'completed').length
+    if (done !== completed) homeChanged()
+    completed = done
+  })
   let historyTimer: NodeJS.Timeout | null = null
   history.on('change', () => {
     if (historyTimer !== null) return
@@ -259,6 +292,18 @@ async function main(): Promise<void> {
     downloads: downloadsStore,
     files,
     music,
+    recents: recentStore,
+    home: new HomeService({
+      store: recentStore,
+      token: () => files.token,
+      recents: new RecentsService({
+        records: () => recentStore.list(),
+        hidden: () => recentStore.hidden(),
+        history: (limit) => history.list('', limit),
+        downloads: () => downloadsStore.list(),
+        track: (path) => music.track(path),
+      }),
+    }),
     defaultHandler: new DefaultHandler(userData, appCommand),
     sync,
     extensions,
@@ -281,9 +326,9 @@ async function main(): Promise<void> {
   if (!launchedInBackground) openSession(restored)
   sync.start()
 
-  const openTargets = (targets: ReturnType<typeof openArgs>): boolean => {
+  const openTargets = (targets: ReturnType<typeof openArgs>, into?: WindowController): boolean => {
     if (targets.length === 0) return false
-    const target = windows.focused() ?? windows.open()
+    const target = into ?? windows.focused() ?? windows.open()
     for (const t of targets) {
       if (t.kind === 'dir') target.openFiles(t.path)
       else target.tabs.create(t.url)
@@ -301,6 +346,11 @@ async function main(): Promise<void> {
       void reopen().then(() => openTargets(targets))
       return
     }
+    if (argv.includes('--new-window')) {
+      const created = windows.open()
+      if (!openTargets(targets, created)) created.win.focus()
+      return
+    }
     if (openTargets(targets)) return
     const focused = windows.focused()
     if (focused === undefined) windows.open()
@@ -316,6 +366,7 @@ async function main(): Promise<void> {
     void history.flush()
     void bookmarks.flush()
     void downloadsStore.flush()
+    void recentStore.flush()
     music.flush()
   })
   app.on('window-all-closed', () => {

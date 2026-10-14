@@ -256,6 +256,51 @@ built, verified and handed to the owner for testing before the next starts.
      `chrome.action.openPopup` still uses the library's own window; sync does not cover open
      tabs, passwords (they stay in the password manager) or extensions themselves.
 
+## Home, ewe package, CLI (agreed 2026-10-14)
+
+1. [x] **Home screen** (landed 2026-10-14, waiting for the owner's review)
+   - `app://home` rebuilt: greeting, a large search pill (palette logic, results drop down only
+     while typing), folder shortcuts (XDG dirs, Nextcloud / Google Drive with an offline dot, GTK
+     bookmarks, devices; balanced rows), and Recent: five cards mixing the newest document,
+     video, song and site first, with All / Docs / Videos / Music / Web filters.
+   - Recents come from files opened in ewe browser (viewer, default app, mpv), songs played in
+     Music, GTK's `recently-used.xbel` (Nemo, mpv, file choosers), finished downloads and
+     history (search pages skipped, one page per site). Stored in `recent.json`; "Remove from
+     Recent" hides an item until it is used again.
+   - Cards: PDF first pages through pdf.js (no poppler needed), video frames, album covers,
+     Markdown/text snippets, site favicons. PDFs, text, video and audio open in the files viewer,
+     songs play in the one Music tab (`music.play`), Office files open in their app. The page
+     updates live through `ewe:home-changed`.
+   - Fixed on the way: GTK bookmarks with a trailing slash had no label and duplicated the
+     Nextcloud place; `scripts/visual.mjs` captured the screen with grim and recorded other
+     windows whenever workspace 2 was not visible, so it now captures the app's own views.
+   - Known: no page thumbnails for websites (favicons only); office documents show a paper glyph
+     unless a freedesktop thumbnail exists; images are not part of Recent.
+2. [x] **ewe package** (prepared 2026-10-14 on `feat/ewe-browser` in five repos, not released)
+   - ewe browser is packaged like Komble: root `PKGBUILD`, `packaging/` (desktop entry with a
+     New window action, the globe icon), `scripts/gen-icons.sh`, `release.yml` (tag → makepkg
+     → GitHub release) and `ci.yml`. electron-builder lays out castlabs' runtime + `app.asar`;
+     the package is ~120 MB. Built and run from the package: home loads, extensions start,
+     renderers are sandboxed through user namespaces (no setuid helper), `--new-window` with a
+     url opens a second window in the running instance.
+   - It replaces Helium as ewe's browser (owner's decision): ewe-repo publishes it and asserts
+     the dependency; the `ewe` package depends on it; phase 20 installs it; `ewe-setup` and
+     phase 60 seed it as the default browser; Super+B falls back to it; `$BROWSER` points at
+     it; the dock's default pins name it; `warmup.sh` warms it; Helium's theming hook runs only
+     while Helium is installed; Komble lists it as first-party. Nemo keeps folders.
+   - Fixed on the way: get.sh installed months-old stable releases (or fell back to a source
+     build) because it asked GitHub for "Latest", which skips the `-beta` releases every app
+     ships; it now takes the newest release, like the `[ewe]` repo and Komble. The app's
+     folder handler writes its own hidden `ewe-browser-folders.desktop`, so it can never shadow
+     the packaged `ewe-browser.desktop`.
+   - Left for the owner: pushing the branches, the `v0.1.0-beta` tag, the ewe release and the
+     ewe-repo publish (in that order); `ewe-auth`/`ewe-cloud` still name Helium as a fallback
+     after `xdg-open` (both are being rewritten); existing machines keep Helium as default
+     until changed in Settings.
+3. [ ] **CLI**: a scriptable `ewe-browser` command (open folders and files, search, list tabs,
+       recents and history) with JSON output, for the ewe companion. `RecentsService` and
+       `HomeService` are the first pieces it reuses.
+
 ## Phase 3 — Chrome extensions
 
 - [x] License decision: GPL-3.0 for the whole project

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { nativeImage } from 'electron'
-import { extensionOf, fileKind } from '@ewe/shared'
+import { extensionOf, fileKind, type FileKind } from '@ewe/shared'
 
 const THUMB_SIZE = 256
 const MAX_RAW_THUMB = 25 * 1024 * 1024
@@ -44,6 +44,7 @@ const MIME: Record<string, string> = {
 }
 
 const NATIVE_DECODE = new Set(['png', 'jpg', 'jpeg'])
+const CACHED_KINDS = new Set<FileKind>(['image', 'video', 'pdf', 'document', 'sheet', 'slides'])
 
 export function mimeOf(path: string): string {
   return MIME[extensionOf(path)] ?? 'application/octet-stream'
@@ -103,7 +104,7 @@ export async function thumbnail(path: string): Promise<Thumbnail> {
   }
   if (!info.isFile()) return null
   const kind = fileKind({ name: path, dir: false })
-  if (kind !== 'image' && kind !== 'video') return null
+  if (!CACHED_KINDS.has(kind)) return null
   const name = thumbnailName(path)
   for (const size of ['x-large', 'large', 'normal']) {
     const shared = await freshFile(join(cacheHome(), 'thumbnails', size, name), info.mtimeMs)
@@ -114,6 +115,7 @@ export async function thumbnail(path: string): Promise<Thumbnail> {
   const cached = await freshFile(own, info.mtimeMs)
   if (cached !== null) return { kind: 'png', data: cached }
 
+  if (kind !== 'image' && kind !== 'video') return null
   const ext = extensionOf(path)
   if (kind === 'image' && !NATIVE_DECODE.has(ext))
     return info.size <= MAX_RAW_THUMB ? { kind: 'raw' } : null

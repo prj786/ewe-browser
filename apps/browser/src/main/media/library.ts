@@ -123,6 +123,7 @@ export class MusicLibraryStore extends EventEmitter<{ change: [MusicLibrary] }> 
   private readonly path: string
   private readonly roots: string[]
   private tracks: Track[] = []
+  private byPath: Map<string, Track> | null = null
   private scanning: Promise<void> | null = null
   private scannedAt: number | null = null
   private readonly write = debounce(() => {
@@ -139,6 +140,12 @@ export class MusicLibraryStore extends EventEmitter<{ change: [MusicLibrary] }> 
   async load(): Promise<void> {
     const file = await readJson(this.path, isIndexFile)
     if (file !== null) this.tracks = file.tracks
+    this.byPath = null
+  }
+
+  track(path: string): Track | undefined {
+    this.byPath ??= new Map(this.tracks.map((t) => [t.path, t]))
+    return this.byPath.get(path)
   }
 
   snapshot(): MusicLibrary {
@@ -186,6 +193,7 @@ export class MusicLibraryStore extends EventEmitter<{ change: [MusicLibrary] }> 
     }
     await Promise.all(Array.from({ length: JOBS }, worker))
     this.tracks = next
+    this.byPath = null
     this.write()
   }
 

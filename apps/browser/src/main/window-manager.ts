@@ -19,6 +19,7 @@ import {
   MUSIC_PAGE_URL,
   TOAST_MS,
   filesUrl,
+  viewerUrl,
   isBookmarkableUrl,
   isOpenableUrl,
   isPageCommandAllowed,
@@ -76,6 +77,7 @@ export interface WindowDeps {
   downloads: DownloadManager
   extensions?: ExtensionHost | undefined
   importChromeBookmarks(): Promise<string>
+  isMusicTrack(path: string): boolean
   onSessionChange(): void
   onClosing(controller: WindowController): void
   onClosed(controller: WindowController): void
@@ -438,6 +440,7 @@ export class WindowController {
         !frameUrl.startsWith(SETTINGS_URL)
       )
         return
+      if (command.type === 'music.play' && !frameUrl.startsWith(HOME_URL)) return
       if ((command.type === 'tab.navigate' || command.type === 'nav.reload') && tab !== undefined)
         command = { ...command, id: tab.id }
     }
@@ -740,6 +743,9 @@ export class WindowController {
         if (layer === 'overlay') this.overlay.hide()
         break
       }
+      case 'music.play':
+        this.playMusic(command.path)
+        break
       case 'window.new':
         this.deps.openWindow()
         break
@@ -778,6 +784,23 @@ export class WindowController {
           : this.tabs.workspaceList().some((w) => w.id === menu.id)
     if (!exists) return
     this.overlay.show('menu', this.contentSize(), { type: 'menu.open', menu, x: at.x, y: at.y })
+  }
+
+  playMusic(path: string): void {
+    if (!this.deps.isMusicTrack(path)) {
+      this.tabs.create(viewerUrl(path))
+      return
+    }
+    const url = `${MUSIC_PAGE_URL}?${new URLSearchParams({ play: path }).toString()}`
+    const existing = this.tabs.list().find((t) => t.state.kind === 'music')
+    if (existing === undefined) {
+      this.tabs.create(url)
+      return
+    }
+    const ready = !existing.pending && !existing.webContents.isLoading()
+    if (!ready) this.tabs.navigate(existing.id, url)
+    this.tabs.activate(existing.id)
+    if (ready) existing.webContents.send(IPC.ui, { type: 'music.play', path } satisfies UiEvent)
   }
 
   openFiles(path: string, select?: string): void {
