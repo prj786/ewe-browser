@@ -20,7 +20,11 @@ jobs:
       - name: Install
         run: npx -y pnpm@11.13.0 install --frozen-lockfile
 
+      # Type-aware ESLint over the whole workspace peaks at ~2.7 GB RSS; the
+      # runner's default Node heap is smaller, so give it the 4 GB a desktop has.
       - name: Check
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           npx -y pnpm@11.13.0 typecheck
           npx -y pnpm@11.13.0 lint
