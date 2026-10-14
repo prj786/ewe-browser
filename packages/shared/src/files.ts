@@ -88,6 +88,7 @@ export type FsRequest =
   | { op: 'extract'; path: string }
   | { op: 'compress'; paths: string[]; format: ArchiveFormat }
   | { op: 'mpv'; path: string }
+  | { op: 'recent'; path: string }
 
 export type FsResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -146,6 +147,7 @@ export function isFsRequest(value: unknown): value is FsRequest {
     case 'archive.list':
     case 'extract':
     case 'mpv':
+    case 'recent':
       return isPath(r.path)
     case 'mount':
       return r.target === 'nextcloud' || r.target === 'drive'
@@ -168,6 +170,12 @@ export function filesUrl(path: string, select?: string): string {
   const params = new URLSearchParams({ path })
   if (select !== undefined) params.set('select', select)
   return `${FILES_PAGE_URL}?${params.toString()}`
+}
+
+export function viewerUrl(path: string): string {
+  const slash = path.lastIndexOf('/')
+  const dir = slash <= 0 ? '/' : path.slice(0, slash)
+  return `${filesUrl(dir, path.slice(slash + 1))}&view=1`
 }
 
 export function pathFromFilesUrl(url: string): string | null {

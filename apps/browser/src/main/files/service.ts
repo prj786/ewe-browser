@@ -172,7 +172,7 @@ export async function transfer(
   return done
 }
 
-function openWithDefault(path: string): Promise<boolean> {
+export function openWithDefault(path: string): Promise<boolean> {
   return new Promise((resolve) => {
     execFile('gio', ['open', path], { timeout: 10_000 }, (error) => {
       if (error === null) {
@@ -182,6 +182,19 @@ function openWithDefault(path: string): Promise<boolean> {
       void shell.openPath(path).then((message) => resolve(message === ''))
     })
   })
+}
+
+export async function playInMpv(path: string): Promise<boolean> {
+  const child = spawn('mpv', ['--force-window=immediate', '--', path], {
+    detached: true,
+    stdio: 'ignore',
+  })
+  const started = await new Promise<boolean>((resolve) => {
+    child.once('error', () => resolve(false))
+    child.once('spawn', () => resolve(true))
+  })
+  child.unref()
+  return started
 }
 
 function dragIcon(): Electron.NativeImage {
@@ -200,6 +213,7 @@ function dragIcon(): Electron.NativeImage {
 
 export interface FileServiceHost {
   trashDir?: string | undefined
+  onOpened?: ((path: string) => void) | undefined
 }
 
 export class FileService {
@@ -244,10 +258,15 @@ export class FileService {
           if (request.op === 'move' && this.clipboard?.mode === 'cut') this.clipboard = null
           return ok(done)
         }
-        case 'open':
-          return (await openWithDefault(expandPath(request.path)))
-            ? ok(true)
-            : fail('No app opens this kind of file')
+        case 'open': {
+          const path = expandPath(request.path)
+          if (!(await openWithDefault(path))) return fail('No app opens this kind of file')
+          this.host.onOpened?.(path)
+          return ok(true)
+        }
+        case 'recent':
+          this.host.onOpened?.(expandPath(request.path))
+          return ok(true)
         case 'archive.list':
           return ok(await listArchive(expandPath(request.path)))
         case 'extract':
@@ -262,16 +281,10 @@ export class FileService {
         case 'terminal':
           return this.terminal(expandPath(request.path))
         case 'mpv': {
-          const child = spawn('mpv', ['--force-window=immediate', '--', expandPath(request.path)], {
-            detached: true,
-            stdio: 'ignore',
-          })
-          const started = await new Promise<boolean>((resolve) => {
-            child.once('error', () => resolve(false))
-            child.once('spawn', () => resolve(true))
-          })
-          child.unref()
-          return started ? ok(true) : fail('mpv is not installed')
+          const path = expandPath(request.path)
+          if (!(await playInMpv(path))) return fail('mpv is not installed')
+          this.host.onOpened?.(path)
+          return ok(true)
         }
         case 'mount': {
           const tool = request.target === 'nextcloud' ? 'ewe-files' : 'ewe-drive'

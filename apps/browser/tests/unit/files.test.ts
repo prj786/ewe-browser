@@ -30,10 +30,14 @@ describe('places parsing', () => {
       parseUserDirs('# c\nXDG_DOWNLOAD_DIR="$HOME/Downloads"\nXDG_MUSIC_DIR="/data/music"\n', '/h'),
     ).toEqual({ DOWNLOAD: '/h/Downloads', MUSIC: '/data/music' })
     expect(
-      parseGtkBookmarks('file:///home/me/Nextcloud Nextcloud\nfile:///srv/a%20b\nsftp://x y\n'),
+      parseGtkBookmarks(
+        'file:///home/me/Nextcloud Nextcloud\nfile:///srv/a%20b\nsftp://x y\nfile:///home/me/Notes/\nfile:///\n',
+      ),
     ).toEqual([
       { path: '/home/me/Nextcloud', label: 'Nextcloud' },
       { path: '/srv/a b', label: 'a b' },
+      { path: '/home/me/Notes', label: 'Notes' },
+      { path: '/', label: '' },
     ])
     expect(
       parseMountPoints(

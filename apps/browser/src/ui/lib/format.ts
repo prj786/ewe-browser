@@ -45,3 +45,21 @@ export function dayLabel(time: number, now = Date.now()): string {
 export function clockTime(time: number): string {
   return new Date(time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
+
+export function timeAgo(time: number, now = Date.now()): string {
+  const seconds = Math.max(0, (now - time) / 1000)
+  if (seconds < 60) return 'Just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24 && startOfDay(time) === startOfDay(now)) return `${hours} h ago`
+  const days = Math.round((startOfDay(now) - startOfDay(time)) / DAY)
+  if (days <= 1) return 'Yesterday'
+  const date = new Date(time)
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: 'short' })
+  return date.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: date.getFullYear() === new Date(now).getFullYear() ? undefined : 'numeric',
+  })
+}

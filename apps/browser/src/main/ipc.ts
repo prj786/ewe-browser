@@ -1,11 +1,13 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import {
   FILES_PAGE_URL,
+  HOME_URL,
   IPC,
   MUSIC_PAGE_URL,
   SETTINGS_URL,
   isMusicRequest,
   isFsRequest,
+  isHomeRequest,
   isShellCommand,
   type Account,
   type ApiLayer,
@@ -13,6 +15,7 @@ import {
 } from '@ewe/shared'
 import type { DefaultHandler } from './files/default-handler'
 import type { FileService } from './files/service'
+import type { HomeService } from './home/service'
 import type { MusicLibraryStore } from './media/library'
 import type { ExtensionHost } from './extensions'
 import type { SyncService } from './sync/service'
@@ -21,6 +24,7 @@ import type { Startup } from './startup'
 import type { BookmarksStore } from './storage/bookmarks-store'
 import type { DownloadsStore } from './storage/downloads-store'
 import type { HistoryStore } from './storage/history-store'
+import type { RecentStore } from './storage/recent-store'
 import type { SettingsStore } from './storage/settings-store'
 import type { WindowManager } from './window-manager'
 
@@ -43,6 +47,8 @@ export interface IpcDeps {
   files: FileService
   defaultHandler: DefaultHandler
   music: MusicLibraryStore
+  home: HomeService
+  recents: RecentStore
 }
 
 export function registerIpc(windows: WindowManager, settings: SettingsStore, deps: IpcDeps): void {
@@ -108,9 +114,22 @@ export function registerIpc(windows: WindowManager, settings: SettingsStore, dep
     if (!(frameUrl?.startsWith(MUSIC_PAGE_URL) ?? false)) return { ok: false, error: 'Not allowed' }
     if (!isMusicRequest(raw)) return { ok: false, error: 'Bad request' }
     if (raw.op === 'token') return { ok: true, value: deps.files.token }
+    if (raw.op === 'played') {
+      if (deps.music.track(raw.path) !== undefined) deps.recents.record(raw.path, 'played')
+      return { ok: true, value: true }
+    }
     const library = deps.music.snapshot()
     if (raw.op === 'rescan' || library.scannedAt === null) void deps.music.scan()
     return { ok: true, value: deps.music.snapshot() }
+  })
+
+  ipcMain.handle(IPC.home, (event, raw: unknown) => {
+    const owner = windows.fromContents(event.sender)
+    if (owner?.layer !== 'page') return { ok: false, error: 'Not allowed' }
+    const frameUrl = senderFrameUrl(event, owner.layer)
+    if (!(frameUrl?.startsWith(HOME_URL) ?? false)) return { ok: false, error: 'Not allowed' }
+    if (!isHomeRequest(raw)) return { ok: false, error: 'Bad request' }
+    return deps.home.handle(raw)
   })
 
   ipcMain.handle(IPC.getExtensions, (event) => {

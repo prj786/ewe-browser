@@ -54,7 +54,7 @@ export function parseGtkBookmarks(text: string): { path: string; label: string }
     const space = trimmed.indexOf(' ')
     const uri = space === -1 ? trimmed : trimmed.slice(0, space)
     try {
-      const path = fileURLToPath(uri)
+      const path = fileURLToPath(uri).replace(/(?<=.)\/+$/, '')
       const label = space === -1 ? (path.split('/').pop() ?? path) : trimmed.slice(space + 1)
       out.push({ path, label })
     } catch {

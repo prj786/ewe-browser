@@ -13,39 +13,6 @@
   padding-top: calc(100vh / 4);
 }
 
-.page-home {
-  place-items: start center;
-  padding: calc(100vh / 5) var(--space-md) 0;
-}
-
-.home {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: calc(var(--space-md) + var(--space-s));
-}
-
-.home-head {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-xxs);
-  text-align: center;
-}
-
-.home-head h1 {
-  margin: 0;
-  font-size: var(--font-size-2xl);
-  line-height: var(--line-height-2xl);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-tight);
-}
-
-.home-head p {
-  margin: 0;
-  color: var(--text-secondary);
-}
-
 .settings {
   align-self: start;
   width: min(var(--panel-lg), calc(100vw - 2 * var(--space-md)));

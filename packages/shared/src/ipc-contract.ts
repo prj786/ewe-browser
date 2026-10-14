@@ -1,5 +1,6 @@
 import type { BookmarkFolder } from './bookmarks'
 import type { FsRequest, FsResult } from './files'
+import type { HomeRequest } from './home'
 import type { MusicLibrary, MusicRequest } from './music'
 import {
   SIDEBAR_SECTIONS,
@@ -59,6 +60,7 @@ export type ShellCommand =
   | { type: 'overlay.pin'; pinned: boolean }
   | { type: 'settings.update'; patch: Partial<Settings> }
   | { type: 'open.internal'; page: InternalPage }
+  | { type: 'music.play'; path: string }
   | { type: 'shortcuts.recording'; on: boolean }
   | { type: 'bookmark.toggle'; tabId?: TabId }
   | { type: 'bookmark.add'; url: string; title: string; folderId?: string }
@@ -107,6 +109,7 @@ export type UiEvent =
   | { type: 'passwords.open'; host: string }
   | { type: 'extension.install'; request: ExtensionInstallRequest }
   | { type: 'workspace.rename'; id: string }
+  | { type: 'music.play'; path: string }
 
 export type ApiLayer = 'shell' | 'overlay' | 'sidebar' | 'page'
 
@@ -127,6 +130,8 @@ export interface BrowserApi {
   defaultHandler(set?: boolean): Promise<{ isDefault: boolean; current: string | null } | null>
   onFsChanged(listener: (path: string) => void): () => void
   music<T = MusicLibrary>(request: MusicRequest): Promise<FsResult<T>>
+  home<T = unknown>(request: HomeRequest): Promise<FsResult<T>>
+  onHomeChanged(listener: () => void): () => void
   onMusic(listener: (library: MusicLibrary) => void): () => void
   getExtensions(): Promise<ExtensionsState>
   onExtensions(listener: (state: ExtensionsState) => void): () => void
@@ -157,6 +162,8 @@ export const IPC = {
   defaultHandler: 'ewe:default-handler',
   fsChanged: 'ewe:fs-changed',
   music: 'ewe:music',
+  home: 'ewe:home',
+  homeChanged: 'ewe:home-changed',
   passwords: 'ewe:passwords',
   getExtensions: 'ewe:get-extensions',
   sync: 'ewe:sync',
@@ -180,6 +187,7 @@ const PAGE_COMMANDS = new Set<ShellCommand['type']>([
   'nav.reload',
   'settings.update',
   'open.internal',
+  'music.play',
   'shortcuts.recording',
   'bookmarks.importChrome',
   'panel.add',
@@ -310,6 +318,8 @@ export function isShellCommand(value: unknown): value is ShellCommand {
         c.page === 'files' ||
         c.page === 'music'
       )
+    case 'music.play':
+      return isString(c.path) && c.path.startsWith('/')
     case 'shortcuts.recording':
       return typeof c.on === 'boolean'
     case 'bookmark.toggle':

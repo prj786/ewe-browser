@@ -15,6 +15,7 @@ import {
   THUMBNAIL_KINDS,
   VIEWABLE_KINDS,
   filesUrl,
+  viewerUrl,
   fileKind,
   filterEntries,
   isFileName,
@@ -418,12 +419,13 @@ function FilesApp(): JSX.Element {
   const openViewer = (entry: FsEntry) => {
     const items = entries().filter((e) => VIEWABLE_KINDS.has(fileKind(e)))
     const index = items.findIndex((e) => e.path === entry.path)
-    if (index !== -1) setViewer({ items, index })
+    if (index === -1) return
+    setViewer({ items, index })
+    void api.fs({ op: 'recent', path: entry.path })
   }
 
   const viewInNewTab = (entry: FsEntry) => {
-    const dir = entry.path.slice(0, entry.path.lastIndexOf('/')) || '/'
-    void api.send({ type: 'tab.create', url: `${filesUrl(dir, entry.name)}&view=1` })
+    void api.send({ type: 'tab.create', url: viewerUrl(entry.path) })
   }
 
   const openArchive = (entry: FsEntry) => {

@@ -256,6 +256,31 @@ built, verified and handed to the owner for testing before the next starts.
      `chrome.action.openPopup` still uses the library's own window; sync does not cover open
      tabs, passwords (they stay in the password manager) or extensions themselves.
 
+## Home, ewe package, CLI (agreed 2026-10-14)
+
+1. [x] **Home screen** (landed 2026-10-14, waiting for the owner's review)
+   - `app://home` rebuilt: greeting, a large search pill (palette logic, results drop down only
+     while typing), folder shortcuts (XDG dirs, Nextcloud / Google Drive with an offline dot, GTK
+     bookmarks, devices; balanced rows), and Recent: five cards mixing the newest document,
+     video, song and site first, with All / Docs / Videos / Music / Web filters.
+   - Recents come from files opened in ewe browser (viewer, default app, mpv), songs played in
+     Music, GTK's `recently-used.xbel` (Nemo, mpv, file choosers), finished downloads and
+     history (search pages skipped, one page per site). Stored in `recent.json`; "Remove from
+     Recent" hides an item until it is used again.
+   - Cards: PDF first pages through pdf.js (no poppler needed), video frames, album covers,
+     Markdown/text snippets, site favicons. PDFs, text, video and audio open in the files viewer,
+     songs play in the one Music tab (`music.play`), Office files open in their app. The page
+     updates live through `ewe:home-changed`.
+   - Fixed on the way: GTK bookmarks with a trailing slash had no label and duplicated the
+     Nextcloud place; `scripts/visual.mjs` captured the screen with grim and recorded other
+     windows whenever workspace 2 was not visible, so it now captures the app's own views.
+   - Known: no page thumbnails for websites (favicons only); office documents show a paper glyph
+     unless a freedesktop thumbnail exists; images are not part of Recent.
+2. [ ] **ewe package**: ship ewe browser as a default ewe package like Komble and Cast.
+3. [ ] **CLI**: a scriptable `ewe-browser` command (open folders and files, search, list tabs,
+       recents and history) with JSON output, for the ewe companion. `RecentsService` and
+       `HomeService` are the first pieces it reuses.
+
 ## Phase 3 — Chrome extensions
 
 - [x] License decision: GPL-3.0 for the whole project
