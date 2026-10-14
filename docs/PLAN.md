@@ -276,7 +276,8 @@ built, verified and handed to the owner for testing before the next starts.
      windows whenever workspace 2 was not visible, so it now captures the app's own views.
    - Known: no page thumbnails for websites (favicons only); office documents show a paper glyph
      unless a freedesktop thumbnail exists; images are not part of Recent.
-2. [x] **ewe package** (prepared 2026-10-14 on `feat/ewe-browser` in five repos, not released)
+2. [x] **ewe package** (released 2026-10-14: ewe browser 0.1.0-beta, ewe 0.26.0-beta, Komble
+       0.20.2-beta, then the ewe-repo publish)
    - ewe browser is packaged like Komble: root `PKGBUILD`, `packaging/` (desktop entry with a
      New window action, the globe icon), `scripts/gen-icons.sh`, `release.yml` (tag → makepkg
      → GitHub release) and `ci.yml`. electron-builder lays out castlabs' runtime + `app.asar`;
@@ -293,10 +294,13 @@ built, verified and handed to the owner for testing before the next starts.
      ships; it now takes the newest release, like the `[ewe]` repo and Komble. The app's
      folder handler writes its own hidden `ewe-browser-folders.desktop`, so it can never shadow
      the packaged `ewe-browser.desktop`.
-   - Left for the owner: pushing the branches, the `v0.1.0-beta` tag, the ewe release and the
-     ewe-repo publish (in that order); `ewe-auth`/`ewe-cloud` still name Helium as a fallback
-     after `xdg-open` (both are being rewritten); existing machines keep Helium as default
-     until changed in Settings.
+   - One wave across six repos (ewe-browser#1, ewe#51, ewe-repo#2, komble-arch#13,
+     prj786.github.io#5, ewe-map#8). CI here needed a 4 GB Node heap for type-aware ESLint
+     and `bsdtar` on the Ubuntu runner. The repo went public that day: ewe-repo's publish
+     reads releases with its own token and Komble and get.sh fetch them anonymously, so the
+     first publish could not see a private repo's release and its fresh-install gate failed.
+   - Still open: `ewe-auth`/`ewe-cloud` name Helium as a fallback after `xdg-open` (both are
+     being rewritten); existing machines keep Helium as default until changed in Settings.
 3. [ ] **CLI**: a scriptable `ewe-browser` command (open folders and files, search, list tabs,
        recents and history) with JSON output, for the ewe companion. `RecentsService` and
        `HomeService` are the first pieces it reuses.
