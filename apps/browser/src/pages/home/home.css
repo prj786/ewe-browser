@@ -1,5 +1,6 @@
-.page-home {
-  display: block;
+.page.page-home {
+  display: flex;
+  flex-direction: column;
   padding: 0 var(--space-md);
   background:
     radial-gradient(
@@ -17,7 +18,7 @@
   flex-direction: column;
   gap: calc(var(--space-lg) + var(--space-s));
   width: min(880px, 100%);
-  margin: 0 auto;
+  margin: auto;
   padding: clamp(var(--space-lg), 11vh, 128px) 0 var(--space-xl);
 }
 
@@ -140,6 +141,7 @@
 
 .home-recent {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: var(--space-md);
   animation: ewe-slide-up var(--dur-slow) var(--ease-out) both;
@@ -198,6 +200,7 @@
 
 .rc-row {
   display: grid;
+  min-width: 0;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-md);
 }
