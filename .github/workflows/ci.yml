@@ -15,6 +15,10 @@ jobs:
         with:
           node-version: 24
 
+      # the archive unit tests run a real bsdtar round trip (libarchive on Arch)
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libarchive-tools
+
       # The end-to-end tests need a Wayland session, so CI runs the static
       # checks and the unit tests; e2e and screenshots stay local.
       - name: Install
