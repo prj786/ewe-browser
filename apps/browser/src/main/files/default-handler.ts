@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export const DESKTOP_ID = 'ewe-browser.desktop'
+export const DESKTOP_ID = 'ewe-browser-folders.desktop'
 const MIME = 'inode/directory'
 const FALLBACK = 'nemo.desktop'
 
@@ -21,12 +21,13 @@ export function desktopEntry(command: string[]): string {
     '[Desktop Entry]',
     'Type=Application',
     'Name=ewe browser',
-    'GenericName=Web browser and files',
-    'Comment=Browse the web and your files',
+    'GenericName=File manager',
+    'Comment=Open folders in ewe browser',
     `Exec=${command.map(quote).join(' ')} %U`,
-    'Icon=system-file-manager',
+    'Icon=ewe-browser',
     'Terminal=false',
-    'Categories=Network;WebBrowser;FileManager;',
+    'NoDisplay=true',
+    'Categories=FileManager;',
     'MimeType=inode/directory;',
     'StartupWMClass=ewe-browser',
     '',

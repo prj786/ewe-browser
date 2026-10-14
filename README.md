@@ -63,12 +63,21 @@ pnpm test:e2e     # end-to-end tests (playwright, needs a build)
 `EWE_USER_DATA=<dir>` runs against a throwaway profile. `cd apps/browser && node
 scripts/visual.mjs <dir>` writes screenshots of every scene from the built app.
 
+## Install
+
+ewe browser ships with ewe: the `ewe` package depends on it, so `sudo pacman -S ewe` (or
+`sudo pacman -Syu` on an ewe machine) installs it from the `[ewe]` repository. On its own:
+`sudo pacman -S ewe-browser`, or the `.pkg.tar.zst` from a GitHub release with
+`sudo pacman -U`. It is the desktop's default browser on new installs; an existing machine
+switches in ewe Settings → Default apps.
+
 ## Layout
 
 ```
 apps/browser/          the Electron app: src/main, src/preload, src/ui (rail, overlay, sidebar),
                        src/pages (newtab, home, settings, sad, files, music), tests, scripts
 packages/shared/       the typed IPC contract, models and pure helpers used by every layer
+PKGBUILD, packaging/   the Arch package (desktop entry, icon); .github/workflows/release.yml
 docs/PLAN.md           roadmap and open bugs
 docs/DESIGN.md         how the Ewe design system maps onto the browser
 AGENTS.md              architecture map (start here)

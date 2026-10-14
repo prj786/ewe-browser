@@ -27,6 +27,8 @@ npx -y pnpm@11.13.0 exec prettier --write <files>
 npx -y pnpm@11.13.0 test           # vitest: packages/shared/src/*.test.ts + apps/browser/tests/unit
 npx -y pnpm@11.13.0 test:e2e       # playwright _electron, needs a prior build
 cd apps/browser && node scripts/visual.mjs ../../docs/screenshots   # screenshots, needs a build
+npx -y pnpm@11.13.0 package        # build + electron-builder → apps/browser/dist/linux-unpacked
+makepkg -d --skipchecksums         # the Arch package (see Packaging), from a source tarball
 ```
 
 Run the whole loop after any change: typecheck, lint, unit tests, build, e2e, screenshots, then
@@ -41,6 +43,10 @@ directory belongs to the ewe desktop itself.
 ```
 package.json                      pnpm workspace scripts (dev, build, typecheck, lint, test, test:e2e, package)
 pnpm-workspace.yaml               packages + allowBuilds (electron, esbuild)
+PKGBUILD                          the Arch package (Komble pattern: _tag/pkgver rewritten by release.yml)
+packaging/                        ewe-browser.desktop, ewe-browser.svg (the app icon), icons/*.png
+scripts/gen-icons.sh              rsvg-convert the SVG into packaging/icons/{32..512}x*.png (committed)
+.github/workflows/                release.yml (tag → makepkg → GitHub release), ci.yml (static checks, unit tests)
 packages/shared/src/
   models.ts                       TabState, WindowSnapshot, Settings, Session*, ThemeTokens, Workspace, Account,
                                   constants (RAIL_WIDTH 264, RAIL_COLLAPSED_WIDTH 56, PAGE_GAP 8,
@@ -62,6 +68,7 @@ packages/shared/src/
                                   recentKindOf, isSearchResultUrl, dedupeRecents, pickRecents
 apps/browser/
   electron.vite.config.ts         main/preload/renderer builds, seven HTML inputs, devCsp plugin, @ewe/shared alias
+  electron-builder.yml            dir target, castlabs runtime from node_modules/electron/dist, app.asar
   src/main/index.ts               bootstrap: app name, EWE_USER_DATA, single instance, app:// scheme, stores, windows
   src/main/window-manager.ts      WindowController (one BrowserWindow + overlay + TabManager), WindowManager
   src/main/tab-manager.ts         tabs, workspaces, navigation, per-tab event wiring, popups, shortcuts, mouse hooks
@@ -430,8 +437,9 @@ every tab.
   version added `has-thumb` to the DOM by hand, and `<Index>` reused that node for a folder in the
   next listing, hiding the folder glyph.
 - Default handler: Settings → Files → "Use ewe browser" writes
-  `$XDG_DATA_HOME/applications/ewe-browser.desktop` (`Exec` = this Electron binary and app path)
-  and runs `gio mime inode/directory ewe-browser.desktop`, saving the previous default in
+  `$XDG_DATA_HOME/applications/ewe-browser-folders.desktop` (`NoDisplay`, only `inode/directory`,
+  `Exec` = this Electron binary, plus the app path in dev) and runs
+  `gio mime inode/directory ewe-browser-folders.desktop`, saving the previous default in
   `default-handler.json`; "Give back" restores it (Nemo when unknown). `xdg-mime query` did not
   report what it had just set on this machine, so `gio mime` is used for both.
 
@@ -670,6 +678,11 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   Mute / Unmute | Move to workspace ▸ (other workspaces with colour dots, New workspace), Copy url
   | Close, Close others, Close to the right; the last two are disabled when only pinned tabs would
   qualify).
+- Page CSS order: in a built `app://` page the shared `pages.css` chunk is linked AFTER the
+  page's own CSS, so a page rule that overrides `.page` (display, background, padding) must be
+  `.page.page-<name>`; with a bare `.page-home` the home page stayed `display: grid`, lost its
+  glow, and its card row pushed the page wider than a narrow window. Home is a flex column
+  whose `.home` has `margin: auto` (centred when it fits, scrolls when it does not).
 - CSS: Ewe tokens only (`--surface-*`, `--text-*`, `--border-*`, `--accent`, `--space-*`,
   `--dur-fast 150ms`, `--dur-base 200ms`, `--dur-slow 250ms`, `--ease-out`), plus browser tokens
   `--rail-width 264px`, `--rail-collapsed-width 56px`, `--page-gap 8px` (mirror `RAIL_WIDTH`,
@@ -732,6 +745,10 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   disable it afterwards. This Hyprland build uses a Lua config: `hyprctl dispatch` takes Lua
   dispatcher expressions, `hyprctl repl '<lua>'` prints a return value, globals persist.
   Never move the real cursor; the owner may be in a game on the other monitor.
+  The owner's machine currently has one laptop panel showing another workspace, so workspace 2
+  is never visible (hence capturing through Electron). The rule matches class `ewe-browser`,
+  so if the owner's own `pnpm dev` app restarts while it is enabled (electron-vite restarts
+  main on every `src/main` edit), that window opens on workspace 2 too.
 - `scripts/visual.mjs` captures through Electron, never from the screen: `capturePage()` of the
   window and of every visible view, composited in the main process (page views masked to the
   10px card radius) and cropped for the rail, sidebar and toast shots. `grim` used to capture
@@ -751,6 +768,38 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   launches with `EWE_CHROME_BOOKMARKS` pointing at the fixture and `EWE_DOWNLOADS` at a temp
   directory.
 - Do not `pkill -f <pattern>`; it has killed the agent's own shell before. Kill by pid.
+
+## Packaging (an ewe first-party app, like Komble)
+
+- `PKGBUILD` at the repo root: `build()` runs `npx -y pnpm@11.13.0 install --frozen-lockfile`
+  (the postinstall fetches castlabs' Electron), `pnpm build`, then `electron-builder --linux`
+  with `electron-builder.yml` (target `dir`, `electronDist: node_modules/electron/dist`, so
+  the runtime is always castlabs' build with Widevine, never a download of upstream Electron;
+  `npmRebuild: false`, there are no native modules). `package()` copies
+  `apps/browser/dist/linux-unpacked` to `/usr/lib/ewe-browser`, drops `default_app.asar`,
+  clears group write bits, symlinks `/usr/bin/ewe-browser`, and installs
+  `ewe-browser.desktop`, the hicolor icons and the license. ~120 MB compressed.
+- `chrome-sandbox` is not setuid: Arch allows unprivileged user namespaces; checked on the
+  package that renderers run in their own user namespace with seccomp mode 2.
+- Versions: tag `vX.Y.Z-beta` → pkgver `X.Y.Zbeta` (the only spelling vercmp sorts below the
+  final release); both `package.json` files carry `X.Y.Z-beta`. `release.yml` rewrites `_tag`
+  and `pkgver`, archives the checkout as the source and attaches
+  `ewe-browser-X.Y.Zbeta-1-x86_64.pkg.tar.zst` to a prerelease.
+- In ewe: `ewe-repo`'s `publish` collects that asset, the `ewe` package depends on
+  `ewe-browser`, phase 20 installs it on the tarball path, Komble lists it in
+  `first_party.rs`, and the desktop seeds `ewe-browser.desktop` as the default browser
+  (Helium was replaced; Nemo keeps folders). The wave order is this release first, then ewe,
+  then the publish, because the fresh-install gate refuses an `ewe` that depends on a package
+  the repo does not carry.
+- Desktop entry: `Exec=ewe-browser %U`, `StartupWMClass=ewe-browser`, MIME types for http(s),
+  html, xhtml and pdf (never `inode/directory`), and a "New window" action
+  (`ewe-browser --new-window`, handled on `second-instance`: a new window, plus any url or
+  path arguments opened in it).
+- Local test of the package: make a tarball of the working tree named
+  `ewe-browser-<pkgver>.tar.gz` with the prefix `ewe-browser-<tag without v>/`, copy the
+  PKGBUILD next to it and run `makepkg -d --noconfirm --skipchecksums`. Run the result from an
+  extracted copy (`usr/lib/ewe-browser/ewe-browser`) with `EWE_USER_DATA`, never by installing
+  it on the owner's machine.
 
 ## Code conventions
 

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- ewe browser — the app icon: the dock's line glyph on a dark tile.
+       Tile: design token surface-raised (#151411); glyph: text-primary (#faf9f6).
+       Glyph: lucide-static v1.40.0 "globe" (ISC) — the rail's page glyph.
+       Regenerate the PNGs with scripts/gen-icons.sh. -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#151411"/>
+  <g transform="translate(15 15) scale(1.4166667)"
+     fill="none" stroke="#faf9f6" stroke-width="2.25"
+     stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+    <path d="M2 12h20" />
+  </g>
+</svg>

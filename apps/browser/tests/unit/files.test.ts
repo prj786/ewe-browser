@@ -22,7 +22,7 @@ import {
   parseListing,
   singleRoot,
 } from '../../src/main/files/archive'
-import { desktopEntry, parseGioDefault } from '../../src/main/files/default-handler'
+import { DESKTOP_ID, desktopEntry, parseGioDefault } from '../../src/main/files/default-handler'
 
 describe('places parsing', () => {
   it('reads XDG user dirs, GTK bookmarks and mount points', () => {
@@ -173,6 +173,8 @@ describe('default folder handler', () => {
     const entry = desktopEntry(['/usr/bin/electron', '/home/me/ewe browser'])
     expect(entry).toContain('Exec="/usr/bin/electron" "/home/me/ewe browser" %U')
     expect(entry).toContain('MimeType=inode/directory;')
+    expect(entry).toContain('NoDisplay=true')
+    expect(DESKTOP_ID).toBe('ewe-browser-folders.desktop')
     expect(
       parseGioDefault('Default application for “inode/directory”: nemo.desktop\nRegistered'),
     ).toBe('nemo.desktop')

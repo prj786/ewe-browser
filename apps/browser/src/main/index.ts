@@ -33,7 +33,13 @@ import { setShortcuts } from './shortcuts'
 import { SettingsStore } from './storage/settings-store'
 import { Startup } from './startup'
 import { SyncService } from './sync/service'
-import { WindowManager, preloadPath, setEweBackground, type RendererEntry } from './window-manager'
+import {
+  WindowManager,
+  preloadPath,
+  setEweBackground,
+  type RendererEntry,
+  type WindowController,
+} from './window-manager'
 
 const WEB_PERMISSIONS = new Set([
   'fullscreen',
@@ -320,9 +326,9 @@ async function main(): Promise<void> {
   if (!launchedInBackground) openSession(restored)
   sync.start()
 
-  const openTargets = (targets: ReturnType<typeof openArgs>): boolean => {
+  const openTargets = (targets: ReturnType<typeof openArgs>, into?: WindowController): boolean => {
     if (targets.length === 0) return false
-    const target = windows.focused() ?? windows.open()
+    const target = into ?? windows.focused() ?? windows.open()
     for (const t of targets) {
       if (t.kind === 'dir') target.openFiles(t.path)
       else target.tabs.create(t.url)
@@ -338,6 +344,11 @@ async function main(): Promise<void> {
     const targets = openArgs(argv, cwd, self)
     if (windows.all().length === 0) {
       void reopen().then(() => openTargets(targets))
+      return
+    }
+    if (argv.includes('--new-window')) {
+      const created = windows.open()
+      if (!openTargets(targets, created)) created.win.focus()
       return
     }
     if (openTargets(targets)) return

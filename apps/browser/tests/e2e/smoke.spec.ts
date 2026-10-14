@@ -172,7 +172,12 @@ async function openWorkspaceMenu(
   index: number,
 ): Promise<void> {
   await expect.poll(() => overlay.locator('.menu').count()).toBe(0)
-  const box = await shell.locator('.rail-ws-dot').nth(index).boundingBox()
+  const dot = shell.locator('.rail-ws-dot').nth(index)
+  let box = await dot.boundingBox()
+  for (let i = 0; box === null && i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 100))
+    box = await dot.boundingBox()
+  }
   if (box === null) throw new Error(`workspace dot ${index} not found`)
   await rightClick(
     app,
@@ -1225,18 +1230,18 @@ test('settings can hand folders to ewe browser and give them back, in a temp XDG
     await expect(button).toHaveText('Use ewe browser')
     await button.click()
     await expect(button).toHaveText('Give back')
-    expect(readFileSync(join(data, 'applications', 'ewe-browser.desktop'), 'utf8')).toContain(
-      'MimeType=inode/directory;',
-    )
+    expect(
+      readFileSync(join(data, 'applications', 'ewe-browser-folders.desktop'), 'utf8'),
+    ).toContain('MimeType=inode/directory;')
     expect(readFileSync(join(config, 'mimeapps.list'), 'utf8')).toContain(
-      'inode/directory=ewe-browser.desktop',
+      'inode/directory=ewe-browser-folders.desktop',
     )
     await button.click()
     await expect(button).toHaveText('Use ewe browser')
     const defaults = readFileSync(join(config, 'mimeapps.list'), 'utf8')
       .split('[Default Applications]')[1]
       ?.split('\n[')[0]
-    expect(defaults).not.toContain('inode/directory=ewe-browser.desktop')
+    expect(defaults).not.toContain('inode/directory=ewe-browser-folders.desktop')
     expect(await shell.evaluate(() => window.ewe.defaultHandler(true))).toBeNull()
   } finally {
     await app.close()

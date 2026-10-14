@@ -1,0 +1,63 @@
+# Build the Arch package for every version tag and attach it to a GitHub
+# release, exactly like Komble, ewe-settings and ewe-sync. ewe-repo's publish
+# workflow collects the .pkg.tar.zst from here, and ewe's installer and Komble
+# install it instead of building Electron on the user's machine.
+#
+# Flow: push a tag `vX.Y.Z[-beta]` → this job builds in an Arch container with
+# makepkg → `gh release create` with the package.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        # electron-builder only lays files out, so none of the runtime's
+        # libraries are needed to build; github-cli is for the release upload.
+        run: |
+          pacman -Syu --noconfirm --needed git nodejs npm github-cli
+
+      - name: Check out the tag
+        uses: actions/checkout@v4
+
+      - name: Build the package with makepkg
+        run: |
+          pkgver="${GITHUB_REF_NAME#v}"
+          # A tag may carry -beta; an Arch pkgver may not contain a hyphen.
+          # 0.1.0-beta -> 0.1.0beta is the only spelling vercmp sorts BELOW
+          # the eventual 0.1.0 (see the PKGBUILD).
+          pkgver="${pkgver//-/}"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # The versions go INTO the PKGBUILD, and the source tarball IS this
+          # checkout: makepkg finds it in the start dir because the name
+          # matches the source entry, so there is no checksum chicken-and-egg.
+          sed -i "s/^_tag=.*/_tag=$GITHUB_REF_NAME/" PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=$pkgver/" PKGBUILD
+          grep -E '^(_tag|pkgver)=' PKGBUILD
+          git archive --format=tar.gz --prefix="ewe-browser-${GITHUB_REF_NAME#v}/" \
+            -o "ewe-browser-$pkgver.tar.gz" HEAD
+          # makepkg refuses to run as root; -d skips the dependency check that
+          # would want the runtime libraries installed.
+          useradd -m builder
+          chown -R builder: .
+          su builder -c "makepkg -d --noconfirm --skipchecksums"
+
+      - name: Attach the package to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # a tag carrying -alpha/-beta is not "Latest"
+          pre=""; case "$GITHUB_REF_NAME" in *-alpha*|*-beta*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" $pre \
+            --title "$GITHUB_REF_NAME" --generate-notes *.pkg.tar.zst \
+          || gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+               --clobber *.pkg.tar.zst
