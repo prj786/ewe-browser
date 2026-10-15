@@ -126,7 +126,7 @@ describe('history and settings sync', () => {
   it('syncs only portable settings', () => {
     const records = settingsRecords({ ...DEFAULT_SETTINGS, sidebarWidth: 500, background: true })
     expect(Object.keys(records).sort()).toEqual(
-      ['panels', 'rail', 'searchEngine', 'shortcuts', 'theme'].sort(),
+      ['historyDays', 'panels', 'rail', 'searchEngine', 'shortcuts', 'theme'].sort(),
     )
     expect(mergeSettings({ theme: 'system' }, { theme: 'dark' }, { theme: 'light' })).toEqual({
       theme: 'dark',

@@ -1,5 +1,9 @@
 import { execFileSync } from 'node:child_process'
 
+const RULE_BASE = /^[A-Za-z_][A-Za-z0-9_]*$/.test(process.env.EWE_TEST_RULE ?? '')
+  ? (process.env.EWE_TEST_RULE ?? '')
+  : '__ewe_test_rule'
+
 let ruleVar: string | null = null
 
 function lua(code: string): string | null {
@@ -33,8 +37,8 @@ export function testWorkspace(preferred = process.env.EWE_TEST_WORKSPACE ?? '2')
 
 export function enableTestWorkspace(workspace = testWorkspace()): void {
   if (!/^\d+$/.test(workspace)) return
-  ruleVar = `__ewe_test_rule_${workspace}`
-  process.env.EWE_TEST_RULE = ruleVar
+  ruleVar = `${RULE_BASE}_${workspace}`
+  process.env.EWE_TEST_RULE_ON = ruleVar
   lua(`(function()
     if _G.${ruleVar} then _G.${ruleVar}:set_enabled(true) return 'reused' end
     _G.${ruleVar} = hl.window_rule({
@@ -47,7 +51,7 @@ export function enableTestWorkspace(workspace = testWorkspace()): void {
 }
 
 export function disableTestWorkspace(): void {
-  const rule = ruleVar ?? process.env.EWE_TEST_RULE
-  if (rule === undefined || !/^__ewe_test_rule_\d+$/.test(rule)) return
+  const rule = ruleVar ?? process.env.EWE_TEST_RULE_ON
+  if (rule === undefined || !/^[A-Za-z_][A-Za-z0-9_]*_\d+$/.test(rule)) return
   lua(`if _G.${rule} then _G.${rule}:set_enabled(false) end return 'off'`)
 }

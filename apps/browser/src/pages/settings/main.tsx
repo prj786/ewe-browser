@@ -25,6 +25,7 @@ import { Icon, type IconName } from '../../ui/components/Icon'
 import { createExtensions } from '../../ui/lib/extensions'
 import { api } from '../../ui/lib/api'
 import { applyTheme, createBrowserStore } from '../../ui/lib/store'
+import { HistoryRows } from './history-rows'
 
 function SettingRow(props: {
   icon: IconName
@@ -408,7 +409,8 @@ function Sync(props: {
   })
   const describe = () => {
     const s = status()
-    if (!props.settings().sync) return 'Off. Bookmarks, history and settings stay on this computer.'
+    if (!props.settings().sync)
+      return 'Off. Bookmarks, history, open tabs and settings stay on this computer.'
     if (s === null || s.state === 'off') return 'Starting…'
     if (s.state === 'syncing') return 'Syncing…'
     if (s.state === 'error') return s.error ?? 'Sync failed'
@@ -425,7 +427,7 @@ function Sync(props: {
         <SettingRow
           icon="refresh-cw"
           title="Sync with Nextcloud"
-          description="Bookmarks, history, shortcuts, panels and appearance, in ewe/browser on your ewe Nextcloud account."
+          description="Bookmarks, history (deletions too), open tabs, shortcuts, panels and appearance, in ewe/browser on your ewe Nextcloud account. Tabs from your other computers show on the history page."
         >
           <select
             aria-label="Sync with Nextcloud"
@@ -445,6 +447,11 @@ function Sync(props: {
           <span class="row-text">
             <span class="row-title">Status</span>
             <span class="row-desc settings-sync-status">{describe()}</span>
+            <Show when={props.settings().sync ? status()?.warning : null}>
+              {(warning) => (
+                <span class="row-desc row-warning settings-sync-warning">{warning()}</span>
+              )}
+            </Show>
           </span>
           <button
             class="btn btn--secondary btn--sm settings-sync-now"
@@ -763,6 +770,7 @@ function SettingsPage(): JSX.Element {
               <option value="off">Off</option>
             </select>
           </SettingRow>
+          <HistoryRows settings={() => store.settings()} update={update} />
         </div>
         <Bookmarks count={bookmarkCount()} />
         <Files />

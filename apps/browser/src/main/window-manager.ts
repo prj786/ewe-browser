@@ -19,6 +19,7 @@ import {
   SETTINGS_URL,
   FILES_PAGE_URL,
   MUSIC_PAGE_URL,
+  HISTORY_URL,
   TOAST_MS,
   filesUrl,
   viewerUrl,
@@ -98,6 +99,7 @@ const INTERNAL_URLS: Record<InternalPage, string> = {
   settings: SETTINGS_URL,
   files: FILES_PAGE_URL,
   music: MUSIC_PAGE_URL,
+  history: HISTORY_URL,
 }
 
 const DEFAULT_PAGE_RADIUS = 10
@@ -782,7 +784,9 @@ export class WindowController {
         const existing =
           command.page === 'music'
             ? this.tabs.list().find((t) => t.state.kind === 'music')
-            : undefined
+            : command.page === 'history'
+              ? this.tabs.list().find((t) => t.state.url.startsWith(HISTORY_URL))
+              : undefined
         if (existing === undefined) this.tabs.create(INTERNAL_URLS[command.page])
         else this.tabs.activate(existing.id)
         if (layer === 'overlay') this.overlay.hide()
@@ -1001,6 +1005,9 @@ export class WindowController {
         break
       case 'sidebar.history':
         this.toggleSidebar('history')
+        break
+      case 'history':
+        this.dispatch({ type: 'open.internal', page: 'history' }, 'shell', this.win.webContents, '')
         break
       case 'reload':
         this.tabs.reload()

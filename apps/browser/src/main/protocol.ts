@@ -6,7 +6,7 @@ import { APP_SCHEME } from '@ewe/shared'
 import { rawResponse, thumbResponse } from './files/thumbs'
 import { coverResponse } from './media/library'
 
-const PAGES = new Set(['newtab', 'home', 'settings', 'sad', 'files', 'music'])
+const PAGES = new Set(['newtab', 'home', 'settings', 'sad', 'files', 'music', 'history'])
 const TOKEN_ROUTES = new Set([
   'files/raw',
   'files/thumb',

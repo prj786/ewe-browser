@@ -30,7 +30,7 @@ export async function diskSources(userData: string, tool: string): Promise<Sourc
   const session = new SessionStore(userData)
   const [windows] = await Promise.all([
     need.has('session') ? session.load() : Promise.resolve([]),
-    need.has('history') ? history.load() : undefined,
+    need.has('history') ? history.loadSnapshot() : undefined,
     need.has('bookmarks') ? bookmarks.load() : undefined,
     need.has('downloads') ? downloads.load() : undefined,
     need.has('recent') ? recent.load() : undefined,

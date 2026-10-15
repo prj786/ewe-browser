@@ -14,7 +14,9 @@ import {
   type SyncStatus,
   type PasswordStatus,
   type FsResult,
+  type HistoryRequest,
   type HistoryVisit,
+  type RemoteMachine,
   type HistorySuggestion,
   type BrowserApi,
   type Settings,
@@ -44,6 +46,9 @@ export function createApi(layer: ApiLayer): BrowserApi {
     getDownloads: () => ipcRenderer.invoke(IPC.getDownloads) as Promise<DownloadEntry[]>,
     history: (query: string, limit: number) =>
       ipcRenderer.invoke(IPC.history, query, limit) as Promise<HistoryVisit[]>,
+    historyPage: <T>(request: HistoryRequest) =>
+      ipcRenderer.invoke(IPC.historyPage, request) as Promise<FsResult<T>>,
+    remoteTabs: () => ipcRenderer.invoke(IPC.remoteTabs) as Promise<RemoteMachine[]>,
     onDownloads: (listener) => subscribe(IPC.downloads, (p) => listener(p as DownloadEntry[])),
     onHistory: (listener) => subscribe(IPC.historyChanged, () => listener()),
     fs: <T>(request: FsRequest) => ipcRenderer.invoke(IPC.fs, request) as Promise<FsResult<T>>,

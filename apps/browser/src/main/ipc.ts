@@ -30,7 +30,7 @@ import type { RecentStore } from './storage/recent-store'
 import type { SettingsStore } from './storage/settings-store'
 import type { WindowManager } from './window-manager'
 
-function senderFrameUrl(event: IpcMainInvokeEvent, layer: ApiLayer): string | null {
+export function senderFrameUrl(event: IpcMainInvokeEvent, layer: ApiLayer): string | null {
   const frame = event.senderFrame
   if (frame === null || frame !== event.sender.mainFrame) return null
   if (layer === 'page' && !frame.url.startsWith('app://')) return null

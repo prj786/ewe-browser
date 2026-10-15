@@ -344,6 +344,17 @@ export function SidebarApp(): JSX.Element {
             </button>
           </footer>
         </Match>
+        <Match when={section() === 'history'}>
+          <footer class="sb-foot">
+            <button
+              class="btn btn--ghost btn--sm sb-all-history"
+              onClick={() => void api.send({ type: 'open.internal', page: 'history' })}
+            >
+              <Icon name="history" />
+              Show all history
+            </button>
+          </footer>
+        </Match>
       </Switch>
     </aside>
   )

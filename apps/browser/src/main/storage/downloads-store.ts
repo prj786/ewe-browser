@@ -132,6 +132,17 @@ export class DownloadsStore extends EventEmitter<{ change: [DownloadEntry[]] }> 
     this.changed()
   }
 
+  clearRange(from: number, to: number): number {
+    const kept = this.entries.filter(
+      (e) => isActive(e.status) || e.started < from || e.started > to,
+    )
+    const removed = this.entries.length - kept.length
+    if (removed === 0) return 0
+    this.entries = kept
+    this.changed()
+    return removed
+  }
+
   async flush(): Promise<void> {
     this.write.flush()
     await writeJsonAtomic(this.path, this.toFile())

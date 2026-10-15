@@ -1,4 +1,10 @@
-import type { BookmarkFolder, BookmarkNode, Settings } from '@ewe/shared'
+import {
+  clearCovers,
+  type BookmarkFolder,
+  type BookmarkNode,
+  type HistoryClear,
+  type Settings,
+} from '@ewe/shared'
 import type { HistoryEntry } from '../history'
 
 export type Records<V> = Record<string, V>
@@ -123,7 +129,118 @@ export function mergeHistory(
   })
 }
 
-export const SYNCED_SETTINGS = ['searchEngine', 'theme', 'rail', 'shortcuts', 'panels'] as const
+export const CLEAR_TTL = 180 * 86_400_000
+export const MAX_CLEARS = 5000
+
+export function compactClears(clears: HistoryClear[], now: number): HistoryClear[] {
+  const live = clears.filter((c) => c.at >= now - CLEAR_TTL)
+  let everything: HistoryClear | null = null
+  for (const c of live)
+    if (c.from === 0 && c.url === undefined && c.site === undefined)
+      if (everything === null || c.to > everything.to) everything = c
+  const kept = live.filter((c) => everything === null || c === everything || c.to > everything.to)
+  const byId = new Map<string, HistoryClear>()
+  for (const c of kept) byId.set(c.id, c)
+  return [...byId.values()]
+    .sort((a, b) => b.at - a.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, MAX_CLEARS)
+    .sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+export interface ClearIndex {
+  global: HistoryClear[]
+  byUrl: Map<string, HistoryClear[]>
+  bySite: Map<string, HistoryClear[]>
+}
+
+export function clearIndex(clears: HistoryClear[]): ClearIndex {
+  const index: ClearIndex = { global: [], byUrl: new Map(), bySite: new Map() }
+  const add = (map: Map<string, HistoryClear[]>, key: string, clear: HistoryClear): void => {
+    const list = map.get(key)
+    if (list === undefined) map.set(key, [clear])
+    else list.push(clear)
+  }
+  for (const clear of clears) {
+    if (clear.url !== undefined) add(index.byUrl, clear.url, clear)
+    else if (clear.site !== undefined) add(index.bySite, clear.site, clear)
+    else index.global.push(clear)
+  }
+  return index
+}
+
+export function isCleared(index: ClearIndex, entry: HistoryEntry): boolean {
+  const hit = (list: HistoryClear[] | undefined): boolean =>
+    list?.some((c) => clearCovers(c, entry.url, entry.host, entry.last)) ?? false
+  if (hit(index.global) || hit(index.byUrl.get(entry.url))) return true
+  if (index.bySite.size === 0) return false
+  const parts = entry.host.toLowerCase().split('.')
+  for (let i = 0; i < parts.length; i++)
+    if (hit(index.bySite.get(parts.slice(i).join('.')))) return true
+  return false
+}
+
+export function isHistoryRecord(key: string, value: unknown): value is HistoryEntry {
+  if (typeof value !== 'object' || value === null) return false
+  const e = value as Record<string, unknown>
+  return (
+    e.url === key &&
+    typeof e.title === 'string' &&
+    e.title.length <= 4096 &&
+    typeof e.host === 'string' &&
+    typeof e.count === 'number' &&
+    Number.isFinite(e.count) &&
+    typeof e.last === 'number' &&
+    Number.isFinite(e.last)
+  )
+}
+
+export function filterHistory(
+  records: Records<HistoryEntry>,
+  clears: HistoryClear[],
+  cutoff: number,
+): Records<HistoryEntry> {
+  const index = clearIndex(clears)
+  const out: Records<HistoryEntry> = {}
+  for (const [url, entry] of Object.entries(records)) {
+    if (!isHistoryRecord(url, entry) || entry.last < cutoff) continue
+    if (isCleared(index, entry)) continue
+    out[url] = entry
+  }
+  return out
+}
+
+export function narrowHistory(
+  base: Records<HistoryEntry>,
+  local: Records<HistoryEntry>,
+  remote: Records<HistoryEntry>,
+  horizon: number,
+): { local: Records<HistoryEntry>; dropped: string[] } {
+  const out: Records<HistoryEntry> = {}
+  const dropped: string[] = []
+  for (const [key, entry] of Object.entries(local)) {
+    if (entry.last >= horizon || Object.hasOwn(remote, key)) out[key] = entry
+    else if (Object.hasOwn(base, key)) dropped.push(key)
+  }
+  return { local: out, dropped }
+}
+
+export function sameClears(remote: unknown, local: HistoryClear[]): boolean {
+  if (!Array.isArray(remote) || remote.length !== local.length) return false
+  const ids = new Set(local.map((c) => c.id))
+  return remote.every(
+    (c: unknown) =>
+      typeof c === 'object' && c !== null && ids.has((c as { id?: unknown }).id as string),
+  )
+}
+
+export const SYNCED_SETTINGS = [
+  'searchEngine',
+  'theme',
+  'rail',
+  'shortcuts',
+  'panels',
+  'historyDays',
+] as const
 
 export type SyncedSettings = Pick<Settings, (typeof SYNCED_SETTINGS)[number]>
 
