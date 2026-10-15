@@ -11,6 +11,9 @@ import {
 import { electronApp, is } from '@electron-toolkit/utils'
 import { HOME_URL, IPC, MUSIC_PAGE_URL, NEW_TAB_URL, type SessionWindow } from '@ewe/shared'
 import { chromeBookmarkPaths, readChromeBookmarks } from './chrome-bookmarks'
+import { createCliHost } from './cli/host'
+import { listenCli, type CliServer } from './cli/server'
+import { socketPath } from './cli/socket'
 import { DownloadManager } from './downloads'
 import { DefaultHandler } from './files/default-handler'
 import { ExtensionHost } from './extensions'
@@ -288,6 +291,13 @@ async function main(): Promise<void> {
     files.dispose()
     sync.dispose()
   })
+  const recents = new RecentsService({
+    records: () => recentStore.list(),
+    hidden: () => recentStore.hidden(),
+    history: (limit) => history.list('', limit),
+    downloads: () => downloadsStore.list(),
+    track: (path) => music.track(path),
+  })
   registerIpc(windows, settings, {
     safe,
     getTheme: () => eweTheme,
@@ -301,13 +311,7 @@ async function main(): Promise<void> {
     home: new HomeService({
       store: recentStore,
       token: () => files.token,
-      recents: new RecentsService({
-        records: () => recentStore.list(),
-        hidden: () => recentStore.hidden(),
-        history: (limit) => history.list('', limit),
-        downloads: () => downloadsStore.list(),
-        track: (path) => music.track(path),
-      }),
+      recents,
     }),
     defaultHandler: new DefaultHandler(userData, appCommand),
     sync,
@@ -364,6 +368,27 @@ async function main(): Promise<void> {
   app.on('activate', () => {
     if (windows.all().length === 0) windows.open()
   })
+  const cliSocket = socketPath(userData)
+  let cli: CliServer | null = null
+  listenCli(
+    cliSocket,
+    createCliHost({
+      windows,
+      history,
+      bookmarks,
+      downloads: downloadsStore,
+      recents,
+      music,
+      settings,
+      reopen,
+      version: app.getVersion(),
+      userData,
+      socket: cliSocket,
+    }),
+  )
+    .then((server) => (cli = server))
+    .catch((error: unknown) => console.error('[ewe] command line socket', error))
+  app.on('will-quit', () => cli?.close())
   app.on('before-quit', () => {
     if (windows.all().length > 0) sessions.save(windows.toSession())
     void sessions.flush()

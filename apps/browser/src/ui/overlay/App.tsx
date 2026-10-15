@@ -9,6 +9,7 @@ import {
   type JSX,
 } from 'solid-js'
 import {
+  EDGE_LEAVE_ZONE,
   type ExtensionInstallRequest,
   type MenuTarget,
   type OverlayPart,
@@ -169,11 +170,13 @@ export function OverlayApp(): JSX.Element {
     const onMove = () => {
       entered = true
     }
-    const onLeave = () => {
+    const onLeave = (e: MouseEvent) => {
       const p = part()
       const held =
         p === 'palette' || p === 'menu' || p === 'prompt' || p === 'suggest' || p === 'sheet'
-      if (entered && !held && !editing()) close()
+      if (!entered || held || editing()) return
+      if (p === 'rail' && e.clientX <= EDGE_LEAVE_ZONE) return
+      close()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || editing()) return

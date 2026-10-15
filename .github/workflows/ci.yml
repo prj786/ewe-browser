@@ -41,3 +41,4 @@ jobs:
         run: |
           bash -n PKGBUILD
           bash -n scripts/gen-icons.sh
+          sh -n packaging/ewe-browser.sh

@@ -18,7 +18,7 @@ import { ExtensionActions } from './Extensions'
 import { Icon, type IconName } from './Icon'
 import './Rail.css'
 
-export type RailMode = 'expanded' | 'collapsed' | 'peek'
+export type RailMode = 'expanded' | 'peek'
 
 export interface RailProps {
   store: BrowserStore
@@ -83,7 +83,6 @@ export function Rail(props: RailProps): JSX.Element {
   let addressInput: HTMLInputElement | undefined
   let listEl: HTMLDivElement | undefined
 
-  const collapsed = () => props.mode === 'collapsed'
   const extensions = createExtensions()
   const storeOffer = () => {
     const id = storeExtensionId(active()?.url ?? '')
@@ -118,7 +117,7 @@ export function Rail(props: RailProps): JSX.Element {
 
   const beginEdit = () => {
     const tab = active()
-    if (tab === undefined || collapsed()) return
+    if (tab === undefined) return
     setDraft(tab.kind === 'newtab' ? '' : (pathFromFilesUrl(tab.url) ?? tab.url))
     setEditing(true)
     props.onEditingChange?.(true)
@@ -164,7 +163,6 @@ export function Rail(props: RailProps): JSX.Element {
   createEffect(on(activeId, endEdit, { defer: true }))
 
   const startRename = (ws: Workspace) => {
-    if (collapsed()) return
     setNameDraft(ws.name)
     setRenaming(ws.id)
     props.onEditingChange?.(true)
@@ -343,30 +341,28 @@ export function Rail(props: RailProps): JSX.Element {
         onContextMenu={(e) => openMenu(e, { kind: 'tab', id: tab().id })}
       >
         <TabGlyph tab={tab()} />
-        <Show when={!collapsed()}>
-          <span class="rail-tab-label">{tabTitle(tab())}</span>
-          <Show when={tab().audible || tab().muted}>
-            <button
-              class="iconbtn iconbtn--sm rail-audio"
-              classList={{ muted: tab().muted }}
-              title={tab().muted ? 'Unmute tab' : 'Mute tab'}
-              aria-label={tab().muted ? 'Unmute tab' : 'Mute tab'}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => void api.send({ type: 'tab.mute', id: tab().id, muted: !tab().muted })}
-            >
-              <Icon name={tab().muted ? 'volume-x' : 'volume-2'} />
-            </button>
-          </Show>
+        <span class="rail-tab-label">{tabTitle(tab())}</span>
+        <Show when={tab().audible || tab().muted}>
           <button
-            class="iconbtn iconbtn--sm rail-close"
-            title="Close tab"
-            aria-label="Close tab"
+            class="iconbtn iconbtn--sm rail-audio"
+            classList={{ muted: tab().muted }}
+            title={tab().muted ? 'Unmute tab' : 'Mute tab'}
+            aria-label={tab().muted ? 'Unmute tab' : 'Mute tab'}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => void api.send({ type: 'tab.close', id: tab().id })}
+            onClick={() => void api.send({ type: 'tab.mute', id: tab().id, muted: !tab().muted })}
           >
-            <Icon name="x" />
+            <Icon name={tab().muted ? 'volume-x' : 'volume-2'} />
           </button>
         </Show>
+        <button
+          class="iconbtn iconbtn--sm rail-close"
+          title="Close tab"
+          aria-label="Close tab"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => void api.send({ type: 'tab.close', id: tab().id })}
+        >
+          <Icon name="x" />
+        </button>
       </div>
     )
   }
@@ -375,7 +371,6 @@ export function Rail(props: RailProps): JSX.Element {
     <nav
       class="rail"
       classList={{
-        collapsed: collapsed(),
         peek: props.mode === 'peek',
         dragging: drag()?.moved ?? false,
       }}
@@ -385,141 +380,137 @@ export function Rail(props: RailProps): JSX.Element {
       <div class="rail-top">
         <button
           class="iconbtn rail-toggle"
-          title={props.mode === 'expanded' ? 'Collapse tabs' : 'Keep tabs open'}
-          aria-label={props.mode === 'expanded' ? 'Collapse tabs' : 'Expand tabs'}
+          title={props.mode === 'expanded' ? 'Hide tabs (Ctrl+Shift+S)' : 'Keep tabs open'}
+          aria-label={props.mode === 'expanded' ? 'Hide tabs' : 'Keep tabs open'}
           onClick={toggleRail}
         >
           <Icon name="panel-left" />
         </button>
-        <Show when={!collapsed()}>
-          <span class="rail-grow" />
-          <button
-            class="iconbtn rail-back"
-            title="Back"
-            aria-label="Back"
-            disabled={!(active()?.canGoBack ?? false)}
-            onClick={() => void api.send({ type: 'nav.back' })}
-          >
-            <Icon name="arrow-left" />
-          </button>
-          <button
-            class="iconbtn rail-forward"
-            title="Forward"
-            aria-label="Forward"
-            disabled={!(active()?.canGoForward ?? false)}
-            onClick={() => void api.send({ type: 'nav.forward' })}
-          >
-            <Icon name="arrow-right" />
-          </button>
-          <Show
-            when={active()?.loading}
-            fallback={
-              <button
-                class="iconbtn rail-reload"
-                title="Reload"
-                aria-label="Reload"
-                onClick={() => void api.send({ type: 'nav.reload' })}
-              >
-                <Icon name="rotate-cw" />
-              </button>
-            }
-          >
+        <span class="rail-grow" />
+        <button
+          class="iconbtn rail-back"
+          title="Back"
+          aria-label="Back"
+          disabled={!(active()?.canGoBack ?? false)}
+          onClick={() => void api.send({ type: 'nav.back' })}
+        >
+          <Icon name="arrow-left" />
+        </button>
+        <button
+          class="iconbtn rail-forward"
+          title="Forward"
+          aria-label="Forward"
+          disabled={!(active()?.canGoForward ?? false)}
+          onClick={() => void api.send({ type: 'nav.forward' })}
+        >
+          <Icon name="arrow-right" />
+        </button>
+        <Show
+          when={active()?.loading}
+          fallback={
             <button
               class="iconbtn rail-reload"
-              title="Stop"
-              aria-label="Stop"
-              onClick={() => void api.send({ type: 'nav.stop' })}
+              title="Reload"
+              aria-label="Reload"
+              onClick={() => void api.send({ type: 'nav.reload' })}
             >
-              <Icon name="x" />
+              <Icon name="rotate-cw" />
             </button>
-          </Show>
+          }
+        >
+          <button
+            class="iconbtn rail-reload"
+            title="Stop"
+            aria-label="Stop"
+            onClick={() => void api.send({ type: 'nav.stop' })}
+          >
+            <Icon name="x" />
+          </button>
         </Show>
       </div>
 
-      <Show when={!collapsed()}>
-        <div
-          class="rail-address"
-          classList={{ editing: editing() }}
-          onClick={() => {
-            if (!editing()) beginEdit()
-          }}
+      <div
+        class="rail-address"
+        classList={{ editing: editing() }}
+        onClick={() => {
+          if (!editing()) beginEdit()
+        }}
+      >
+        <Icon name={addressIcon()} size={14} />
+        <Show
+          when={editing()}
+          fallback={
+            <Show
+              when={addressParts()}
+              fallback={<span class="rail-address-placeholder">Search or type a URL</span>}
+            >
+              {(parts) => (
+                <span class="rail-address-text" classList={{ files: active()?.kind === 'files' }}>
+                  <span class="rail-host">{parts().host}</span>
+                  <span class="rail-path">{parts().rest}</span>
+                </span>
+              )}
+            </Show>
+          }
         >
-          <Icon name={addressIcon()} size={14} />
-          <Show
-            when={editing()}
-            fallback={
-              <Show
-                when={addressParts()}
-                fallback={<span class="rail-address-placeholder">Search or type a URL</span>}
-              >
-                {(parts) => (
-                  <span class="rail-address-text" classList={{ files: active()?.kind === 'files' }}>
-                    <span class="rail-host">{parts().host}</span>
-                    <span class="rail-path">{parts().rest}</span>
-                  </span>
-                )}
-              </Show>
-            }
+          <input
+            ref={(el) => {
+              addressInput = el
+              queueMicrotask(() => {
+                el.focus()
+                el.select()
+              })
+            }}
+            class="rail-address-input"
+            value={draft()}
+            placeholder="Search or type a URL"
+            spellcheck={false}
+            onInput={onAddressInput}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submit()
+              else if (e.key === 'Escape') endEdit()
+              e.stopPropagation()
+            }}
+            onBlur={endEdit}
+          />
+        </Show>
+        <Show when={/^https?:/i.test(active()?.url ?? '')}>
+          <button
+            class="iconbtn iconbtn--sm rail-key"
+            title="Fill a password (Ctrl+Shift+L)"
+            aria-label="Fill a password"
+            tabindex="-1"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation()
+              void api.send({ type: 'passwords.open' })
+            }}
           >
-            <input
-              ref={(el) => {
-                addressInput = el
-                queueMicrotask(() => {
-                  el.focus()
-                  el.select()
-                })
-              }}
-              class="rail-address-input"
-              value={draft()}
-              placeholder="Search or type a URL"
-              spellcheck={false}
-              onInput={onAddressInput}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit()
-                else if (e.key === 'Escape') endEdit()
-                e.stopPropagation()
-              }}
-              onBlur={endEdit}
-            />
-          </Show>
-          <Show when={/^https?:/i.test(active()?.url ?? '')}>
-            <button
-              class="iconbtn iconbtn--sm rail-key"
-              title="Fill a password (Ctrl+Shift+L)"
-              aria-label="Fill a password"
-              tabindex="-1"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => {
-                e.stopPropagation()
-                void api.send({ type: 'passwords.open' })
-              }}
-            >
-              <Icon name="key-round" />
-            </button>
-          </Show>
-          <Show when={canBookmark()}>
-            <button
-              class="iconbtn iconbtn--sm rail-star"
-              classList={{ on: isBookmarked() }}
-              title={isBookmarked() ? 'Remove bookmark' : 'Bookmark this page'}
-              aria-label={isBookmarked() ? 'Remove bookmark' : 'Bookmark this page'}
-              aria-pressed={isBookmarked()}
-              tabindex="-1"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => {
-                e.stopPropagation()
-                void api.send({ type: 'bookmark.toggle' })
-              }}
-            >
-              <Icon name="star" class={isBookmarked() ? 'filled' : undefined} />
-            </button>
-          </Show>
-        </div>
-      </Show>
+            <Icon name="key-round" />
+          </button>
+        </Show>
+        <Show when={canBookmark()}>
+          <button
+            class="iconbtn iconbtn--sm rail-star"
+            classList={{ on: isBookmarked() }}
+            title={isBookmarked() ? 'Remove bookmark' : 'Bookmark this page'}
+            aria-label={isBookmarked() ? 'Remove bookmark' : 'Bookmark this page'}
+            aria-pressed={isBookmarked()}
+            tabindex="-1"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation()
+              void api.send({ type: 'bookmark.toggle' })
+            }}
+          >
+            <Icon name="star" class={isBookmarked() ? 'filled' : undefined} />
+          </button>
+        </Show>
+      </div>
 
-      <ExtensionActions state={extensions()} vertical={collapsed()} />
+      <ExtensionActions state={extensions()} />
 
-      <Show when={!collapsed() && storeOffer()}>
+      <Show when={storeOffer()}>
         {(id) => (
           <button
             class="rail-store-add"
@@ -556,44 +547,42 @@ export function Rail(props: RailProps): JSX.Element {
         </div>
       </Show>
 
-      <Show when={!collapsed()} fallback={<div class="rail-sep" />}>
-        <Show when={workspace()}>
-          {(ws) => (
-            <div
-              class="rail-ws-head"
-              onDblClick={() => startRename(ws())}
-              onContextMenu={(e) => openMenu(e, { kind: 'workspace', id: ws().id })}
+      <Show when={workspace()}>
+        {(ws) => (
+          <div
+            class="rail-ws-head"
+            onDblClick={() => startRename(ws())}
+            onContextMenu={(e) => openMenu(e, { kind: 'workspace', id: ws().id })}
+          >
+            <span class="rail-ws-head-dot" />
+            <Show
+              when={renaming() === ws().id}
+              fallback={<span class="rail-ws-head-name">{ws().name}</span>}
             >
-              <span class="rail-ws-head-dot" />
-              <Show
-                when={renaming() === ws().id}
-                fallback={<span class="rail-ws-head-name">{ws().name}</span>}
-              >
-                <input
-                  ref={(el) => {
-                    queueMicrotask(() => {
-                      el.focus()
-                      el.select()
-                    })
-                  }}
-                  class="rail-ws-input"
-                  value={nameDraft()}
-                  maxLength={WORKSPACE_NAME_MAX}
-                  spellcheck={false}
-                  aria-label="Workspace name"
-                  onInput={(e) => setNameDraft(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation()
-                    if (e.key === 'Enter') commitRename()
-                    else if (e.key === 'Escape') endRename()
-                  }}
-                  onBlur={commitRename}
-                />
-              </Show>
-              <span class="rail-ws-count">{store().visibleTabs().length}</span>
-            </div>
-          )}
-        </Show>
+              <input
+                ref={(el) => {
+                  queueMicrotask(() => {
+                    el.focus()
+                    el.select()
+                  })
+                }}
+                class="rail-ws-input"
+                value={nameDraft()}
+                maxLength={WORKSPACE_NAME_MAX}
+                spellcheck={false}
+                aria-label="Workspace name"
+                onInput={(e) => setNameDraft(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter') commitRename()
+                  else if (e.key === 'Escape') endRename()
+                }}
+                onBlur={commitRename}
+              />
+            </Show>
+            <span class="rail-ws-count">{store().visibleTabs().length}</span>
+          </div>
+        )}
       </Show>
 
       <div class="rail-tabs" role="tablist" aria-label="Open tabs" ref={listEl}>
@@ -602,9 +591,7 @@ export function Rail(props: RailProps): JSX.Element {
           <span class="rail-fav">
             <Icon name="plus" />
           </span>
-          <Show when={!collapsed()}>
-            <span class="rail-tab-label">New tab</span>
-          </Show>
+          <span class="rail-tab-label">New tab</span>
         </button>
       </div>
 
@@ -632,58 +619,50 @@ export function Rail(props: RailProps): JSX.Element {
               </button>
             )}
           </For>
-          <Show when={!collapsed()}>
-            <button
-              class="iconbtn iconbtn--sm rail-ws-add"
-              title="New workspace"
-              aria-label="New workspace"
-              onClick={() => void api.send({ type: 'workspace.create' })}
-            >
-              <Icon name="plus" />
-            </button>
-          </Show>
+          <button
+            class="iconbtn iconbtn--sm rail-ws-add"
+            title="New workspace"
+            aria-label="New workspace"
+            onClick={() => void api.send({ type: 'workspace.create' })}
+          >
+            <Icon name="plus" />
+          </button>
         </div>
         <div class="rail-actions">
           <For each={SIDEBAR_BUTTONS}>
             {(b) => (
-              <Show when={!collapsed() || b.section === 'downloads'}>
-                <button
-                  class="iconbtn rail-sidebar-btn"
-                  classList={{ on: sidebar() === b.section }}
-                  data-section={b.section}
-                  title={b.label}
-                  aria-label={b.label}
-                  aria-pressed={sidebar() === b.section}
-                  onClick={() => void api.send({ type: 'sidebar.toggle', section: b.section })}
-                >
-                  <Icon name={b.icon} />
-                  <Show when={b.section === 'downloads' && props.downloadsActive > 0}>
-                    <span class="rail-dot" />
-                  </Show>
-                </button>
-              </Show>
+              <button
+                class="iconbtn rail-sidebar-btn"
+                classList={{ on: sidebar() === b.section }}
+                data-section={b.section}
+                title={b.label}
+                aria-label={b.label}
+                aria-pressed={sidebar() === b.section}
+                onClick={() => void api.send({ type: 'sidebar.toggle', section: b.section })}
+              >
+                <Icon name={b.icon} />
+                <Show when={b.section === 'downloads' && props.downloadsActive > 0}>
+                  <span class="rail-dot" />
+                </Show>
+              </button>
             )}
           </For>
-          <Show when={!collapsed()}>
-            <button
-              class="iconbtn rail-music"
-              title="Music"
-              aria-label="Music"
-              onClick={() => void api.send({ type: 'open.internal', page: 'music' })}
-            >
-              <Icon name="music" />
-            </button>
-          </Show>
-          <Show when={!collapsed()}>
-            <button
-              class="iconbtn rail-files"
-              title="Files (Ctrl+Shift+E)"
-              aria-label="Files"
-              onClick={() => void api.send({ type: 'open.internal', page: 'files' })}
-            >
-              <Icon name="folder" />
-            </button>
-          </Show>
+          <button
+            class="iconbtn rail-music"
+            title="Music"
+            aria-label="Music"
+            onClick={() => void api.send({ type: 'open.internal', page: 'music' })}
+          >
+            <Icon name="music" />
+          </button>
+          <button
+            class="iconbtn rail-files"
+            title="Files (Ctrl+Shift+E)"
+            aria-label="Files"
+            onClick={() => void api.send({ type: 'open.internal', page: 'files' })}
+          >
+            <Icon name="folder" />
+          </button>
           <button
             class="iconbtn rail-settings"
             title="Settings"
