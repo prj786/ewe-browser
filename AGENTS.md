@@ -834,7 +834,9 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
 - Acting replies carry `undo` argv lists. Only web pages go on the closed-tab stack, so closing a
   files/home/internal tab answers `open <url>` as its undo instead of `tab reopen`; so does
   closing a window's last tab (the window closes with its stack). `page` runs
-  in isolated world 1010 with a 3s timeout and returns `untrusted: true`.
+  in isolated world 1010 with a 3s timeout and returns `untrusted: true`. It reads
+  `document.body.innerText` only, so Safe's key (on `<html>`, in a closed shadow root) and its
+  overlay parts never reach it.
 - Tested by unit tests and the e2e "the command line answers in JSON…" (offline status,
   bookmark write and locate, then a launched browser: open a folder, tabs, pin by id prefix,
   close with undo, a local page read through `page --text`, reopen, find, quit → offline).
@@ -851,8 +853,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   xbel parser, snippets, the recent store and the recents service over a temp tree, stale temp
   files in json-file, and the CLI: argv, paths, schema checks, every tool reachable, the socket
   server and a real socket, ls and locate on a temp tree, read tools over fake sources, bookmark
-  writes, and an import walk proving the CLI bundle never reaches `electron`). 206 tests
-  (84 shared, 122 browser). Nothing reads
+  writes, and an import walk proving the CLI bundle never reaches `electron`). 317 tests
+  (93 shared, 224 browser; 2 skip without ewe-safe binaries). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
 - Safe: unit tests for site matching (`safe-site`), the save decision (`safe-decide`), form

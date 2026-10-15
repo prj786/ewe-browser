@@ -138,7 +138,9 @@ directly, not through `python3` like ewe's Python tools.
 What the Companion asked for: `search` (its `web_search`) and `play` (its `play_music`, which
 keeps the YouTube Music fallback when the library has no match, so the Companion's
 `music_url` can go). `page --text` is there for "ask about this page"; it reads only the active
-tab, never cookies, passwords or form fields.
+tab, never cookies, passwords or form fields. Safe's suggestions, passkey sheet and save prompt
+are drawn by the browser outside the page, and its key sits outside the page's body, so they
+never show up in it either.
 
 ## Under the hood
 

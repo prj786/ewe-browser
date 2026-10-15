@@ -342,7 +342,7 @@ built, verified and handed to the owner for testing before the next starts.
 
 ## Safe, ewe's password manager (2026-10-14)
 
-1. [x] **Safe in the browser** (built 2026-10-14 on `feat/safe`, waiting for the owner's review;
+1. [x] **Safe in the browser** (built 2026-10-14 on `feat/safe`, approved and merged 2026-10-15;
        ewe-safe RFC-008, its `docs/PROTOCOL.md` v1). Built in, not a store extension: the main process
        talks to `ewe-safed` over its socket and fills the page's own fields.
    - A key in login, new-password and one-time-code fields; a click (a first click into the field,
@@ -361,7 +361,7 @@ built, verified and handed to the owner for testing before the next starts.
    - Ctrl+Shift+L keeps going through ewe Passwords (`ewe-pass`), whose provider `ewe` fills from
      Safe too.
 2. [x] **Like 1Password: suggestions in the field, passkeys** (built 2026-10-15 on `feat/safe`,
-       ewe-safe `docs/TRIO.md` §B1; waiting for the owner's review).
+       ewe-safe `docs/TRIO.md` §B1; approved and merged 2026-10-15).
    - When you click or Tab into a login, email, password or code field, a small list drops right
      under it: passkeys first (when the site asks for one), then the logins for that site (icon,
      title, username), then Open Safe / Use a strong password / Unlock Safe. The focus stays in the
