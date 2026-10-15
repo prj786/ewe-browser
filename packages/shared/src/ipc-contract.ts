@@ -22,9 +22,20 @@ import {
   type WindowSnapshot,
   type WorkspaceColor,
 } from './models'
+import {
+  isSafePromptAction,
+  isSafeSheetAction,
+  type SafeMenu,
+  type SafePrompt,
+  type SafePromptAction,
+  type SafeSheet,
+  type SafeSheetAction,
+  type SafeSuggestKey,
+} from './safe'
 import { isWorkspaceColor } from './workspaces'
 
-export type OverlayPart = 'none' | 'rail' | 'palette' | 'menu' | 'toast'
+export type OverlayPart =
+  'none' | 'rail' | 'palette' | 'menu' | 'toast' | 'prompt' | 'suggest' | 'sheet'
 export type InternalPage = 'newtab' | 'home' | 'settings' | 'files' | 'music' | 'history'
 export type MenuTarget =
   { kind: 'tab'; id: TabId } | { kind: 'workspace'; id: string } | { kind: 'extension'; id: string }
@@ -85,6 +96,16 @@ export type ShellCommand =
   | { type: 'passwords.open' }
   | { type: 'passwords.fill'; id: string; what: 'login' | 'username' | 'password' }
   | { type: 'passwords.copy'; id: string; what: 'username' | 'password' }
+  | { type: 'safe.choose'; requestId: string; id: string }
+  | { type: 'safe.generate'; requestId: string }
+  | { type: 'safe.unlock'; requestId: string }
+  | { type: 'safe.openApp' }
+  | { type: 'safe.prompt'; promptId: string; action: SafePromptAction }
+  | { type: 'safe.fit'; requestId: string; height: number }
+  | { type: 'safe.selected'; requestId: string; selected: boolean }
+  | { type: 'safe.close'; requestId: string }
+  | { type: 'safe.passkey'; requestId: string; credentialId: string }
+  | { type: 'safe.sheet'; sheetId: string; action: SafeSheetAction; credentialId?: string }
   | { type: 'panel.add'; url: string; title?: string }
   | { type: 'extension.activate'; id: string; x: number; y: number; width: number; height: number }
   | { type: 'extension.options'; id: string }
@@ -108,6 +129,12 @@ export type UiEvent =
   | { type: 'toast'; message: string; icon?: ToastIcon }
   | { type: 'sidebar.focus' }
   | { type: 'passwords.open'; host: string }
+  | { type: 'safe.suggest'; menu: SafeMenu }
+  | { type: 'safe.suggest.key'; requestId: string; key: SafeSuggestKey }
+  | { type: 'safe.suggest.filter'; requestId: string; text: string }
+  | { type: 'safe.suggest.moved'; requestId: string }
+  | { type: 'safe.sheet'; sheet: SafeSheet }
+  | { type: 'safe.prompt'; prompt: SafePrompt }
   | { type: 'extension.install'; request: ExtensionInstallRequest }
   | { type: 'workspace.rename'; id: string }
   | { type: 'music.play'; path: string }
@@ -170,6 +197,10 @@ export const IPC = {
   home: 'ewe:home',
   homeChanged: 'ewe:home-changed',
   passwords: 'ewe:passwords',
+  safePage: 'ewe:safe-page',
+  safeFill: 'ewe:safe-fill',
+  safeSuggest: 'ewe:safe-suggest',
+  safePasskey: 'ewe:safe-passkey',
   getExtensions: 'ewe:get-extensions',
   sync: 'ewe:sync',
   syncStatus: 'ewe:sync-status',
@@ -358,6 +389,25 @@ export function isShellCommand(value: unknown): value is ShellCommand {
       )
     case 'passwords.copy':
       return isString(c.id) && (c.what === 'username' || c.what === 'password')
+    case 'safe.choose':
+      return isString(c.requestId) && isString(c.id)
+    case 'safe.generate':
+    case 'safe.unlock':
+      return isString(c.requestId)
+    case 'safe.prompt':
+      return isString(c.promptId) && isSafePromptAction(c.action)
+    case 'safe.openApp':
+      return true
+    case 'safe.fit':
+      return isString(c.requestId) && typeof c.height === 'number' && Number.isFinite(c.height)
+    case 'safe.selected':
+      return isString(c.requestId) && typeof c.selected === 'boolean'
+    case 'safe.close':
+      return isString(c.requestId)
+    case 'safe.passkey':
+      return isString(c.requestId) && isString(c.credentialId)
+    case 'safe.sheet':
+      return isString(c.sheetId) && isSafeSheetAction(c.action) && isOptionalString(c.credentialId)
     case 'panel.add':
       return isString(c.url) && /^https?:\/\//i.test(c.url) && isOptionalString(c.title)
     case 'panel.remove':

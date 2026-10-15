@@ -12,6 +12,8 @@ import {
   HOME_URL,
   LAYER_ARG,
   NEW_TAB_URL,
+  EDGE_LEAVE_ZONE,
+  RAIL_HIDE_GRACE_MS,
   RAIL_PEEK_SHADOW,
   RAIL_WIDTH,
   SETTINGS_URL,
@@ -57,6 +59,8 @@ import type { ExtensionHost } from './extensions'
 import { OverlayController } from './overlay'
 import { PanelHost, panelBounds, panelId } from './panels'
 import { copyPassword, fillPassword, focusScript } from './passwords'
+import type { SafeService } from './safe/service'
+import { SafeWindow } from './safe/window'
 
 const PASSWORD_WORLD = 1009
 import { SidebarController } from './sidebar'
@@ -77,6 +81,7 @@ export interface WindowDeps {
   bookmarks: BookmarksStore
   downloads: DownloadManager
   extensions?: ExtensionHost | undefined
+  safe?: SafeService | undefined
   importChromeBookmarks(): Promise<string>
   isMusicTrack(path: string): boolean
   onSessionChange(): void
@@ -98,7 +103,6 @@ const INTERNAL_URLS: Record<InternalPage, string> = {
 }
 
 const DEFAULT_PAGE_RADIUS = 10
-const EDGE_LEAVE_ZONE = 24
 const PEEK_HIDE_DELAY_MS = 250
 
 const WINDOW_BACKGROUND = { dark: '#0b0a08', light: '#f4f2ee' }
@@ -125,10 +129,13 @@ export class WindowController {
   private htmlFullscreen = false
   private reportedPage: Rect | null = null
   private lastMouse: Point | null = null
+  private railHiddenAt = 0
+  private lastRail: Settings['rail'] = 'expanded'
   private overlayPinned = false
   private broadcastQueued = false
   private destroyed = false
   private toastTimer: NodeJS.Timeout | null = null
+  readonly safeUi: SafeWindow | null
   private readonly deps: WindowDeps
 
   constructor(deps: WindowDeps, initial?: SessionWindow) {
@@ -209,6 +216,23 @@ export class WindowController {
       },
     })
 
+    const safe = deps.safe
+    this.safeUi =
+      safe === undefined
+        ? null
+        : new SafeWindow({
+            window: this.win,
+            overlay: this.overlay,
+            safe,
+            activeContents: () => this.tabs.active?.webContents ?? null,
+            viewBounds: (contents) => this.tabs.byWebContents(contents)?.view.getBounds() ?? null,
+            favicon: (contents) => this.tabs.byWebContents(contents)?.state.favicon ?? null,
+            contentSize: () => this.contentSize(),
+            lastMouse: () => this.lastMouse,
+            toast: (message, icon) => this.toast(message, icon),
+            hideOverlay: () => this.showOverlay('none'),
+          })
+
     this.win.on('resize', () => this.layout())
     this.win.on('maximize', () => this.layout())
     this.win.on('unmaximize', () => this.layout())
@@ -234,6 +258,7 @@ export class WindowController {
       this.destroyed = true
       if (this.toastTimer !== null) clearTimeout(this.toastTimer)
       try {
+        this.safeUi?.dispose()
         this.overlay.destroy()
         this.sidebar.destroy()
         this.panels.destroy()
@@ -386,6 +411,9 @@ export class WindowController {
   }
 
   sendSettings(settings: Settings): void {
+    if (settings.rail === 'collapsed' && this.lastRail === 'expanded')
+      this.railHiddenAt = Date.now()
+    this.lastRail = settings.rail
     for (const wc of this.listeners()) wc.send(IPC.settings, settings)
     if (settings.rail === 'expanded' && this.overlay.part === 'rail') this.overlay.hide()
     this.panels.prune(new Set(settings.panels.map((p) => p.id)))
@@ -520,6 +548,11 @@ export class WindowController {
       case 'overlay.request':
         if (command.part === 'menu' || command.part === 'toast') return
         if (command.part === 'palette') this.openPalette(command.newTab ?? false)
+        else if (
+          command.part === 'rail' &&
+          (this.railVisible() || Date.now() - this.railHiddenAt < RAIL_HIDE_GRACE_MS)
+        )
+          return
         else this.showOverlay(command.part)
         break
       case 'menu.open':
@@ -705,6 +738,18 @@ export class WindowController {
         )
         break
       }
+      case 'safe.choose':
+      case 'safe.generate':
+      case 'safe.unlock':
+      case 'safe.openApp':
+      case 'safe.prompt':
+      case 'safe.fit':
+      case 'safe.selected':
+      case 'safe.close':
+      case 'safe.passkey':
+      case 'safe.sheet':
+        if (layer === 'overlay') this.safeUi?.command(command)
+        break
       case 'panel.add': {
         const panels = this.deps.settings.get().panels
         if (panels.length >= 12) return
@@ -1008,7 +1053,7 @@ export class WindowController {
   private onPageMouse(point: Point): void {
     this.lastMouse = point
     const part = this.overlay.part
-    if (part === 'palette' || part === 'menu') return
+    if (part === 'palette' || part === 'menu' || part === 'prompt' || part === 'sheet') return
     if (part === 'rail') {
       if (this.overlayPinned || Date.now() - this.overlay.shownAt < PEEK_HIDE_DELAY_MS) return
       if (point.x > RAIL_WIDTH + RAIL_PEEK_SHADOW) this.overlay.hide()
@@ -1028,7 +1073,7 @@ export class WindowController {
   private revealEdge(zone: 'rail' | null): void {
     if (zone === null || this.htmlFullscreen) return
     if (this.railVisible()) return
-    if (!this.win.isFullScreen() && this.deps.settings.get().rail === 'collapsed') return
+    if (Date.now() - this.railHiddenAt < RAIL_HIDE_GRACE_MS) return
     this.overlay.show('rail', this.contentSize())
   }
 

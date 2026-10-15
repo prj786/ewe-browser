@@ -26,7 +26,12 @@ export default defineConfig({
     resolve: { alias: { '@ewe/shared': shared } },
     build: {
       externalizeDeps: { exclude: ['@ewe/shared', 'music-metadata'] },
-      rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } },
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          cli: resolve(__dirname, 'src/main/cli/index.ts'),
+        },
+      },
     },
   },
   preload: {

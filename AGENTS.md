@@ -44,13 +44,14 @@ directory belongs to the ewe desktop itself.
 package.json                      pnpm workspace scripts (dev, build, typecheck, lint, test, test:e2e, package)
 pnpm-workspace.yaml               packages + allowBuilds (electron, esbuild)
 PKGBUILD                          the Arch package (Komble pattern: _tag/pkgver rewritten by release.yml)
-packaging/                        ewe-browser.desktop, ewe-browser.svg (the app icon), icons/*.png
+packaging/                        ewe-browser.desktop, ewe-browser.svg (the app icon), icons/*.png,
+                                  ewe-browser.sh (/usr/bin/ewe-browser: verbs → the CLI, else the app)
 scripts/gen-icons.sh              rsvg-convert the SVG into packaging/icons/{32..512}x*.png (committed)
 .github/workflows/                release.yml (tag → makepkg → GitHub release), ci.yml (static checks, unit tests)
 packages/shared/src/
   models.ts                       TabState, WindowSnapshot, Settings, Session*, ThemeTokens, Workspace, Account,
-                                  constants (RAIL_WIDTH 264, RAIL_COLLAPSED_WIDTH 56, PAGE_GAP 8,
-                                  EDGE_ZONE 12, EDGE_LEAVE_ZONE 24, EDGE_EXIT_ZONE 160, NEW_TAB_URL, …)
+                                  constants (RAIL_WIDTH 264, PAGE_GAP 8, EDGE_ZONE 12, EDGE_LEAVE_ZONE 24,
+                                  RAIL_HIDE_GRACE_MS 500, NEW_TAB_URL, …)
   ipc-contract.ts                 ShellCommand, UiEvent, BrowserApi, IPC channel names, runtime validators
   url.ts                          resolveInput (t:/w: prefixes, url vs search), displayUrl, hostOf, SEARCH_ENGINES
   workspaces.ts                   WORKSPACE_COLORS, nextWorkspaceColor, defaultWorkspaceName
@@ -94,6 +95,10 @@ apps/browser/
                                   ranged raw file responses
   src/main/files/default-handler.ts  "open folders with ewe browser" through a .desktop file and `gio mime`
   src/main/open-args.ts           command line paths and urls → folder tabs / file tabs
+  src/main/cli/                   `ewe-browser <verb>` (docs/CLI.md): tools.ts (tool table, schemas, checkArgs),
+                                  argv.ts, data.ts (read tools over a Sources interface, bookmark writes),
+                                  local.ts (help, commands, ls, locate, places), offline.ts (stores from disk),
+                                  server.ts (socket, JSON lines), host.ts (main side), index.ts (CLI entry)
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
   src/main/history.ts             frecency scoring and ranking
   src/main/history-service.ts     HistoryService: the `ewe:history-page` ops (rows, summary, delete, deleteSite,
@@ -110,7 +115,7 @@ apps/browser/
   src/preload/index.ts            the only preload; picks the layer from --ewe-layer=shell|overlay|sidebar|page
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
-  src/ui/shell/                   base layer: the tab rail (expanded or collapsed) and the page slot (the page card)
+  src/ui/shell/                   base layer: the tab rail (or none when collapsed), the edge strip, the page slot (card)
   src/ui/overlay/                 floating layer: rail peek, palette, context menus (tab-menu.ts, workspace-menu.ts),
                                   toast
   src/ui/sidebar/                 right sidebar layer: section tabs, search, resize handle, footer actions
@@ -133,8 +138,9 @@ apps/browser/
                                   ewe-theme, history, ewe-account, bookmarks-store, chrome-bookmarks, downloads-store
   tests/fixtures/                 chrome-bookmarks.json (a Chrome "Bookmarks" file for unit, e2e and screenshots)
   tests/support/dav-mock.ts       a small WebDAV server (MKCOL, GET, PUT with If-Match, PROPFIND) for sync tests
-  tests/e2e/smoke.spec.ts         25 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
+  tests/e2e/smoke.spec.ts         27 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
   tests/e2e/history.spec.ts       the history page, clear browsing data, opening history, sync between two profiles
+docs/CLI.md                       the command line reference (contract, verbs, Companion registry, socket)
 docs/PLAN.md                      roadmap, status, open bugs
 docs/DESIGN.md                    Ewe design mapping and browser-specific tokens
 docs/screenshots/                 generated, untracked
@@ -181,12 +187,12 @@ docs/screenshots/                 generated, untracked
 
 One sandboxed preload serves all four layers. `--ewe-layer=` in `additionalArguments` selects:
 
-| layer   | webContents                 | gets                                                                       |
-| ------- | --------------------------- | -------------------------------------------------------------------------- |
-| shell   | the window's own            | `window.ewe`                                                               |
-| overlay | the overlay WebContentsView | `window.ewe`                                                               |
-| sidebar | the sidebar WebContentsView | `window.ewe`                                                               |
-| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) |
+| layer   | webContents                 | gets                                                                                                                |
+| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| shell   | the window's own            | `window.ewe`                                                                                                        |
+| overlay | the overlay WebContentsView | `window.ewe`                                                                                                        |
+| sidebar | the sidebar WebContentsView | `window.ewe`                                                                                                        |
+| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) main frames; Safe in every http(s) frame |
 
 Files: the page layer on `app://files/` (main frame only) may call `fs(request)` (`ewe:fs`
 invoke, validated by `isFsRequest`, answered by `FileService`); every other layer and page gets
@@ -216,6 +222,8 @@ IPC channels (`IPC` in ipc-contract.ts): `ewe:command`, `ewe:get-state`, `ewe:ge
 `ewe:settings`, `ewe:theme`, `ewe:bookmarks`, `ewe:downloads`, `ewe:history-changed` (sidebars,
 throttled to 500ms, and history pages, throttled to 400ms), `ewe:home-changed`
 (home tabs only, throttled to 400ms), `ewe:ui` (main → renderer).
+Safe adds `ewe:safe-page` and `ewe:safe-passkey` (invoke, page layer, http(s) frames only) and
+`ewe:safe-fill` / `ewe:safe-suggest` (main → one frame); see Safe under ewe integration.
 
 Main validates every command at runtime (`isShellCommand`), checks the sender frame
 (`senderFrameUrl`: main frame only, `app://` for the page layer), and applies the per-layer policy
@@ -326,7 +334,8 @@ every tab.
 
 ## Overlay and hover state machine
 
-- Parts: `none | rail | palette | menu | toast`. `OverlayController.show(part, size, extra?)` sets
+- Parts: `none | rail | palette | menu | toast | prompt | suggest | sheet` (Safe's save prompt,
+  inline list and passkey sheet; see Safe below). `OverlayController.show(part, size, extra?, at?)` sets
   bounds, makes the view visible, records `shownAt`, sends `overlay.show {part}` on a part change,
   then any `extra` UiEvent. `hide()` sends `overlay.hide` (the UI adds `.leaving` for the exit
   animation), waits `HIDE_ANIMATION_MS` = 160ms, hides the view and sends `overlay.show none`.
@@ -343,12 +352,23 @@ every tab.
   `onPageMouse` ignores it like `palette`. Menus re-place themselves on `resize`, and `placeMenu`
   clamps into the viewport even when the anchor lies outside it (the overlay can grow after the
   menu mounted).
-- Rail peek: in collapsed mode, hovering the shell rail for 250ms sends `overlay.request rail`;
-  the overlay renders the expanded `Rail` in `peek` mode (`.rail.peek`, `shadow-float` plus a
+- Collapsed = hidden (2026-10-14, the owner's call): `Settings.rail === 'collapsed'` removes the
+  rail in a normal window exactly as fullscreen does, and the page card takes the whole width
+  with `PAGE_GAP` on every side (`.shell.rail-hidden`). The old 56px icon column is gone. The
+  owner pushes the pointer to the SCREEN edge, which with Hyprland's gaps lies outside the
+  window, where Electron sees nothing; so the rail is revealed by the pointer at or LEAVING
+  through the window's left edge: page mouseMove at x <= `EDGE_ZONE` 12 (window coordinates)
+  or a page mouseLeave whose last x <= `EDGE_LEAVE_ZONE` 24 (main, `revealEdge`), and the
+  shell's own 8px gap strip (shell `mousemove` at x <= 12, `mouseleave` at x <= 24, sent as
+  `overlay.request rail`, throttled 300ms). For `RAIL_HIDE_GRACE_MS` 500 after the rail is
+  hidden, reveals are ignored, so hiding it with the toggle never flips it straight back;
+  `overlay.request rail` is also ignored while the rail is visible.
+- Rail peek: the overlay renders the expanded `Rail` in `peek` mode (`.rail.peek`, `shadow-float` plus a
   scrim-coloured spread). It hides when a page mouseMove lands right of the peek (after 250ms,
   never while `overlay.pin` is set, i.e. while renaming or editing in it) or when the overlay
-  document fires `mouseleave` after a `mousemove`. In fullscreen (rail hidden, not HTML
-  fullscreen) the left 12px edge (`hoverZone`, 24px on `mouseLeave`) reveals the same peek.
+  document fires `mouseleave` after a `mousemove`, except through its left edge (clientX <= 24:
+  the pointer is heading for the screen edge, so the peek stays). Its toggle pins the rail
+  (`rail: expanded`). Tested with a real pointer in a nested Hyprland (see Testing).
 - Palette: `openPalette(newTab)` shows the palette over the whole window and sends
   `palette.open`. Enter navigates (`tab.navigate {input, newTab}`), Escape or a backdrop click
   sends `overlay.request none`.
@@ -391,7 +411,7 @@ every tab.
   colour swatch row, Move tabs here (submenu of other workspaces with tab counts) and Remove
   (disabled for the last workspace). The menu's Rename is routed through main: the overlay sends
   `workspace.rename {id}` after the menu closes, main activates that workspace and sends the
-  `workspace.rename` UiEvent to the shell (expanded rail) or shows the peek with it (collapsed).
+  `workspace.rename` UiEvent to the shell (expanded rail) or shows the peek with it (hidden rail).
   The input focuses itself from its `ref`, because the rename event arrives before the state
   broadcast that switches the header to that workspace. Enter or blur commits, Escape cancels,
   empty keeps the old name, 40 characters at most.
@@ -595,6 +615,99 @@ machine, savedAt, windows: [{ workspaces: [{ name, color, tabs: [{ url, title, p
   before the first visible password field, else the password field) and then
   `ewe-pass fill <id> --pid <main pid> --what <what>`, which types through wtype.
   `passwords.copy {id, what}` runs `ewe-pass copy`. Errors come back as toasts.
+- Safe (`main/safe/`, `preload/safe/`, `ui/overlay/Safe*.tsx`, `PasskeySheet.tsx`, `safe-menu.ts`,
+  `safe.css`, `components/SafePrompt.tsx`; ewe-safe RFC-008, its `docs/PROTOCOL.md` v1 and
+  `docs/TRIO.md` §B1/§S1):
+  - Core: `SafeClient` (`client.ts`) speaks NDJSON v1 to `$EWE_SAFE_SOCKET` or
+    `$XDG_RUNTIME_DIR/ewe-safe.sock` (one connection per call, plus a `subscribe` connection with
+    backoff, started on first use). `SafeService` (`service.ts`) holds menu requests and captured
+    logins; `SafeWindow` (`window.ts`, one per `WindowController`, field `safeUi`) owns the inline
+    list, the passkey sheet and the save prompt; `registerSafeIpc` (`ipc.ts`) answers
+    `ewe:safe-page` and `ewe:safe-passkey` (invoke, page layer, http(s) frames only). Window
+    manager code only delegates (`safe.*` commands from the overlay layer → `safeUi.command`).
+  - Page preload (`preload/safe/content.ts`, every http(s) frame since page views set
+    `nodeIntegrationInSubFrames`): `forms.ts` classifies inputs (login / new-password /
+    one-time code; `autocomplete="… webauthn"` counts as a username field), a key in the focused
+    field (closed shadow root; its two colours are literals because a page has no ewe tokens).
+    Requests (`isSafePageRequest`): `state` → `{enabled, suggest, capture}`, `open {kind, field:
+username | password | code, rect, trigger: focus | click | key | icon}`, `move {rect}`, `key
+{key}`, `filter {text}`, `blur`, `focus`, `close`, `submit {kind, username, password}`.
+  - Inline list (1Password-style): `open` is sent on a field focus that follows a trusted
+    pointerdown on the field (or its label) or a trusted Tab within 1s, never on script focus or
+    page load; also on a click into the already focused field, ArrowDown in an empty field, and
+    the key. `Settings.safe.suggest` off = only the key and ArrowDown. `rect` is the field in the
+    top frame's CSS px (same-origin frames add their `frameElement` offsets; a cross-origin frame
+    sends `null` and the list opens at the last page pointer). Main shows part `suggest` at an
+    explicit rect (`suggestBounds`: under the field, flipped above when there is no room, 280–420
+    px wide, `SUGGEST_PAD` 12 = CSS `--suggest-pad` of shadow room, × the tab's zoom) without
+    focusing the overlay; if the overlay gets focus anyway (a click on a row) main gives it back
+    to the page. Focus/click opens only when there is something to show (logins, passkeys, a
+    strong password, or Unlock Safe). The overlay (`SafeSuggest`) reports its height (`safe.fit
+{requestId, height}`, 0 hides the view) and whether a row is selected (`safe.selected`); main
+    forwards that to the frame as `ewe:safe-suggest {open, visible, selected}`. While it is open
+    and visible the preload takes ↑ ↓ Esc, and Enter only when a row is selected, from a
+    window-capture keydown listener (installed before page scripts) and sends `key`; typing in a
+    username field sends `filter` (rows match title, username or host; no match hides the list),
+    typing in a password or code field closes it; `blur` closes it after 200ms unless `focus`
+    comes back; scroll and resize send `move`; navigation, a tab switch, window blur and any other
+    overlay part close it. Rows: passkeys of a waiting conditional request first, then logins
+    (favicon of the tab, title, username), footer Open Safe / Use a strong password / Unlock Safe.
+    Commands: `safe.choose {requestId, id}`, `safe.passkey {requestId, credentialId}`,
+    `safe.generate`, `safe.unlock` (reopens the list after `ewe-safe unlock --ask`),
+    `safe.openApp`, `safe.close`. Against clickjacking a mouse pick counts only after the list
+    has stood still for 500ms and the pointer has moved since (main sends `safe.suggest.moved`
+    whenever the list moves); the preload ignores untrusted scroll, resize and submit events.
+  - Fill: a request remembers the tab, the frame (process and routing id) and its origin; a fill
+    re-checks that the frame still has that origin and that the login was offered to it, then
+    sends `ewe:safe-fill` (`SafeFill`) to that frame only (native setter + `input`/`change`).
+    Site matching (`site.ts`, `tldts`): exact host, then registrable domain, https never to http,
+    ports equal; ties sort by username.
+  - Passkeys (WebAuthn): `preload/safe/passkeys.ts` runs `pageScript` (`page-script.ts`, fully
+    self-contained because Electron serializes it) in the main world with
+    `contextBridge.executeInMainWorld` at document start (verified: before the page's first
+    `<head>` script, in subframes too), passing a bridge of four functions (`available`,
+    `create`, `get`, `abort`) that call `ewe:safe-passkey`. It replaces
+    `navigator.credentials.create/get` for `publicKey` requests only (all else, and Safe not set
+    up or `Settings.safe.passkeys` off → the original), and
+    `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable`,
+    `isConditionalMediationAvailable` and `getClientCapabilities` (true / merged when Safe is set
+    up). Options travel as base64url JSON; replies are WebAuthn L3 JSON, turned into objects
+    whose prototypes are the real `PublicKeyCredential` / `Authenticator*Response` ones
+    (`getTransports` `["internal","hybrid"]`, `getAuthenticatorData`, `getPublicKey`,
+    `getPublicKeyAlgorithm`, `authenticatorAttachment: "platform"`, `credProps.rk` when asked,
+    `toJSON`). `AbortSignal` is honoured (the bridge sends `abort`). Main (`webauthn.ts`,
+    `passkeys.ts`, `window.ts`) takes the origin from `senderFrame`, refuses opaque origins and
+    frames not same-origin with every ancestor (`NotAllowedError`), checks the RP ID
+    (`checkRpId`: https, or http only on `localhost`; the host or a registrable suffix, never a
+    public or private suffix, no IPs, lower case), validates options (`parseCreate` /
+    `parseGet`: user id 1–64 bytes, timeout clamped 30 s–10 min), builds `clientDataJSON`
+    (`type, challenge, origin, crossOrigin: false`) and its SHA-256 and calls Safe's
+    `passkey-list` / `passkey-create` / `passkey-get`. Replies are checked (credential id,
+    RP ID hash, UP / AT flags) before they reach the page. Modal create/get show part `sheet`
+    (whole window, focused; `PasskeySheet`: Save / pick a passkey, Use a security key instead
+    (→ the original API, with our own timeout), Cancel; locked → Unlock Safe first; a click
+    counts only 500ms after the sheet appeared and after the pointer moved, and Enter acts only
+    after an arrow key or Tab, with no passkey selected at first); only the active tab, one sheet
+    at a time. The bridge sends the document's `location.origin`, which must equal the sender
+    frame's origin, and Save / pick re-check that the frame still has that origin. The site's
+    user name and display name are shown cleaned (`displayText`: no control, bidi or invisible
+    characters, 64 characters at most). Conditional `get` waits
+    per frame (`PasskeyBroker.wait`; a new one replaces the old; requests of frames that are gone
+    are dropped on every frame navigation) and its passkeys head the inline list; a pick is
+    signed only for the very request the list was built for. A create into an existing login (`item_id`) only when the site's user name equals the
+    login's username, the host matches exactly and Safe says that login has no passkey
+    (`passkey: null`). Errors: `excluded` → `InvalidStateError`, `unsupported` →
+    `NotSupportedError`, cancel / timeout / locked / not-found → `NotAllowedError`, abort →
+    `AbortError`, bad RP ID → `SecurityError`, bad options → `TypeError`.
+  - Save: `SafeWindow.capture` waits for the tab's next navigation (or 2.5s), `SafeService.prompt`
+    reveals the saved passwords of the same username to compare (`decide.ts`), and part `prompt`
+    (`PROMPT_WIDTH` 380 × `PROMPT_HEIGHT` 168 at the page's top right, `PROMPT_MARGIN` 12; no
+    focus, ignored by the page mouse hooks and the overlay's mouseleave) shows `SafePromptCard`;
+    `safe.prompt {promptId, action: save | update | never | dismiss}` settles it, any other part
+    dismisses it, 60s hides it.
+  - `Settings.safe { fill, suggest, passkeys, offerSave, neverSave }` (`sanitizeSafeSettings`, 500
+    hosts). Unlock runs `ewe-safe unlock --ask` (`$EWE_SAFE_BIN` or `PATH`); Open Safe runs
+    `ewe-safe-app` (`$EWE_SAFE_APP` or `PATH`). Nothing logs titles, usernames or values.
 - Web panels (`main/panels.ts`): `Settings.panels: WebPanel[] { id, url, title }` (12 at most,
   `sanitizePanels`). Sidebar sections may be `panel:<id>`. `PanelHost` keeps one
   `WebContentsView` per opened panel (page preload, the default session, popups become tabs,
@@ -707,16 +820,16 @@ received, total, speed, status, started, ended`, times in epoch ms), newest firs
 
 - Solid 1.9. Rail tab rows use `<Index>` so DOM nodes survive state broadcasts.
   `createBrowserStore()` guards against the initial fetch overwriting a newer push.
-- `Rail` (`components/Rail.tsx`, props `store, mode: expanded | collapsed | peek,
+- `Rail` (`components/Rail.tsx`, props `store, mode: expanded | peek,
 downloadsActive, editRequest?, renameRequest?, onEditingChange?`), top to bottom:
   - top row: collapse toggle (`settings.update {rail}`; Ctrl+Shift+S, `rail.toggle`), back,
     forward, reload / stop;
   - address field: lock / globe / app glyph, host in `text-primary` and path in `text-muted`, and
     a star (`bookmark.toggle`, filled in `accent-text` when bookmarked). Click or Ctrl+L turns it
     into an input with the url selected and inline host completion from `suggest`; Enter sends
-    `tab.navigate {id}`, Escape or blur cancels. With the rail collapsed or in fullscreen, Ctrl+L
+    `tab.navigate {id}`, Escape or blur cancels. With the rail hidden (collapsed or fullscreen), Ctrl+L
     opens the palette with the url instead;
-  - pinned tabs as a 4-column grid of favicon tiles (one column when collapsed), the active one
+  - pinned tabs as a 4-column grid of favicon tiles, the active one
     outlined in the workspace colour; middle-click closes;
   - the workspace header (see the overlay section);
   - the unpinned tabs of the active workspace as list rows (favicon with an accent spinner ring
@@ -728,7 +841,6 @@ downloadsActive, editRequest?, renameRequest?, onEditingChange?`), top to bottom
     or capture is lost. "New tab" opens the new-tab palette;
   - footer: workspace dots and "+", then Bookmarks / Downloads (accent dot while downloads run) /
     History sidebar toggles (`.on` while open) and Settings.
-    Collapsed (56px) keeps the toggle, pinned and tab favicons, "+", the dots, Downloads and Settings.
 - `Palette`: modes url / search / tabs (`t:`) / bookmarks (`b:`), `w:` forces search, a "New
   tab" chip when opened from Ctrl+T, Kbd hints. `b:` lists `rankBookmarks` matches (title prefix
   4, title 2, host prefix 3, host 1.5, url 1; empty query = everything by recency) with the
@@ -754,12 +866,49 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   whose `.home` has `margin: auto` (centred when it fits, scrolls when it does not).
 - CSS: Ewe tokens only (`--surface-*`, `--text-*`, `--border-*`, `--accent`, `--space-*`,
   `--dur-fast 150ms`, `--dur-base 200ms`, `--dur-slow 250ms`, `--ease-out`), plus browser tokens
-  `--rail-width 264px`, `--rail-collapsed-width 56px`, `--page-gap 8px` (mirror `RAIL_WIDTH`,
-  `RAIL_COLLAPSED_WIDTH`, `PAGE_GAP`), and `--strip-height 44px` / `--bottom-height 36px`, now
+  `--rail-width 264px`, `--page-gap 8px` (mirror `RAIL_WIDTH`, `PAGE_GAP`), and `--strip-height 44px` / `--bottom-height 36px`, now
   only the sidebar header and footer heights. Floating surfaces are solid (no glass over pages).
   Keyframes live in `base.css` (`bar-in-down`, `bar-out-up`, `bar-in-up`, `bar-out-down`,
   `ewe-fade-*`, `ewe-slide-*`); reduced motion collapses them to fades.
 - Hyprland is a tiling compositor, so there are no window controls in the UI.
+
+## Command line (`ewe-browser <verb>`, docs/CLI.md)
+
+- Rule 5: one JSON object per call on stdout, exit 0, `{"ok":false,"error":"<kebab-code>",
+"message"?,"hint"?}` on failure. Tools are the unit (`TOOLS` in `cli/tools.ts`: name,
+  summary, Companion tier 0/1/2, `where`, usage, JSON Schema); verbs are sugar
+  (`tab close <id>` → `tab_close {id}`), and `call <tool> '<json>'` reaches any tool. Adding a
+  tool: a row in `TOOLS`, a verb in `argv.ts` (a unit test fails if a tool has no verb), its
+  implementation in `data.ts` (read, both sides), `local.ts` (no browser) or `host.ts` (browser
+  side), and a line in docs/CLI.md.
+- `where`: `local` runs in the CLI process; `read` asks the socket, else reads the stores from
+  disk (`offline.ts`, `"running": false`); `store` (bookmark edits) asks the socket, else edits
+  `bookmarks.json`; `live` needs the running browser (`not-running`); `app` starts the browser
+  (`appCommand()`: `process.execPath` inside app.asar, `EWE_BROWSER_BIN`, or the dev electron +
+  app dir; `ELECTRON_RUN_AS_NODE` removed from its env), waits up to 20s for the socket to
+  accept, then asks. A refused connect means a stale socket and is removed first; a child that
+  exits while no socket appears means an older browser holds the instance lock (`no-socket`).
+- Main listens after windows are open (`listenCli` in `index.ts`, so a CLI-started browser never
+  opens its session twice) on `socketPath(userData)` = `$XDG_RUNTIME_DIR/ewe-browser-<sha256
+of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `listenCli` refuses a
+  folder that is not the user's own or that group/others can write; the CLI refuses a socket
+  owned by another uid. `userDataDir()` in
+  the CLI mirrors Electron's (`EWE_USER_DATA`, else `$XDG_CONFIG_HOME/ewe-browser`). Requests
+  are re-validated with `checkArgs` in main.
+- The CLI bundle (`out/main/cli.js`, a second main input) must not import `electron` or
+  anything that does (FileService, window-manager); it runs as
+  `ELECTRON_RUN_AS_NODE=1 <binary> app.asar/out/main/cli.js` from the `/usr/bin` wrapper, which
+  routes a lower-case first word that is not an existing path, `--help` and `--version` to it.
+  `cli.test.ts` walks the imports.
+- Acting replies carry `undo` argv lists. Only web pages go on the closed-tab stack, so closing a
+  files/home/internal tab answers `open <url>` as its undo instead of `tab reopen`; so does
+  closing a window's last tab (the window closes with its stack). `page` runs
+  in isolated world 1010 with a 3s timeout and returns `untrusted: true`. It reads
+  `document.body.innerText` only, so Safe's key (on `<html>`, in a closed shadow root) and its
+  overlay parts never reach it.
+- Tested by unit tests and the e2e "the command line answers in JSON…" (offline status,
+  bookmark write and locate, then a launched browser: open a folder, tabs, pin by id prefix,
+  close with undo, a local page read through `page --text`, reopen, find, quit → offline).
 
 ## Testing and visual verification
 
@@ -770,10 +919,37 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   downloads-store, bookmark reorder, sidebar layout, files: places parsing, the file service on a
   temp tree, ranges, argv, the desktop entry, archive parsing and a real bsdtar round trip).
   plus music helpers, titles from file names, home: recent kinds, picking, request validation, the
-  xbel parser, snippets, the recent store and the recents service over a temp tree). 232 tests
-  (95 shared, 137 browser). Nothing reads
+  xbel parser, snippets, the recent store and the recents service over a temp tree, stale temp
+  files in json-file, and the CLI: argv, paths, schema checks, every tool reachable, the socket
+  server and a real socket, ls and locate on a temp tree, read tools over fake sources, bookmark
+  writes, and an import walk proving the CLI bundle never reaches `electron`). 317 tests
+  (93 shared, 224 browser; 2 skip without ewe-safe binaries). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
+- Safe: unit tests for site matching (`safe-site`), the save decision (`safe-decide`), form
+  detection on happy-dom pages (`safe-forms`), the socket client against a fake daemon
+  (`safe-client`), WebAuthn helpers (`safe-webauthn`: the RP ID table incl. public and private
+  suffixes, IPs and `localhost`, `clientDataJSON`, option parsing, reply checks), the passkey
+  broker against `tests/fake-safed.ts` with real ES256 keys and signatures checked by
+  `tests/webauthn-rp.ts` (`safe-passkeys`, also the list placement and when it opens), the
+  main-world script with stub classes (`safe-page-script`: object shape, methods, `toJSON`,
+  errors, `AbortSignal`, fallbacks), and the shared validators
+  (`packages/shared/src/safe.test.ts`). `safe-passkeys-daemon` runs the broker against a real
+  sandboxed `ewe-safed` (skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` are set).
+  E2E `tests/e2e/safe-inline.spec.ts` (13 tests, always on) runs the app against the in-process
+  fake daemon and a local relying party on `http://localhost:<port>` that verifies every
+  attestation and signature in Node: the script is in place before the page's first script,
+  save a passkey, `excludeCredentials` → `InvalidStateError`, sign in from the sheet, Cancel and
+  abort, Use a security key instead, locked → Unlock → Save, a cross-origin frame, the inline list
+  under the field with the focus kept in it (typing filters, ↓ Enter fills, Esc, no match hides),
+  Tab opens / script focus and page load do not, and conditional mediation through the list.
+  `tests/e2e/safe.spec.ts` (7 tests, skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` point at
+  built ewe-safe binaries) starts a sandboxed daemon (its own runtime, state, data and config
+  dirs, a fake `ewe-conf`, `EWE_SAFE_NO_LOGIND`, `EWE_SAFE_KDF_ITERATIONS=2`), two local servers
+  on `127.0.0.1` and `localhost` (two origins), and covers: no fill on load, click-to-fill, the
+  cross-origin frame, generate + save, update, no prompt for a known login, and locked → Unlock
+  Safe (`EWE_SAFE_ASK_CMD`). Both run inside a nested Hyprland (`WAYLAND_DISPLAY` /
+  `HYPRLAND_INSTANCE_SIGNATURE` of the nest), never the live session.
 - History tests: `history-store.test.ts` (migration, a broken database, rows by day and paging,
   FTS and short words, site filters, range and page clears, remote clears, retention, the merge
   diff, the page cap), `history-sync.test.ts` (clear filtering, compaction, tab files, PROPFIND
@@ -785,18 +961,19 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   and delete, a whole site, a restart), Clear browsing data (last hour vs all time, a real
   cookie, the downloads list, Keep history for), opening it (Ctrl+H, the sidebar button, the
   palette row, one history tab) and two profiles syncing a delete and open tabs through the
-  mock WebDAV server. `EWE_TEST_RULE=<lua name>` gives an e2e run its own Hyprland rule, so two
+  mock WebDAV server. `EWE_TEST_RULE=<lua name>` gives an e2e run its own Hyprland rule (`<name>_<workspace>`), so two
   runs in sibling worktrees do not switch each other's rule off. Keep `TMPDIR` short (for
   example `/tmp/x`): Chromium aborts with "Socket path too long" for its singleton socket under
   a long temp path.
-- E2E (`smoke.spec.ts`, 26 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
+- E2E (`smoke.spec.ts`, 27 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending
   keys (keys are dropped in the first ~200ms of a load). `shellOf` also waits until the shell
   viewport matches the window and has stopped changing, because Hyprland tiles the window about
   a second after launch and coordinates taken before that land outside the overlay. Covers tabs,
-  the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8, collapsing to 56px,
-  the hover peek and Ctrl+Shift+S, identity, workspaces + history persistence, session restore, the
+  the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8, collapsing (the rail
+  disappears, the card moves to x 8, the page edge, the shell strip and a left mouseLeave each
+  reveal the peek after the grace) and Ctrl+Shift+S, identity, workspaces + history persistence, session restore, the
   tab context menu from a rail row (duplicate, close others, move to a new workspace), the
   workspace dot menu (colour, Rename routed to the rail header, inline rename with Escape, empty
   and 40-character cases, Move tabs here, Remove), tab pinning (`tab.pin` moves the tab first,
@@ -826,7 +1003,11 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
 - Hyprland: `tests/e2e/hyprland.ts` and `scripts/visual.mjs` register a temporary rule
   (`hl.window_rule({ match = { class = '(?i)^(ewe-browser|electron)$' }, workspace = '2 silent' })`)
   through `hyprctl repl` so test windows open on workspace 2 next to the owner's terminal, and
-  disable it afterwards. This Hyprland build uses a Lua config: `hyprctl dispatch` takes Lua
+  disable it afterwards. If a monitor is SHOWING workspace 2 (the owner works on it since adding
+  an external monitor, 2026-10-14), both pick the first workspace from 9 up that no monitor
+  shows instead (`testWorkspace()` / `pickWorkspace()`; `EWE_TEST_WORKSPACE` /
+  `EWE_VISUAL_WORKSPACE` set the preference). The rule global and name are per workspace
+  (`__ewe_test_rule_<n>`): one shared global silently kept an old workspace. This Hyprland build uses a Lua config: `hyprctl dispatch` takes Lua
   dispatcher expressions, `hyprctl repl '<lua>'` prints a return value, globals persist.
   Never move the real cursor; the owner may be in a game on the other monitor.
   The owner's machine currently has one laptop panel showing another workspace, so workspace 2
@@ -841,8 +1022,8 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   `XDG_DATA_HOME` xbel, the search dropdown, the card menu, the Docs filter, light), new-tab
   page, the rail with six tabs (full and a hover crop), the address editor, the Ctrl+D toast,
   the starred address, pinned tiles (and an active one), the tab menu and its Move submenu, a
-  second workspace, a workspace dot hover, the workspace menu and inline rename, the collapsed
-  rail, the hover peek, the sidebar (bookmarks tree, row menu, search, downloads from a local
+  second workspace, a workspace dot hover, the workspace menu and inline rename, the hidden
+  rail, the edge peek, the sidebar (bookmarks tree, row menu, search, downloads from a local
   server, paused and cancelled, history), the new-tab palette with `t:` and `b:`, Ctrl+L, thirty
   tabs, the file manager on a generated tree (grid with an empty folder, an AppImage and a zip,
   photos with thumbnails and a video frame, the viewer on an image, the next image and the video,
@@ -851,7 +1032,15 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   settings, light (rail, tab menu, sidebar, files, peek), dark and the sad page. The script
   launches with `EWE_CHROME_BOOKMARKS` pointing at the fixture and `EWE_DOWNLOADS` at a temp
   directory.
-- Do not `pkill -f <pattern>`; it has killed the agent's own shell before. Kill by pid.
+- Real-pointer checks (hover and click routing between the shell, page and overlay views,
+  which `sendInputEvent` bypasses): run a nested Hyprland (aquamarine window pinned to
+  workspace 2 by a temporary host rule, then a headless `SHOT` output so it renders while
+  hidden, as ewe's `run-ewe/driver.sh` does), start the app inside it with `WAYLAND_DISPLAY`
+  set to the nested socket, move the NESTED cursor with `hl.dsp.cursor.move` or a small
+  `zwlr_virtual_pointer_v1` client for clicks, and capture with `grim -o SHOT`. That is how the
+  hidden rail was verified (edge sweep into the gap, peek, pin) at scale 1.8.
+- Do not `pkill -f <pattern>`; it has killed the agent's own shell before (again on 2026-10-14
+  with `pkill -f grim`). Kill by pid.
 
 ## Packaging (an ewe first-party app, like Komble)
 
@@ -861,7 +1050,8 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   the runtime is always castlabs' build with Widevine, never a download of upstream Electron;
   `npmRebuild: false`, there are no native modules). `package()` copies
   `apps/browser/dist/linux-unpacked` to `/usr/lib/ewe-browser`, drops `default_app.asar`,
-  clears group write bits, symlinks `/usr/bin/ewe-browser`, and installs
+  clears group write bits, installs `packaging/ewe-browser.sh` as `/usr/bin/ewe-browser` (a
+  wrapper, not a symlink: verbs go to the CLI in Node mode), and installs
   `ewe-browser.desktop`, the hicolor icons and the license. ~120 MB compressed.
 - `chrome-sandbox` is not setuid: Arch allows unprivileged user namespaces; checked on the
   package that renderers run in their own user namespace with seccomp mode 2.
@@ -893,6 +1083,6 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   dot notation, no `[...string]` (use `Intl.Segmenter`), `require-await`.
 - Commands and events are added in `ipc-contract.ts` first (type + validator), then handled in
   `WindowController.dispatch`, then used from the UI through `api.send`.
-- Constants shared between CSS and TypeScript (`RAIL_WIDTH`, `RAIL_COLLAPSED_WIDTH`, `PAGE_GAP`)
+- Constants shared between CSS and TypeScript (`RAIL_WIDTH`, `PAGE_GAP`)
   must be changed in both places.
 - Never commit without the owner reviewing the diff. Plan approval is not commit approval.

@@ -7,14 +7,14 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import type { Rect } from '@ewe/shared'
+import { EDGE_LEAVE_ZONE, EDGE_ZONE, type Rect } from '@ewe/shared'
 import { Rail } from '../components/Rail'
 import { api } from '../lib/api'
 import { createDownloads, isActiveDownload } from '../lib/downloads'
 import { applyTheme, createBrowserStore } from '../lib/store'
 import './App.css'
 
-const PEEK_DELAY_MS = 250
+const REVEAL_THROTTLE_MS = 300
 
 function rectOf(el: HTMLElement): Rect {
   const r = el.getBoundingClientRect()
@@ -32,13 +32,13 @@ export function ShellApp(): JSX.Element {
   const [editRequest, setEditRequest] = createSignal(0)
   const [renameRequest, setRenameRequest] = createSignal({ id: '', n: 0 })
   let slot: HTMLDivElement | undefined
-  let peekTimer: number | undefined
 
   createEffect(() => applyTheme(store.settings, store.theme))
 
   const activeDownloads = createMemo(() => downloads().filter(isActiveDownload).length)
   const collapsed = () => store.settings().rail === 'collapsed'
   const fullscreen = () => store.state()?.fullscreen ?? false
+  const hidden = () => collapsed() || fullscreen()
 
   onMount(() => {
     const off = api.onUi((event) => {
@@ -46,9 +46,31 @@ export function ShellApp(): JSX.Element {
       else if (event.type === 'workspace.rename')
         setRenameRequest((r) => ({ id: event.id, n: r.n + 1 }))
     })
+    onCleanup(off)
+  })
+
+  onMount(() => {
+    let lastX = Number.POSITIVE_INFINITY
+    let sentAt = 0
+    const reveal = () => {
+      if (!collapsed() || fullscreen() || Date.now() - sentAt < REVEAL_THROTTLE_MS) return
+      sentAt = Date.now()
+      void api.send({ type: 'overlay.request', part: 'rail' })
+    }
+    const onMove = (e: MouseEvent) => {
+      lastX = e.clientX
+      if (e.clientX <= EDGE_ZONE) reveal()
+    }
+    const onLeave = (e: MouseEvent) => {
+      if (Math.min(e.clientX, lastX) <= EDGE_LEAVE_ZONE) reveal()
+      lastX = Number.POSITIVE_INFINITY
+    }
+    const root = document.documentElement
+    root.addEventListener('mousemove', onMove)
+    root.addEventListener('mouseleave', onLeave)
     onCleanup(() => {
-      off()
-      window.clearTimeout(peekTimer)
+      root.removeEventListener('mousemove', onMove)
+      root.removeEventListener('mouseleave', onLeave)
     })
   })
 
@@ -66,31 +88,17 @@ export function ShellApp(): JSX.Element {
     })
   })
 
-  const peek = () => {
-    window.clearTimeout(peekTimer)
-    if (!collapsed()) return
-    peekTimer = window.setTimeout(
-      () => void api.send({ type: 'overlay.request', part: 'rail' }),
-      PEEK_DELAY_MS,
-    )
-  }
-
   return (
     <div
       class="shell"
-      classList={{ fullscreen: fullscreen() }}
+      classList={{ fullscreen: fullscreen(), 'rail-hidden': hidden() }}
       style={{ 'padding-right': `${store.state()?.sidebar?.width ?? 0}px` }}
     >
-      <Show when={!fullscreen()}>
-        <div
-          class="shell-rail"
-          onMouseEnter={peek}
-          onMouseLeave={() => window.clearTimeout(peekTimer)}
-          onPointerDown={() => window.clearTimeout(peekTimer)}
-        >
+      <Show when={!hidden()}>
+        <div class="shell-rail">
           <Rail
             store={store}
-            mode={collapsed() ? 'collapsed' : 'expanded'}
+            mode="expanded"
             downloadsActive={activeDownloads()}
             editRequest={editRequest()}
             renameRequest={renameRequest()}

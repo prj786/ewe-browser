@@ -156,9 +156,9 @@
   --strip-height: 44px;
   --bottom-height: 36px;
   --rail-width: 264px;
-  --rail-collapsed-width: 56px;
   --page-gap: 8px;
   --menu-width: 220px;
+  --suggest-pad: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

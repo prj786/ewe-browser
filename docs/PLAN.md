@@ -234,7 +234,7 @@ built, verified and handed to the owner for testing before the next starts.
    - Resident process: "Keep running in the background" leaves the browser loaded when the last
      window closes (the next window opens in about 75 ms, session restored); "Start with ewe"
      adds a hidden `--background` entry to ewe startup apps through `ewe-conf`.
-   - Known: no automatic form detection or save-on-submit (ewe-pass reads, it does not write);
+   - Known: ewe-pass itself does no form detection or save-on-submit (Safe does, see below);
      ewe's QML plugin panels cannot be hosted (they are Quickshell components), so panels are
      web pages; no tray icon.
 6. [x] **Extensions, DRM, sync** (landed 2026-10-13)
@@ -258,6 +258,24 @@ built, verified and handed to the owner for testing before the next starts.
      popups are measured after load (Electron 44 sends no preferred-size events for views);
      `chrome.action.openPopup` still uses the library's own window; sync does not cover
      passwords (they stay in the password manager) or extensions themselves.
+
+## Reported 2026-10-14 — the rail
+
+1. [x] **"The sidebar toggler flips back" / "hovering in windowed mode shows nothing".** Neither
+       reproduced with synthetic input or with a real pointer in a nested Hyprland at scale 1.8;
+       the owner's answers explained it: they reach for the SCREEN edge, which in a tiled window
+       is Hyprland's gap outside the browser (Electron never sees the pointer there), and the
+       56px icon column's own hover peek looked like the collapse undoing itself. Collapsed now
+       hides the rail completely in a normal window, as in fullscreen: the page card takes the
+       width, and the rail slides in when the pointer reaches the window's left edge or leaves
+       through it on the way to the screen edge (page edge, the shell's 8px gap strip, a left
+       mouseLeave); the peek stays while the pointer is out in the gap; hiding has a 500ms grace
+       so it cannot flip straight back. Verified with a real pointer in a nested Hyprland (sweep
+       into the gap, peek, use, leave, sweep again, pin with the peek's toggle) and e2e.
+2. [x] Stale `*.json.<pid>.<n>.tmp` files piled up in the profile when a process died between the
+       temp write and the rename (every `pnpm dev` restart); each store now removes its own
+       leftovers from other pids when it loads, once they are a minute old (so a command-line
+       read can never delete a running browser's in-flight write).
 
 ## Home, ewe package, CLI (agreed 2026-10-14)
 
@@ -304,9 +322,79 @@ built, verified and handed to the owner for testing before the next starts.
      first publish could not see a private repo's release and its fresh-install gate failed.
    - Still open: `ewe-auth`/`ewe-cloud` name Helium as a fallback after `xdg-open` (both are
      being rewritten); existing machines keep Helium as default until changed in Settings.
-3. [ ] **CLI**: a scriptable `ewe-browser` command (open folders and files, search, list tabs,
-       recents and history) with JSON output, for the ewe companion. `RecentsService` and
-       `HomeService` are the first pieces it reuses.
+3. [x] **CLI** (landed 2026-10-14, waiting for the owner's review): `ewe-browser <verb>` with
+       one JSON object per call and exit 0 (rule 5), reference in `docs/CLI.md`.
+   - 31 tools: read (status, tabs, history, bookmarks, downloads, recent, find across all of
+     them plus music, music, places, ls, locate, page with `--text`), desktop (open, search,
+     play, reveal, home, focus, tab activate/reload/mute/pin/reopen, bookmark add) and change
+     (tab close, bookmark remove). `call <tool> '<json>'` runs any of them; `commands` prints
+     every tool with a JSON Schema, a Companion tier and its argv; acting replies carry `undo`
+     argv lists; every tool whose reply can hold text from websites or from disk is marked
+     `untrusted`.
+   - Transport: a 0600 Unix socket per profile in `$XDG_RUNTIME_DIR` (the folder must be the
+     user's own and not writable by others), JSON lines. Closed browser: read verbs answer from
+     the profile on disk, bookmark edits write the file, acting verbs start the browser and
+     wait for the socket. `/usr/bin/ewe-browser` is now a sh wrapper that runs verbs in
+     Electron's Node mode (a fraction of a second, no display needed) and everything else as
+     before.
+   - Matches what the Companion's plan named: `search` and `play` (with its YouTube Music
+     fallback). Its registry is still hand-written; `commands` is what it can be generated
+     from.
+   - Next: website page and vault notes for the CLI with the next release; a `downloads`
+     notification hint for the Companion; pause/next go through MPRIS (playerctl), not here.
+
+## Safe, ewe's password manager (2026-10-14)
+
+1. [x] **Safe in the browser** (built 2026-10-14 on `feat/safe`, approved and merged 2026-10-15;
+       ewe-safe RFC-008, its `docs/PROTOCOL.md` v1). Built in, not a store extension: the main process
+       talks to `ewe-safed` over its socket and fills the page's own fields.
+   - A key in login, new-password and one-time-code fields; a click (a first click into the field,
+     the key, or ArrowDown in an empty field) lists the Safe logins for that frame's own origin in
+     the overlay. Nothing is filled until a login is picked; never on page load.
+   - Strict site matching: the same host first, then the same registrable domain (public-suffix
+     list incl. private suffixes such as `github.io`); an https login never goes to an http page;
+     ports must match. A cross-origin frame only ever gets its own origin's logins.
+   - New-password fields offer "Use a strong password" (`ewe-safe generate`, 20 characters) and
+     fill the confirm field too. One-time-code fields fill the matched login's code.
+   - After a sign-in: "Save to Safe?" (Save · Never for this site · Not now) or "Update the
+     password in Safe?"; nothing when the same login is already saved. The captured password lives
+     only in main-process memory until decided (two minutes at most).
+   - Locked: "Unlock Safe" runs `ewe-safe unlock --ask`, then the list comes back.
+   - Settings → ewe: Fill from Safe, Offer to save logins, the never-save sites.
+   - Ctrl+Shift+L keeps going through ewe Passwords (`ewe-pass`), whose provider `ewe` fills from
+     Safe too.
+2. [x] **Like 1Password: suggestions in the field, passkeys** (built 2026-10-15 on `feat/safe`,
+       ewe-safe `docs/TRIO.md` §B1; approved and merged 2026-10-15).
+   - When you click or Tab into a login, email, password or code field, a small list drops right
+     under it: passkeys first (when the site asks for one), then the logins for that site (icon,
+     title, username), then Open Safe / Use a strong password / Unlock Safe. The focus stays in the
+     field: typing filters, ↑ ↓ move, Enter fills, Esc closes. It follows scroll, resize and zoom
+     and closes on navigation, on blur and on a click elsewhere. Script focus and page load never
+     open it. The browser draws it (the overlay), so the page can't read or restyle it.
+   - Setting: _Show suggestions when a field gets focus_ (on). Off = only the key and ArrowDown.
+   - Passkeys: a site can save a passkey in Safe ("Save a passkey for github.com in Safe?") and
+     sign in with it ("Sign in to github.com with a passkey", or straight from the list when the
+     site uses conditional mediation). Main checks the origin and the relying party, builds the
+     client data itself and asks Safe to sign (`passkey-create` / `passkey-get`, Safe's ES256 key
+     in the KeePassXC format). _Use a security key instead_ gives the request to Chromium's own
+     WebAuthn. Setting: _Passkeys_ (on).
+   - Safety: the list and the sheet ignore a click until they have stood still for half a second
+     and the mouse has moved; Enter in the sheet works only after you chose with the arrow keys;
+     the browser re-checks the page's origin when you click Save or pick a passkey; names the site
+     sends are cleaned before they are shown.
+   - Tested: a local test site that checks every attestation and signature, a fake Safe with real
+     keys, and the real `ewe-safed` from `feat/passkeys` (unit test and the older e2e).
+   - Known: in a frame from another site the list opens at the pointer, not under the field, and
+     does not move when the outer page scrolls; passkeys in a frame from another site are refused
+     (`NotAllowedError`); _Use a security key instead_ reaches Chromium's own WebAuthn, which in
+     Electron has no window of its own (untested with a real key here); a passkey saved while the
+     site already gave up (abort or timeout after Save) stays in Safe; like Chrome, a page may
+     open the passkey sheet without a click on the page; Safe always reports "user verified"
+     (unlocked Safe + a click, as 1Password does); no passkey row on logins
+     without a waiting request; not tried on real sites (github.com, google.com) yet; a
+     password-only second step of a two-step sign-in is saved without its username; no identities
+     or cards; the one-time-code fill is unit-tested only (`ewe-safe add` cannot store a code
+     yet).
 
 ## History and real sync (2026-10-15, branch `feat/history`, waiting for the owner's review)
 

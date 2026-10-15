@@ -1,3 +1,4 @@
+import { DEFAULT_SAFE_SETTINGS, type SafeSettings } from './safe'
 import type { ShortcutMap } from './shortcuts'
 
 export type TabId = string
@@ -83,6 +84,7 @@ export interface Settings {
   historyDays: number
   panels: WebPanel[]
   shortcuts: ShortcutMap
+  safe: SafeSettings
 }
 
 export interface WebPanel {
@@ -181,6 +183,7 @@ export const DEFAULT_SETTINGS: Settings = {
   historyDays: 0,
   panels: [],
   shortcuts: {},
+  safe: DEFAULT_SAFE_SETTINGS,
 }
 
 export interface SessionTab {
@@ -250,17 +253,21 @@ export const FILES_PAGE_URL = 'app://files/'
 export const SAD_TAB_URL = 'app://sad/'
 
 export const RAIL_WIDTH = 264
-export const RAIL_COLLAPSED_WIDTH = 56
 export const RAIL_PEEK_SHADOW = 24
 export const PAGE_GAP = 8
 export const TOAST_MARGIN = 16
 export const TOAST_WIDTH = 360
 export const TOAST_HEIGHT = 56
+export const PROMPT_WIDTH = 380
+export const PROMPT_HEIGHT = 168
+export const PROMPT_MARGIN = 12
 export const SIDEBAR_HEADER = 44
 export const TOAST_MS = 1800
 export const SIDEBAR_MIN = 280
 export const SIDEBAR_MAX = 640
 export const EDGE_ZONE = 12
+export const EDGE_LEAVE_ZONE = 24
+export const RAIL_HIDE_GRACE_MS = 500
 
 export type ThemeVariant = 'dark' | 'light'
 
