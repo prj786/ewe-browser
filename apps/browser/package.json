@@ -22,7 +22,8 @@
     "@ewe/shared": "workspace:*",
     "electron-chrome-extensions": "4.9.0",
     "electron-chrome-web-store": "0.13.0",
-    "music-metadata": "^12.1.1"
+    "music-metadata": "^12.1.1",
+    "tldts": "^7.4.18"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^4.0.0",
@@ -31,6 +32,7 @@
     "electron": "github:castlabs/electron-releases#v44.5.1+wvcus",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "happy-dom": "^20.14.6",
     "highlight.js": "^11.12.0",
     "marked": "^18.1.1",
     "pdfjs-dist": "^6.4.299",

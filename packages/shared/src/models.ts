@@ -1,3 +1,4 @@
+import { DEFAULT_SAFE_SETTINGS, type SafeSettings } from './safe'
 import type { ShortcutMap } from './shortcuts'
 
 export type TabId = string
@@ -82,6 +83,7 @@ export interface Settings {
   sync: boolean
   panels: WebPanel[]
   shortcuts: ShortcutMap
+  safe: SafeSettings
 }
 
 export interface WebPanel {
@@ -178,6 +180,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sync: false,
   panels: [],
   shortcuts: {},
+  safe: DEFAULT_SAFE_SETTINGS,
 }
 
 export interface SessionTab {
@@ -253,6 +256,9 @@ export const PAGE_GAP = 8
 export const TOAST_MARGIN = 16
 export const TOAST_WIDTH = 360
 export const TOAST_HEIGHT = 56
+export const PROMPT_WIDTH = 380
+export const PROMPT_HEIGHT = 168
+export const PROMPT_MARGIN = 12
 export const SIDEBAR_HEADER = 44
 export const TOAST_MS = 1800
 export const SIDEBAR_MIN = 280

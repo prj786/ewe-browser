@@ -1,6 +1,9 @@
 import {
   EDGE_ZONE,
   PAGE_GAP,
+  PROMPT_HEIGHT,
+  PROMPT_MARGIN,
+  PROMPT_WIDTH,
   RAIL_PEEK_SHADOW,
   RAIL_WIDTH,
   SIDEBAR_MAX,
@@ -59,6 +62,7 @@ export function overlayBounds(part: OverlayPart, full: Size, area?: Rect): Rect 
       )
     case 'palette':
     case 'menu':
+    case 'sheet':
       return { x: 0, y: 0, width: full.width, height: full.height }
     case 'toast': {
       const width = Math.min(TOAST_WIDTH, page.width)
@@ -72,6 +76,19 @@ export function overlayBounds(part: OverlayPart, full: Size, area?: Rect): Rect 
         full,
       )
     }
+    case 'prompt': {
+      const width = Math.min(PROMPT_WIDTH, page.width)
+      return clampRect(
+        {
+          x: page.x + page.width - PROMPT_MARGIN - width,
+          y: page.y + PROMPT_MARGIN,
+          width,
+          height: PROMPT_HEIGHT,
+        },
+        full,
+      )
+    }
+    case 'suggest':
     case 'none':
       return null
   }

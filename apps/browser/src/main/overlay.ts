@@ -20,6 +20,8 @@ export class OverlayController {
   shownAt = 0
   private hideTimer: NodeJS.Timeout | null = null
   private shrinkTimer: NodeJS.Timeout | null = null
+  private fixed: Rect | null = null
+  private readonly watchers = new Set<(part: OverlayPart) => void>()
 
   constructor(host: OverlayHost) {
     this.host = host
@@ -51,10 +53,32 @@ export class OverlayController {
   relayout(size: Size, area: Rect | undefined = this.area): void {
     this.size = size
     this.area = area
-    if (this.part === 'none') return
+    if (this.part === 'none' || this.fixed !== null) return
     this.clearShrink()
     const bounds = overlayBounds(this.part, size, area)
     if (bounds !== null) this.view.setBounds(bounds)
+  }
+
+  watch(fn: (part: OverlayPart) => void): () => void {
+    this.watchers.add(fn)
+    return () => this.watchers.delete(fn)
+  }
+
+  private setPart(part: OverlayPart): void {
+    if (this.part === part) return
+    this.part = part
+    for (const fn of this.watchers) fn(part)
+  }
+
+  place(part: OverlayPart, rect: Rect | null): void {
+    if (this.part !== part || this.fixed === null) return
+    if (rect === null) {
+      this.view.setVisible(false)
+      return
+    }
+    this.fixed = rect
+    this.view.setBounds(rect)
+    this.view.setVisible(true)
   }
 
   private clearShrink(): void {
@@ -63,14 +87,15 @@ export class OverlayController {
     this.shrinkTimer = null
   }
 
-  show(part: OverlayPart, size: Size = this.size, extra?: UiEvent): void {
+  show(part: OverlayPart, size: Size = this.size, extra?: UiEvent, at?: Rect): void {
     if (part === 'none') {
       this.hide()
       return
     }
     this.size = size
-    const bounds = overlayBounds(part, size, this.area)
+    const bounds = at ?? overlayBounds(part, size, this.area)
     if (bounds === null) return
+    this.fixed = at ?? null
     if (this.hideTimer !== null) {
       clearTimeout(this.hideTimer)
       this.hideTimer = null
@@ -78,7 +103,7 @@ export class OverlayController {
     this.clearShrink()
     const changed = this.part !== part
     const fromMenu = this.part === 'menu'
-    this.part = part
+    this.setPart(part)
     if (changed) this.shownAt = Date.now()
     if (fromMenu && changed) {
       this.shrinkTimer = setTimeout(() => {
@@ -89,12 +114,13 @@ export class OverlayController {
     this.view.setVisible(true)
     if (changed) this.sendUi({ type: 'overlay.show', part })
     if (extra !== undefined) this.sendUi(extra)
-    if (part === 'palette' || part === 'menu') this.view.webContents.focus()
+    if (part === 'palette' || part === 'menu' || part === 'sheet') this.view.webContents.focus()
   }
 
   hide(): void {
     if (this.part === 'none') return
-    this.part = 'none'
+    this.fixed = null
+    this.setPart('none')
     this.clearShrink()
     this.sendUi({ type: 'overlay.hide' })
     if (this.hideTimer !== null) clearTimeout(this.hideTimer)

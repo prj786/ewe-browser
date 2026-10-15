@@ -74,7 +74,19 @@ surface to the Ewe component it follows and records what the system did not cove
   `--page-gap` (mirror `RAIL_WIDTH`, `RAIL_COLLAPSED_WIDTH`, `PAGE_GAP` in
   `packages/shared/src/models.ts`), `--strip-height` and `--bottom-height` (now the sidebar header
   and footer), `--tooltip-delay` 500ms, `--menu-width` 220px (minimum width of a context menu;
-  eight `icon-lg` swatches fit in a row).
+  eight `icon-lg` swatches fit in a row), `--suggest-pad` 12px (shadow room around Safe's inline
+  list; mirrors `SUGGEST_PAD` in `main/safe/window.ts`).
+- Safe's inline list (2026-10-15): the system has no autofill dropdown. It is a Menu surface
+  (`surface-overlay`, `border-subtle`, `rounded`, `shadow-float`, slides down at `dur-base`)
+  dropped 4px under the field, as wide as the field (280–420px), with ListRow-style rows
+  (`control-xl` min height, a `control-md` icon well on `surface-sunken`, title in `text-primary`,
+  username in `text-muted` at `font-size-s`, active row `surface-hover`). Logins show the site's
+  favicon; passkeys a Lucide `fingerprint` in `accent-text`; the footer actions use plain glyphs
+  after a hairline. It never takes focus, so the field keeps its caret and its own focus ring.
+- Passkey sheet: the Install prompt's dialog (the palette card at the top third of the window,
+  `panel-md` wide) with a `fingerprint` well, the account in a `surface-sunken` box or the
+  passkeys as rows, and actions _Use a security key instead_ (ghost, Lucide `usb`), Cancel
+  (ghost) and the primary Save / Sign in / Unlock Safe.
 - Context menus: the system has no menu placement rule. Menus open with their top-left corner at
   the pointer and flip to the other side of it when they would leave the window, keeping an 8px
   margin (`placeMenu`); a submenu opens to the right of its row with the first item aligned to the

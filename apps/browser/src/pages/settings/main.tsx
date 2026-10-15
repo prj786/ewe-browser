@@ -522,15 +522,121 @@ function Ewe(props: {
           </button>
         </div>
         <div class="list-divider" />
+        <SettingRow
+          icon="key-round"
+          title="Fill from Safe"
+          description="A key in login fields lists the Safe logins for that site. Nothing is filled until you pick one."
+        >
+          <select
+            aria-label="Fill from Safe"
+            class="settings-safe-fill"
+            value={props.settings().safe.fill ? 'on' : 'off'}
+            onChange={(e) =>
+              props.update({
+                safe: { ...props.settings().safe, fill: e.currentTarget.value === 'on' },
+              })
+            }
+          >
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </SettingRow>
+        <div class="list-divider" />
+        <SettingRow
+          icon="list"
+          title="Show suggestions when a field gets focus"
+          description="Clicking or tabbing into a login field opens the Safe list under it. Off: only the key in the field opens it."
+        >
+          <select
+            aria-label="Show suggestions when a field gets focus"
+            class="settings-safe-suggest"
+            value={props.settings().safe.suggest ? 'on' : 'off'}
+            onChange={(e) =>
+              props.update({
+                safe: { ...props.settings().safe, suggest: e.currentTarget.value === 'on' },
+              })
+            }
+          >
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </SettingRow>
+        <div class="list-divider" />
+        <SettingRow
+          icon="fingerprint"
+          title="Passkeys"
+          description="Sites can save passkeys in Safe and sign you in with them. Off: the browser's own passkey support (security keys)."
+        >
+          <select
+            aria-label="Passkeys"
+            class="settings-safe-passkeys"
+            value={props.settings().safe.passkeys ? 'on' : 'off'}
+            onChange={(e) =>
+              props.update({
+                safe: { ...props.settings().safe, passkeys: e.currentTarget.value === 'on' },
+              })
+            }
+          >
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </SettingRow>
+        <div class="list-divider" />
+        <SettingRow
+          icon="lock"
+          title="Offer to save logins"
+          description="After you sign in, Safe asks to save a new login or update a changed password."
+        >
+          <select
+            aria-label="Offer to save logins"
+            class="settings-safe-save"
+            value={props.settings().safe.offerSave ? 'on' : 'off'}
+            onChange={(e) =>
+              props.update({
+                safe: { ...props.settings().safe, offerSave: e.currentTarget.value === 'on' },
+              })
+            }
+          >
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </SettingRow>
+        <For each={props.settings().safe.neverSave}>
+          {(host) => (
+            <div class="row settings-safe-never">
+              <span class="row-tile">
+                <Icon name="globe" />
+              </span>
+              <span class="row-text">
+                <span class="row-title">{host}</span>
+                <span class="row-desc">Safe never offers to save here</span>
+              </span>
+              <button
+                class="btn btn--ghost btn--sm"
+                onClick={() =>
+                  props.update({
+                    safe: {
+                      ...props.settings().safe,
+                      neverSave: props.settings().safe.neverSave.filter((h) => h !== host),
+                    },
+                  })
+                }
+              >
+                Remove
+              </button>
+            </div>
+          )}
+        </For>
+        <div class="list-divider" />
         <div class="row">
           <span class="row-tile">
             <Icon name="key-round" />
           </span>
           <span class="row-text">
-            <span class="row-title">Passwords</span>
+            <span class="row-title">Other password managers</span>
             <span class="row-desc">
-              Ctrl+Shift+L or the key in the address field fills a login from 1Password, Bitwarden
-              or pass through ewe Passwords. Secrets never pass through the browser.
+              Ctrl+Shift+L or the key in the address field fills a login through ewe Passwords:
+              Safe, 1Password, Bitwarden or pass.
             </span>
           </span>
         </div>

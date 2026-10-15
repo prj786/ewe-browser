@@ -23,6 +23,7 @@ import { readEweAccount } from './ewe-account'
 import { readEweTheme, watchEweTheme } from './ewe-theme'
 import { applyIdentity, applyIdentityToContents } from './identity'
 import { registerIpc } from './ipc'
+import { SafeService } from './safe/service'
 import { installAppProtocol, registerAppScheme } from './protocol'
 import { BookmarksStore } from './storage/bookmarks-store'
 import { DownloadsStore } from './storage/downloads-store'
@@ -210,8 +211,10 @@ async function main(): Promise<void> {
   const appCommand = app.isPackaged ? [process.execPath] : [process.execPath, app.getAppPath()]
   const startup = new Startup(appCommand)
   const launchedInBackground = process.argv.includes('--background')
+  const safe = new SafeService(settings)
   const windows: WindowManager = new WindowManager({
     extensions,
+    safe,
     session: persistent,
     settings,
     preload: preloadPath(),
@@ -281,10 +284,12 @@ async function main(): Promise<void> {
   })
   app.on('will-quit', () => {
     unwatchTheme()
+    safe.client.stop()
     files.dispose()
     sync.dispose()
   })
   registerIpc(windows, settings, {
+    safe,
     getTheme: () => eweTheme,
     getAccount: readEweAccount,
     history,
