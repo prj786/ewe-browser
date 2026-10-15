@@ -924,8 +924,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   xbel parser, snippets, the recent store and the recents service over a temp tree, stale temp
   files in json-file, and the CLI: argv, paths, schema checks, every tool reachable, the socket
   server and a real socket, ls and locate on a temp tree, read tools over fake sources, bookmark
-  writes, and an import walk proving the CLI bundle never reaches `electron`). 317 tests
-  (93 shared, 224 browser; 2 skip without ewe-safe binaries). Nothing reads
+  writes, and an import walk proving the CLI bundle never reaches `electron`). 364 tests
+  (104 shared, 260 browser; 2 skip without ewe-safe binaries). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
 - Safe: unit tests for site matching (`safe-site`), the save decision (`safe-decide`), form

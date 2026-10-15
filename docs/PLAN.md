@@ -396,7 +396,7 @@ built, verified and handed to the owner for testing before the next starts.
      or cards; the one-time-code fill is unit-tested only (`ewe-safe add` cannot store a code
      yet).
 
-## History and real sync (2026-10-15, branch `feat/history`, waiting for the owner's review)
+## History and real sync (2026-10-15, branch `feat/history`, approved and merged 2026-10-15)
 
 The owner asked for "a browser with real syncing and history management" (TRIO.md, B2).
 
