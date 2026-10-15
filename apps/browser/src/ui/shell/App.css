@@ -18,6 +18,10 @@
   background: var(--surface-raised);
 }
 
+.shell.rail-hidden .page-slot {
+  margin-left: var(--page-gap);
+}
+
 .shell.fullscreen .page-slot {
   margin: 0;
   border-radius: 0;

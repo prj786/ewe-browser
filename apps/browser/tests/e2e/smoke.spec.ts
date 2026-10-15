@@ -198,6 +198,42 @@ function pageBox(app: ElectronApplication): Promise<Electron.Rectangle | null> {
   })
 }
 
+function pageMouse(
+  app: ElectronApplication,
+  type: 'mouseMove' | 'mouseLeave',
+  x: number,
+  y: number,
+): Promise<void> {
+  return app.evaluate(
+    ({ BrowserWindow, WebContentsView }, p) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      const page = win?.contentView.children
+        .filter((v): v is Electron.WebContentsView => v instanceof WebContentsView)
+        .find((v) => v.getVisible() && !v.webContents.getURL().includes('/ui/'))
+      page?.webContents.sendInputEvent({ type: p.type, x: p.x, y: p.y })
+    },
+    { type, x, y },
+  )
+}
+
+function shellMouse(
+  app: ElectronApplication,
+  type: 'mouseMove' | 'mouseLeave',
+  x: number,
+  y: number,
+): Promise<void> {
+  return app.evaluate(
+    ({ BrowserWindow }, p) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({
+        type: p.type,
+        x: p.x,
+        y: p.y,
+      })
+    },
+    { type, x, y },
+  )
+}
+
 function movePage(app: ElectronApplication, x: number, y: number): Promise<void> {
   return app.evaluate(
     ({ BrowserWindow, WebContentsView }, p) => {
@@ -353,27 +389,47 @@ test.describe('browser', () => {
     expect(await overlayVisible(app)).toBe(false)
   })
 
-  test('the page is a card next to the rail, which collapses and peeks on hover', async () => {
+  test('the page is a card next to the rail; collapsing hides it and the left edge reveals it', async () => {
     await expect.poll(() => activeLoading(shell), { timeout: 15_000 }).toBe(false)
     await expect.poll(() => pageBox(app).then((b) => [b?.x, b?.y])).toEqual([264, 8])
     await shell.evaluate(() =>
       window.ewe.send({ type: 'settings.update', patch: { rail: 'collapsed' } }),
     )
-    await expect(shell.locator('.rail.collapsed')).toHaveCount(1)
-    await expect.poll(() => pageBox(app).then((b) => b?.x)).toBe(56)
-    await shell.locator('.rail-ws-head, .rail-sep').first().hover()
+    await expect(shell.locator('.rail')).toHaveCount(0)
+    await expect.poll(() => pageBox(app).then((b) => b?.x)).toBe(8)
+    await movePage(app, 2, 300)
+    expect(await overlayVisible(app)).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    const hide = () =>
+      expect
+        .poll(async () => {
+          await movePage(app, 700, 300)
+          return overlayVisible(app)
+        })
+        .toBe(false)
+
+    await movePage(app, 2, 300)
     await expect.poll(() => overlayVisible(app)).toBe(true)
     const overlay = await windowWith(app, '/ui/overlay/')
     await expect(overlay.locator('.rail.peek')).toHaveCount(1)
-    await expect(overlay.locator('.rail.peek .rail-tab[data-tab]')).toHaveCount(2)
-    await expect
-      .poll(async () => {
-        await movePage(app, 700, 300)
-        return overlayVisible(app)
-      })
-      .toBe(false)
+    const rows = await shell.evaluate(async () => {
+      const s = await window.ewe.getState()
+      return s?.tabs.filter((t) => t.workspaceId === s.activeWorkspaceId && !t.pinned).length ?? 0
+    })
+    await expect(overlay.locator('.rail.peek .rail-tab[data-tab]')).toHaveCount(rows)
+    await hide()
+
+    await shellMouse(app, 'mouseMove', 3, 400)
+    await expect.poll(() => overlayVisible(app)).toBe(true)
+    await hide()
+
+    await movePage(app, 40, 500)
+    await pageMouse(app, 'mouseLeave', 10, 500)
+    await expect.poll(() => overlayVisible(app)).toBe(true)
+    await hide()
+
     await sendKey(app, 's', ['control', 'shift'])
-    await expect(shell.locator('.rail.collapsed')).toHaveCount(0)
+    await expect(shell.locator('.rail')).toHaveCount(1)
     await expect.poll(() => pageBox(app).then((b) => b?.x)).toBe(264)
   })
 

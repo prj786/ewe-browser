@@ -14,13 +14,6 @@
   app-region: no-drag;
 }
 
-.rail.collapsed {
-  width: var(--rail-collapsed-width);
-  align-items: center;
-  padding-left: var(--space-s);
-  padding-right: var(--space-s);
-}
-
 .rail.peek {
   border-right: var(--border-width-1) solid var(--border-subtle);
   box-shadow:
@@ -151,10 +144,6 @@
   gap: var(--space-xs);
 }
 
-.rail.collapsed .rail-pins {
-  grid-template-columns: 1fr;
-}
-
 .rail-pin {
   display: flex;
   align-items: center;
@@ -234,13 +223,6 @@
   letter-spacing: var(--tracking-normal);
 }
 
-.rail-sep {
-  flex: none;
-  width: var(--space-lg);
-  height: var(--border-width-1);
-  background: var(--border-subtle);
-}
-
 .rail-tabs {
   display: flex;
   flex-direction: column;
@@ -251,10 +233,6 @@
   padding: 0 var(--space-xs);
   overflow-y: auto;
   scrollbar-width: none;
-}
-
-.rail.collapsed .rail-tabs {
-  align-items: center;
 }
 
 .rail-tab {
@@ -273,13 +251,6 @@
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
-}
-
-.rail.collapsed .rail-tab {
-  justify-content: center;
-  width: var(--control-xl);
-  height: var(--control-xl);
-  padding: 0;
 }
 
 .rail-tab:hover {
@@ -305,10 +276,6 @@
   width: calc(var(--border-width-2) + var(--border-width-1));
   border-radius: var(--fully-rounded);
   background: var(--ws-accent);
-}
-
-.rail.collapsed .rail-tab.active::before {
-  left: calc(-1 * var(--space-s));
 }
 
 .rail-tab.dragging {
@@ -407,22 +374,12 @@
   min-height: var(--control-lg);
 }
 
-.rail.collapsed .rail-foot {
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
 .rail-ws-dots {
   display: flex;
   align-items: center;
   flex: 1;
   min-width: 0;
   gap: var(--space-xxs);
-}
-
-.rail.collapsed .rail-ws-dots {
-  flex-direction: column;
-  flex: none;
 }
 
 .rail-ws-dot {
@@ -477,10 +434,6 @@
   gap: var(--space-xxs);
 }
 
-.rail.collapsed .rail-actions {
-  flex-direction: column;
-}
-
 .rail-sidebar-btn {
   position: relative;
 }
@@ -512,11 +465,6 @@
   flex: none;
   flex-wrap: wrap;
   gap: var(--space-xxs);
-}
-
-.ext-actions.vertical {
-  flex-direction: column;
-  align-items: center;
 }
 
 .ext-action {
