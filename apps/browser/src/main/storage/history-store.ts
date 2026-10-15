@@ -172,6 +172,35 @@ export class HistoryStore extends EventEmitter<{ change: [] }> {
     return Promise.resolve()
   }
 
+  loadSnapshot(): Promise<void> {
+    this.entries.clear()
+    const rows = existsSync(this.dbPath) ? this.snapshotRows() : null
+    const legacy = existsSync(this.jsonPath) ? this.jsonPath : `${this.jsonPath}.bak`
+    for (const row of rows ?? readLegacy(legacy)?.entries ?? [])
+      this.entries.set(row.url, { ...row })
+    return Promise.resolve()
+  }
+
+  private snapshotRows(): HistoryEntry[] | null {
+    for (const readOnly of [true, false]) {
+      try {
+        const db = new DatabaseSync(this.dbPath, { readOnly })
+        try {
+          db.exec('PRAGMA busy_timeout = 5000')
+          if (this.meta(db, 'migrated') === null) return null
+          return db
+            .prepare('SELECT url, title, host, count, last FROM urls')
+            .all() as unknown as UrlRow[]
+        } finally {
+          db.close()
+        }
+      } catch {
+        continue
+      }
+    }
+    return null
+  }
+
   private open(): DatabaseSync {
     try {
       return this.connect()

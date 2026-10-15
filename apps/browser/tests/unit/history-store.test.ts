@@ -106,6 +106,31 @@ describe('history store on SQLite', () => {
     expect(store.size()).toBe(1)
   })
 
+  it('reads a snapshot for the command line without migrating or writing', async () => {
+    const dir = tempDir()
+    const legacy = {
+      version: 1,
+      entries: [{ url: 'https://a.test/', title: 'Alpha', host: 'a.test', count: 2, last: now }],
+    }
+    writeFileSync(join(dir, 'history.json'), JSON.stringify(legacy))
+    const before = new HistoryStore(dir)
+    await before.loadSnapshot()
+    expect(before.list('', 10).map((e) => e.url)).toEqual(['https://a.test/'])
+    expect(existsSync(join(dir, 'history.db'))).toBe(false)
+    expect(existsSync(join(dir, 'history.json'))).toBe(true)
+
+    const store = await open(dir)
+    store.record('https://b.test/', 'Beta', now + 1000)
+    store.close()
+    const after = new HistoryStore(dir)
+    await after.loadSnapshot()
+    expect(after.list('', 10).map((e) => e.url)).toEqual(['https://b.test/', 'https://a.test/'])
+    expect(after.isOpen()).toBe(false)
+    after.record('https://c.test/', 'Gamma', now + 2000)
+    const check = await open(dir)
+    expect(check.size()).toBe(2)
+  })
+
   it('records visits write-through and keeps frecency in memory', async () => {
     const dir = tempDir()
     const store = await open(dir)

@@ -882,7 +882,9 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   implementation in `data.ts` (read, both sides), `local.ts` (no browser) or `host.ts` (browser
   side), and a line in docs/CLI.md.
 - `where`: `local` runs in the CLI process; `read` asks the socket, else reads the stores from
-  disk (`offline.ts`, `"running": false`); `store` (bookmark edits) asks the socket, else edits
+  disk (`offline.ts`, `"running": false`; history through `HistoryStore.loadSnapshot()`, which
+  opens `history.db` read-only, or reads `history.json` / `.bak` before the first SQLite start,
+  and never migrates, prunes or writes); `store` (bookmark edits) asks the socket, else edits
   `bookmarks.json`; `live` needs the running browser (`not-running`); `app` starts the browser
   (`appCommand()`: `process.execPath` inside app.asar, `EWE_BROWSER_BIN`, or the dev electron +
   app dir; `ELECTRON_RUN_AS_NODE` removed from its env), waits up to 20s for the socket to
@@ -950,8 +952,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   cross-origin frame, generate + save, update, no prompt for a known login, and locked → Unlock
   Safe (`EWE_SAFE_ASK_CMD`). Both run inside a nested Hyprland (`WAYLAND_DISPLAY` /
   `HYPRLAND_INSTANCE_SIGNATURE` of the nest), never the live session.
-- History tests: `history-store.test.ts` (migration, a broken database, rows by day and paging,
-  FTS and short words, site filters, range and page clears, remote clears, retention, the merge
+- History tests: `history-store.test.ts` (migration, a broken database, the read-only snapshot
+  for the CLI, rows by day and paging, FTS and short words, site filters, range and page clears, remote clears, retention, the merge
   diff, the page cap), `history-sync.test.ts` (clear filtering, compaction, tab files, PROPFIND
   parsing, and two `SyncService`s against `tests/support/dav-mock.ts`: deletes, a newer visit
   winning, range and site clears, an old client dropping `clears`, the keep window through

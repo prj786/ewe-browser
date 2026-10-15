@@ -480,8 +480,10 @@ Known / open:
   `ewe-browser sync` (a new verb for the command line in `rail-and-cli`, answering with the
   status JSON); then the browser's own _Sync now_ goes and its Sync section becomes
   "Managed in ewe Sync" with the status line.
-- The command line (`rail-and-cli`) reads history through `HistoryStore`, whose methods did not
-  change, so it keeps working; it should get `history delete` verbs later (TRIO.md).
+- The command line reads history through `HistoryStore`: from the running browser, or, when it
+  is closed, read-only from `history.db` (`loadSnapshot`, which never migrates or prunes, so a
+  read cannot move `history.json` away under an older browser). It should get `history delete`
+  verbs later (TRIO.md).
 - Sync still uploads the whole `history.json` (up to 20 000 pages) when it changed. Splitting it
   by month and conditional GETs would cut traffic; not done yet.
 - At most 20 000 pages are kept ("Forever" means no time limit, the oldest pages still go
