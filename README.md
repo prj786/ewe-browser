@@ -27,6 +27,23 @@ toasts) and a right sidebar.
   store pages), Widevine DRM through castlabs Electron, and sync of bookmarks, history and
   settings with your ewe Nextcloud account.
 
+## Command line
+
+`ewe-browser <verb>` prints one JSON object and exits 0, for scripts, Komble and the ewe
+Companion. `ewe-browser help` lists the verbs; the reference is [docs/CLI.md](docs/CLI.md).
+
+```
+ewe-browser open ~/Documents         # a folder in the file manager, a url, a file or a search
+ewe-browser search sheep breeds      # web search with the engine from Settings
+ewe-browser find invoice             # tabs, bookmarks, history, recent files and music at once
+ewe-browser locate report --in ~/Documents
+ewe-browser tabs | jq '.tabs[].title'
+ewe-browser play black sheep         # the best match from your music library
+ewe-browser commands                 # every tool with a JSON Schema, for an assistant
+```
+
+Read verbs answer from the profile on disk while the browser is closed; acting verbs start it.
+
 ## Shortcuts
 
 | Keys                                 | Action                          |
@@ -77,7 +94,8 @@ switches in ewe Settings → Default apps.
 apps/browser/          the Electron app: src/main, src/preload, src/ui (rail, overlay, sidebar),
                        src/pages (newtab, home, settings, sad, files, music), tests, scripts
 packages/shared/       the typed IPC contract, models and pure helpers used by every layer
-PKGBUILD, packaging/   the Arch package (desktop entry, icon); .github/workflows/release.yml
+PKGBUILD, packaging/   the Arch package (desktop entry, icon, the /usr/bin wrapper); release.yml
+docs/CLI.md            the command line reference
 docs/PLAN.md           roadmap and open bugs
 docs/DESIGN.md         how the Ewe design system maps onto the browser
 AGENTS.md              architecture map (start here)

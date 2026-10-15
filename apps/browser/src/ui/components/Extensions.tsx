@@ -19,10 +19,7 @@ function ExtensionIcon(props: { state: ExtensionsState; info: ExtensionInfo }): 
   )
 }
 
-export function ExtensionActions(props: {
-  state: ExtensionsState
-  vertical?: boolean
-}): JSX.Element {
+export function ExtensionActions(props: { state: ExtensionsState }): JSX.Element {
   const actions = () => props.state.list.filter((e) => e.action !== null)
   const rect = (el: HTMLElement) => {
     const r = el.getBoundingClientRect()
@@ -30,7 +27,7 @@ export function ExtensionActions(props: {
   }
   return (
     <Show when={actions().length > 0}>
-      <div class="ext-actions" classList={{ vertical: props.vertical ?? false }}>
+      <div class="ext-actions">
         <For each={actions()}>
           {(info) => (
             <button

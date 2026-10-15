@@ -12,6 +12,8 @@ import {
   HOME_URL,
   LAYER_ARG,
   NEW_TAB_URL,
+  EDGE_LEAVE_ZONE,
+  RAIL_HIDE_GRACE_MS,
   RAIL_PEEK_SHADOW,
   RAIL_WIDTH,
   SETTINGS_URL,
@@ -96,7 +98,6 @@ const INTERNAL_URLS: Record<InternalPage, string> = {
 }
 
 const DEFAULT_PAGE_RADIUS = 10
-const EDGE_LEAVE_ZONE = 24
 const PEEK_HIDE_DELAY_MS = 250
 
 const WINDOW_BACKGROUND = { dark: '#0b0a08', light: '#f4f2ee' }
@@ -123,6 +124,8 @@ export class WindowController {
   private htmlFullscreen = false
   private reportedPage: Rect | null = null
   private lastMouse: Point | null = null
+  private railHiddenAt = 0
+  private lastRail: Settings['rail'] = 'expanded'
   private overlayPinned = false
   private broadcastQueued = false
   private destroyed = false
@@ -384,6 +387,9 @@ export class WindowController {
   }
 
   sendSettings(settings: Settings): void {
+    if (settings.rail === 'collapsed' && this.lastRail === 'expanded')
+      this.railHiddenAt = Date.now()
+    this.lastRail = settings.rail
     for (const wc of this.listeners()) wc.send(IPC.settings, settings)
     if (settings.rail === 'expanded' && this.overlay.part === 'rail') this.overlay.hide()
     this.panels.prune(new Set(settings.panels.map((p) => p.id)))
@@ -518,6 +524,11 @@ export class WindowController {
       case 'overlay.request':
         if (command.part === 'menu' || command.part === 'toast') return
         if (command.part === 'palette') this.openPalette(command.newTab ?? false)
+        else if (
+          command.part === 'rail' &&
+          (this.railVisible() || Date.now() - this.railHiddenAt < RAIL_HIDE_GRACE_MS)
+        )
+          return
         else this.showOverlay(command.part)
         break
       case 'menu.open':
@@ -1021,7 +1032,7 @@ export class WindowController {
   private revealEdge(zone: 'rail' | null): void {
     if (zone === null || this.htmlFullscreen) return
     if (this.railVisible()) return
-    if (!this.win.isFullScreen() && this.deps.settings.get().rail === 'collapsed') return
+    if (Date.now() - this.railHiddenAt < RAIL_HIDE_GRACE_MS) return
     this.overlay.show('rail', this.contentSize())
   }
 

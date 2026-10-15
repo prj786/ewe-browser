@@ -22,6 +22,7 @@ import {
 import type { BookmarkFolder, ShellCommand } from '@ewe/shared'
 
 const MAIN = join(__dirname, '../../out/main/index.js')
+const CLI = join(__dirname, '../../out/main/cli.js')
 
 async function launch(
   userData: string,
@@ -198,6 +199,42 @@ function pageBox(app: ElectronApplication): Promise<Electron.Rectangle | null> {
   })
 }
 
+function pageMouse(
+  app: ElectronApplication,
+  type: 'mouseMove' | 'mouseLeave',
+  x: number,
+  y: number,
+): Promise<void> {
+  return app.evaluate(
+    ({ BrowserWindow, WebContentsView }, p) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      const page = win?.contentView.children
+        .filter((v): v is Electron.WebContentsView => v instanceof WebContentsView)
+        .find((v) => v.getVisible() && !v.webContents.getURL().includes('/ui/'))
+      page?.webContents.sendInputEvent({ type: p.type, x: p.x, y: p.y })
+    },
+    { type, x, y },
+  )
+}
+
+function shellMouse(
+  app: ElectronApplication,
+  type: 'mouseMove' | 'mouseLeave',
+  x: number,
+  y: number,
+): Promise<void> {
+  return app.evaluate(
+    ({ BrowserWindow }, p) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({
+        type: p.type,
+        x: p.x,
+        y: p.y,
+      })
+    },
+    { type, x, y },
+  )
+}
+
 function movePage(app: ElectronApplication, x: number, y: number): Promise<void> {
   return app.evaluate(
     ({ BrowserWindow, WebContentsView }, p) => {
@@ -353,27 +390,47 @@ test.describe('browser', () => {
     expect(await overlayVisible(app)).toBe(false)
   })
 
-  test('the page is a card next to the rail, which collapses and peeks on hover', async () => {
+  test('the page is a card next to the rail; collapsing hides it and the left edge reveals it', async () => {
     await expect.poll(() => activeLoading(shell), { timeout: 15_000 }).toBe(false)
     await expect.poll(() => pageBox(app).then((b) => [b?.x, b?.y])).toEqual([264, 8])
     await shell.evaluate(() =>
       window.ewe.send({ type: 'settings.update', patch: { rail: 'collapsed' } }),
     )
-    await expect(shell.locator('.rail.collapsed')).toHaveCount(1)
-    await expect.poll(() => pageBox(app).then((b) => b?.x)).toBe(56)
-    await shell.locator('.rail-ws-head, .rail-sep').first().hover()
+    await expect(shell.locator('.rail')).toHaveCount(0)
+    await expect.poll(() => pageBox(app).then((b) => b?.x)).toBe(8)
+    await movePage(app, 2, 300)
+    expect(await overlayVisible(app)).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    const hide = () =>
+      expect
+        .poll(async () => {
+          await movePage(app, 700, 300)
+          return overlayVisible(app)
+        })
+        .toBe(false)
+
+    await movePage(app, 2, 300)
     await expect.poll(() => overlayVisible(app)).toBe(true)
     const overlay = await windowWith(app, '/ui/overlay/')
     await expect(overlay.locator('.rail.peek')).toHaveCount(1)
-    await expect(overlay.locator('.rail.peek .rail-tab[data-tab]')).toHaveCount(2)
-    await expect
-      .poll(async () => {
-        await movePage(app, 700, 300)
-        return overlayVisible(app)
-      })
-      .toBe(false)
+    const rows = await shell.evaluate(async () => {
+      const s = await window.ewe.getState()
+      return s?.tabs.filter((t) => t.workspaceId === s.activeWorkspaceId && !t.pinned).length ?? 0
+    })
+    await expect(overlay.locator('.rail.peek .rail-tab[data-tab]')).toHaveCount(rows)
+    await hide()
+
+    await shellMouse(app, 'mouseMove', 3, 400)
+    await expect.poll(() => overlayVisible(app)).toBe(true)
+    await hide()
+
+    await movePage(app, 40, 500)
+    await pageMouse(app, 'mouseLeave', 10, 500)
+    await expect.poll(() => overlayVisible(app)).toBe(true)
+    await hide()
+
     await sendKey(app, 's', ['control', 'shift'])
-    await expect(shell.locator('.rail.collapsed')).toHaveCount(0)
+    await expect(shell.locator('.rail')).toHaveCount(1)
     await expect.poll(() => pageBox(app).then((b) => b?.x)).toBe(264)
   })
 
@@ -457,6 +514,84 @@ test.describe('browser', () => {
     await shell.evaluate(() => window.ewe.send({ type: 'overlay.request', part: 'none' }))
     await expect.poll(() => overlayVisible(app)).toBe(false)
   })
+})
+
+test('the command line answers in JSON, offline from the profile and live through the socket', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'ewe-e2e-cli-'))
+  const dir = mkdtempSync(join(tmpdir(), 'ewe-e2e-cli-tree-'))
+  writeFileSync(join(dir, 'flock notes.md'), '# Flock')
+  const cli = (...argv: string[]): Record<string, unknown> =>
+    JSON.parse(
+      execFileSync(process.execPath, [CLI, ...argv], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: { ...process.env, EWE_USER_DATA: userData },
+      }),
+    ) as Record<string, unknown>
+
+  expect(cli('status')).toMatchObject({ ok: true, running: false })
+  expect(cli('bookmark', 'add', 'https://example.org/', '--title', 'Example')).toMatchObject({
+    ok: true,
+    running: false,
+    existed: false,
+  })
+  expect(cli('tab', 'close', 'abcd')).toMatchObject({ ok: false, error: 'not-running' })
+  expect(cli('locate', 'flock', '--in', '.')).toMatchObject({
+    ok: true,
+    results: [{ name: 'flock notes.md', kind: 'text' }],
+  })
+  expect(cli('fly')).toMatchObject({ ok: false, error: 'unknown-verb' })
+
+  const app = await launch(userData)
+  const shell = await shellOf(app)
+  await expect.poll(() => cli('status').running, { timeout: 15_000 }).toBe(true)
+  const count = () => shell.evaluate(async () => (await window.ewe.getState())?.tabs.length ?? 0)
+  const before = await count()
+  const opened = cli('open', '.') as { ok: boolean; tabs: { id: string; url: string }[] }
+  expect(opened).toMatchObject({
+    ok: true,
+    tabs: [{ url: expect.stringContaining('app://files/') }],
+  })
+  const id = opened.tabs[0]?.id ?? ''
+  await expect.poll(() => activeUrl(shell)).toContain('app://files/')
+  const listed = cli('tabs') as { tabs: { id: string; active: boolean }[] }
+  expect(listed.tabs.find((t) => t.id === id)).toMatchObject({ active: true })
+  expect(cli('bookmarks')).toMatchObject({ running: true, bookmarks: [{ title: 'Example' }] })
+  const closedFiles = cli('tab', 'close', id) as { undo: string[][] }
+  expect(closedFiles.undo[0]?.slice(0, 2)).toEqual(['ewe-browser', 'open'])
+  await expect.poll(count).toBe(before)
+
+  const site = await serve({
+    '/flock.html': { body: '<title>Flock</title><p>Twelve sheep</p>', type: 'text/html' },
+  })
+  const web = cli('open', `${site.url}/flock.html`) as { tabs: { id: string }[] }
+  const pageId = web.tabs[0]?.id ?? ''
+  await expect
+    .poll(() => (cli('page', '--text') as { text?: string }).text ?? '', { timeout: 15_000 })
+    .toContain('Twelve sheep')
+  expect(cli('page')).toMatchObject({
+    ok: true,
+    untrusted: true,
+    tab: { id: pageId, title: 'Flock' },
+  })
+  expect(cli('tab', 'pin', pageId.slice(0, 8))).toMatchObject({
+    ok: true,
+    tab: { id: pageId, pinned: true },
+  })
+  expect(cli('tab', 'close', pageId)).toMatchObject({
+    ok: true,
+    undo: [['ewe-browser', 'tab', 'reopen']],
+  })
+  await expect.poll(count).toBe(before)
+  expect(cli('tab', 'reopen')).toMatchObject({ ok: true })
+  await expect.poll(count).toBe(before + 1)
+  site.close()
+  expect(cli('find', 'example')).toMatchObject({
+    ok: true,
+    bookmarks: [{ url: 'https://example.org/' }],
+  })
+  await app.close()
+  await expect.poll(() => cli('status').running).toBe(false)
 })
 
 test('workspaces group tabs, persist, and history suggests visited pages', async () => {

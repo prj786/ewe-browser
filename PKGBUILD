@@ -70,10 +70,11 @@ package() {
   # runtime arrives group-writable from its zip; root-owned files should not be.
   rm -f "$pkgdir/usr/lib/$pkgname/resources/default_app.asar"
   chmod -R go-w "$pkgdir/usr/lib/$pkgname"
-  install -d "$pkgdir/usr/bin"
-  # Electron finds its resources next to the real binary (/proc/self/exe), so
-  # a symlink is enough.
-  ln -s "/usr/lib/$pkgname/ewe-browser" "$pkgdir/usr/bin/ewe-browser"
+  # A small sh wrapper, not a symlink: a verb as the first argument
+  # (ewe-browser help) runs the JSON command line in Electron's Node mode,
+  # anything else starts the browser. Electron finds its resources next to the
+  # real binary (/proc/self/exe) either way.
+  install -Dm755 packaging/ewe-browser.sh "$pkgdir/usr/bin/ewe-browser"
 
   # chrome-sandbox stays non-setuid: Arch's kernel allows unprivileged user
   # namespaces, which is the sandbox Chromium uses first.

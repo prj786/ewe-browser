@@ -33,7 +33,7 @@ surface to the Ewe component it follows and records what the system did not cove
 | Surface                      | Follows                                                                                                        | Tokens                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Tab rail (shell)             | Bar turned vertical; ListRow rows; Tile for pinned tabs; Segmented-like workspace dots                         | 264px on `surface-base`, `space-s` inset; address field `control-xl` on `surface-sunken` with `rounded` radius; rows `control-lg`, `secondary` radius, hover `glass-hover`, active `surface-raised` + `border-subtle` inset + `shadow-sm` + 3px workspace-colour bar; pinned tiles `control-xl` on `surface-raised`; workspace header as an overline in `text-muted`                                                            |
-| Rail, collapsed and peek     | Bar, icon-only; peek floats like a panel                                                                       | 56px icon rail; hovering it 250ms slides the full rail over the page in the overlay (`shadow-float` plus a `scrim` spread, `dur-base` in, `dur-fast` out)                                                                                                                                                                                                                                                                       |
+| Rail, hidden and peek        | Bar; peek floats like a panel                                                                                  | collapsed hides the rail; the left window edge (12px, 24px on leave, plus the 8px gap strip) slides the full rail over the page (`shadow-float` plus a `scrim` spread, `dur-base` in, `dur-fast` out)                                                                                                                                                                                                                           |
 | Page card                    | Window content card                                                                                            | the page view sits `PAGE_GAP` 8px from the window edges and the rail, corners rounded with `rounded` through `setBorderRadius`; square in fullscreen                                                                                                                                                                                                                                                                            |
 | Settings and profile         | IconButton (round, lg) and Avatar                                                                              | `surface-hover`, `surface-pressed`, `text-secondary` → `text-primary`                                                                                                                                                                                                                                                                                                                                                           |
 | Palette                      | Launcher, SearchField (xl / 2xl), ListRow, Kbd                                                                 | `surface-overlay`, `border-subtle`, `rounded`, `shadow-float`; rows `control-xl` with a `control-md` icon well on `surface-sunken`; footer legend on `surface-base`                                                                                                                                                                                                                                                             |
@@ -59,8 +59,11 @@ surface to the Ewe component it follows and records what the system did not cove
   own surfaces are vertical lists (launcher, quick settings, panels), so tabs became ListRow rows
   in a 264px rail instead of a horizontal strip. The rail is the window's base layer, not a
   floating panel, so it stays on `surface-base` and the page is the raised element: a card 8px
-  from every edge with the `rounded` radius. Collapsed, the rail is a 56px icon column and the full
-  rail peeks over the page on hover rather than pushing it, so the page never jumps.
+  from every edge with the `rounded` radius. Collapsed (2026-10-14), the rail is hidden entirely,
+  like Zen's compact mode: the page card takes the full width and the full rail peeks over it
+  when the pointer reaches or leaves through the window's left edge, so the page never jumps.
+  The 56px icon column it replaced looked like the rail "flipping back" whenever its peek
+  opened, and the owner reaches for the screen edge, not for icons.
 - Address field in the rail: Arc and Zen put it at the top of the sidebar; here it is a
   `control-xl` field with the host in `text-primary` and the path in `text-muted`, so the domain
   reads first. It edits in place; the palette stays the place for search and tab switching.
@@ -70,8 +73,8 @@ surface to the Ewe component it follows and records what the system did not cove
 - Draggable regions: a `-webkit-app-region: drag` area swallows every mouse event in a windowed
   frameless window on Linux before it reaches any web contents (Electron skips that check only in
   fullscreen). The rail is `no-drag` and there is no drag region; Hyprland tiles the window.
-- Browser layout tokens, added next to the Ewe tokens: `--rail-width`, `--rail-collapsed-width`,
-  `--page-gap` (mirror `RAIL_WIDTH`, `RAIL_COLLAPSED_WIDTH`, `PAGE_GAP` in
+- Browser layout tokens, added next to the Ewe tokens: `--rail-width`,
+  `--page-gap` (mirror `RAIL_WIDTH`, `PAGE_GAP` in
   `packages/shared/src/models.ts`), `--strip-height` and `--bottom-height` (now the sidebar header
   and footer), `--tooltip-delay` 500ms, `--menu-width` 220px (minimum width of a context menu;
   eight `icon-lg` swatches fit in a row).
@@ -81,7 +84,7 @@ surface to the Ewe component it follows and records what the system did not cove
   row and flips to the left when there is no room (`placeSubmenu`). Closing tabs is not styled as
   `danger` (a closed tab can be reopened); the style is reserved for destructive workspace actions.
 - Pinned tabs: Chrome's pinned tabs are the model, drawn as Arc-style favicon tiles above the
-  workspace header (four per row, one column when collapsed). A pinned tile has no close control;
+  workspace header (four per row). A pinned tile has no close control;
   closing goes through the menu, Ctrl+W or a middle click.
 - No glass over pages: Glass is specified for the bar and dock over a blurred wallpaper, and the
   overlay cannot blur the page beneath it, so an 80% fill let page content bleed through the strip.

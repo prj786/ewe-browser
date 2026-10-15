@@ -1,13 +1,38 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
 let sequence = 0
 const chains = new Map<string, Promise<void>>()
+
+export function staleTemp(name: string, file: string, pid = process.pid): boolean {
+  const prefix = `${name}.`
+  if (!file.startsWith(prefix) || !file.endsWith('.tmp')) return false
+  const m = /^(\d+)\.\d+\.tmp$/.exec(file.slice(prefix.length))
+  return m !== null && Number(m[1]) !== pid
+}
+
+export const STALE_TEMP_MS = 60_000
+
+async function removeStaleTemps(path: string, now = Date.now()): Promise<void> {
+  const dir = dirname(path)
+  const name = basename(path)
+  const files = await readdir(dir).catch(() => [])
+  await Promise.all(
+    files
+      .filter((f) => staleTemp(name, f))
+      .map(async (f) => {
+        const file = join(dir, f)
+        const info = await stat(file).catch(() => null)
+        if (info !== null && now - info.mtimeMs > STALE_TEMP_MS) await rm(file, { force: true })
+      }),
+  )
+}
 
 export async function readJson<T>(
   path: string,
   validate: (value: unknown) => value is T,
 ): Promise<T | null> {
+  await removeStaleTemps(path)
   try {
     const text = await readFile(path, 'utf8')
     const parsed: unknown = JSON.parse(text)

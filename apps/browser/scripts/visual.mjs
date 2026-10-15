@@ -7,7 +7,25 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const out = resolve(process.argv[2] ?? 'docs/screenshots')
-const targetWorkspace = process.env.EWE_VISUAL_WORKSPACE ?? '2'
+const visibleWorkspaces = () => {
+  try {
+    return new Set(
+      JSON.parse(execFileSync('hyprctl', ['monitors', '-j'], { encoding: 'utf8' })).map((m) =>
+        String(m.activeWorkspace.id),
+      ),
+    )
+  } catch {
+    return new Set()
+  }
+}
+const pickWorkspace = (preferred) => {
+  const visible = visibleWorkspaces()
+  if (!visible.has(preferred)) return preferred
+  for (let n = 9; n < 100; n++) if (!visible.has(String(n))) return String(n)
+  return preferred
+}
+const targetWorkspace = pickWorkspace(process.env.EWE_VISUAL_WORKSPACE ?? '2')
+const ruleVar = `__ewe_test_rule_${targetWorkspace}`
 mkdirSync(out, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const userData = mkdtempSync(join(tmpdir(), 'ewe-visual-'))
@@ -197,9 +215,9 @@ const lua = (code) => execFileSync('hyprctl', ['repl', code], { encoding: 'utf8'
 console.log(
   'rule',
   lua(`return (function()
-  if _G.__ewe_test_rule then _G.__ewe_test_rule:set_enabled(true) return 'reused' end
-  _G.__ewe_test_rule = hl.window_rule({
-    name = 'ewe-test',
+  if _G.${ruleVar} then _G.${ruleVar}:set_enabled(true) return 'reused' end
+  _G.${ruleVar} = hl.window_rule({
+    name = 'ewe-test-${targetWorkspace}',
     match = { class = '(?i)^(ewe-browser|electron)$' },
     workspace = '${targetWorkspace} silent',
   })
@@ -208,7 +226,7 @@ end)()`),
 )
 const dropRule = () => {
   try {
-    lua('if _G.__ewe_test_rule then _G.__ewe_test_rule:set_enabled(false) end return "off"')
+    lua(`if _G.${ruleVar} then _G.${ruleVar}:set_enabled(false) end return "off"`)
   } catch {
     return
   }
@@ -350,6 +368,14 @@ const key = (keyCode, modifiers) =>
     },
     { keyCode, modifiers },
   )
+const edgeHover = () =>
+  app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].webContents.sendInputEvent({
+      type: 'mouseMove',
+      x: 3,
+      y: 400,
+    }),
+  )
 const closeOverlay = async () => {
   await send({ type: 'overlay.request', part: 'none' })
   await sleep(350)
@@ -479,7 +505,7 @@ await sleep(300)
 await send({ type: 'settings.update', patch: { rail: 'collapsed' } })
 await sleep(700)
 await shot('04-collapsed')
-await shell.locator('.rail-tab').nth(2).hover()
+await edgeHover()
 await sleep(1000)
 await shot('04a-collapsed-peek')
 await overlay.locator('.rail-tab').nth(3).hover()
@@ -750,8 +776,8 @@ await send({ type: 'open.internal', page: 'home' })
 await sleep(2000)
 await shot('09g-light-home')
 await send({ type: 'settings.update', patch: { rail: 'collapsed' } })
-await sleep(500)
-await shell.locator('.rail-tab').nth(1).hover()
+await sleep(700)
+await edgeHover()
 await sleep(1000)
 await shot('09d-light-peek')
 await closeOverlay()

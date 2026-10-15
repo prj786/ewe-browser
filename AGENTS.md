@@ -44,13 +44,14 @@ directory belongs to the ewe desktop itself.
 package.json                      pnpm workspace scripts (dev, build, typecheck, lint, test, test:e2e, package)
 pnpm-workspace.yaml               packages + allowBuilds (electron, esbuild)
 PKGBUILD                          the Arch package (Komble pattern: _tag/pkgver rewritten by release.yml)
-packaging/                        ewe-browser.desktop, ewe-browser.svg (the app icon), icons/*.png
+packaging/                        ewe-browser.desktop, ewe-browser.svg (the app icon), icons/*.png,
+                                  ewe-browser.sh (/usr/bin/ewe-browser: verbs → the CLI, else the app)
 scripts/gen-icons.sh              rsvg-convert the SVG into packaging/icons/{32..512}x*.png (committed)
 .github/workflows/                release.yml (tag → makepkg → GitHub release), ci.yml (static checks, unit tests)
 packages/shared/src/
   models.ts                       TabState, WindowSnapshot, Settings, Session*, ThemeTokens, Workspace, Account,
-                                  constants (RAIL_WIDTH 264, RAIL_COLLAPSED_WIDTH 56, PAGE_GAP 8,
-                                  EDGE_ZONE 12, EDGE_LEAVE_ZONE 24, EDGE_EXIT_ZONE 160, NEW_TAB_URL, …)
+                                  constants (RAIL_WIDTH 264, PAGE_GAP 8, EDGE_ZONE 12, EDGE_LEAVE_ZONE 24,
+                                  RAIL_HIDE_GRACE_MS 500, NEW_TAB_URL, …)
   ipc-contract.ts                 ShellCommand, UiEvent, BrowserApi, IPC channel names, runtime validators
   url.ts                          resolveInput (t:/w: prefixes, url vs search), displayUrl, hostOf, SEARCH_ENGINES
   workspaces.ts                   WORKSPACE_COLORS, nextWorkspaceColor, defaultWorkspaceName
@@ -91,6 +92,10 @@ apps/browser/
                                   ranged raw file responses
   src/main/files/default-handler.ts  "open folders with ewe browser" through a .desktop file and `gio mime`
   src/main/open-args.ts           command line paths and urls → folder tabs / file tabs
+  src/main/cli/                   `ewe-browser <verb>` (docs/CLI.md): tools.ts (tool table, schemas, checkArgs),
+                                  argv.ts, data.ts (read tools over a Sources interface, bookmark writes),
+                                  local.ts (help, commands, ls, locate, places), offline.ts (stores from disk),
+                                  server.ts (socket, JSON lines), host.ts (main side), index.ts (CLI entry)
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
   src/main/history.ts             frecency scoring and ranking
   src/main/home/recents.ts        RecentsService: recent docs, videos, music and sites from recent.json, GTK
@@ -102,7 +107,7 @@ apps/browser/
   src/preload/index.ts            the only preload; picks the layer from --ewe-layer=shell|overlay|sidebar|page
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
-  src/ui/shell/                   base layer: the tab rail (expanded or collapsed) and the page slot (the page card)
+  src/ui/shell/                   base layer: the tab rail (or none when collapsed), the edge strip, the page slot (card)
   src/ui/overlay/                 floating layer: rail peek, palette, context menus (tab-menu.ts, workspace-menu.ts),
                                   toast
   src/ui/sidebar/                 right sidebar layer: section tabs, search, resize handle, footer actions
@@ -123,7 +128,8 @@ apps/browser/
   tests/unit/                     layout, shortcuts, settings-store, session-store, identity, protocol,
                                   ewe-theme, history, ewe-account, bookmarks-store, chrome-bookmarks, downloads-store
   tests/fixtures/                 chrome-bookmarks.json (a Chrome "Bookmarks" file for unit, e2e and screenshots)
-  tests/e2e/smoke.spec.ts         25 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
+  tests/e2e/smoke.spec.ts         27 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
+docs/CLI.md                       the command line reference (contract, verbs, Companion registry, socket)
 docs/PLAN.md                      roadmap, status, open bugs
 docs/DESIGN.md                    Ewe design mapping and browser-specific tokens
 docs/screenshots/                 generated, untracked
@@ -323,12 +329,23 @@ every tab.
   `onPageMouse` ignores it like `palette`. Menus re-place themselves on `resize`, and `placeMenu`
   clamps into the viewport even when the anchor lies outside it (the overlay can grow after the
   menu mounted).
-- Rail peek: in collapsed mode, hovering the shell rail for 250ms sends `overlay.request rail`;
-  the overlay renders the expanded `Rail` in `peek` mode (`.rail.peek`, `shadow-float` plus a
+- Collapsed = hidden (2026-10-14, the owner's call): `Settings.rail === 'collapsed'` removes the
+  rail in a normal window exactly as fullscreen does, and the page card takes the whole width
+  with `PAGE_GAP` on every side (`.shell.rail-hidden`). The old 56px icon column is gone. The
+  owner pushes the pointer to the SCREEN edge, which with Hyprland's gaps lies outside the
+  window, where Electron sees nothing; so the rail is revealed by the pointer at or LEAVING
+  through the window's left edge: page mouseMove at x <= `EDGE_ZONE` 12 (window coordinates)
+  or a page mouseLeave whose last x <= `EDGE_LEAVE_ZONE` 24 (main, `revealEdge`), and the
+  shell's own 8px gap strip (shell `mousemove` at x <= 12, `mouseleave` at x <= 24, sent as
+  `overlay.request rail`, throttled 300ms). For `RAIL_HIDE_GRACE_MS` 500 after the rail is
+  hidden, reveals are ignored, so hiding it with the toggle never flips it straight back;
+  `overlay.request rail` is also ignored while the rail is visible.
+- Rail peek: the overlay renders the expanded `Rail` in `peek` mode (`.rail.peek`, `shadow-float` plus a
   scrim-coloured spread). It hides when a page mouseMove lands right of the peek (after 250ms,
   never while `overlay.pin` is set, i.e. while renaming or editing in it) or when the overlay
-  document fires `mouseleave` after a `mousemove`. In fullscreen (rail hidden, not HTML
-  fullscreen) the left 12px edge (`hoverZone`, 24px on `mouseLeave`) reveals the same peek.
+  document fires `mouseleave` after a `mousemove`, except through its left edge (clientX <= 24:
+  the pointer is heading for the screen edge, so the peek stays). Its toggle pins the rail
+  (`rail: expanded`). Tested with a real pointer in a nested Hyprland (see Testing).
 - Palette: `openPalette(newTab)` shows the palette over the whole window and sends
   `palette.open`. Enter navigates (`tab.navigate {input, newTab}`), Escape or a backdrop click
   sends `overlay.request none`.
@@ -371,7 +388,7 @@ every tab.
   colour swatch row, Move tabs here (submenu of other workspaces with tab counts) and Remove
   (disabled for the last workspace). The menu's Rename is routed through main: the overlay sends
   `workspace.rename {id}` after the menu closes, main activates that workspace and sends the
-  `workspace.rename` UiEvent to the shell (expanded rail) or shows the peek with it (collapsed).
+  `workspace.rename` UiEvent to the shell (expanded rail) or shows the peek with it (hidden rail).
   The input focuses itself from its `ref`, because the rename event arrives before the state
   broadcast that switches the header to that workspace. Enter or blur commits, Escape cancels,
   empty keeps the old name, 40 characters at most.
@@ -638,16 +655,16 @@ received, total, speed, status, started, ended`, times in epoch ms), newest firs
 
 - Solid 1.9. Rail tab rows use `<Index>` so DOM nodes survive state broadcasts.
   `createBrowserStore()` guards against the initial fetch overwriting a newer push.
-- `Rail` (`components/Rail.tsx`, props `store, mode: expanded | collapsed | peek,
+- `Rail` (`components/Rail.tsx`, props `store, mode: expanded | peek,
 downloadsActive, editRequest?, renameRequest?, onEditingChange?`), top to bottom:
   - top row: collapse toggle (`settings.update {rail}`; Ctrl+Shift+S, `rail.toggle`), back,
     forward, reload / stop;
   - address field: lock / globe / app glyph, host in `text-primary` and path in `text-muted`, and
     a star (`bookmark.toggle`, filled in `accent-text` when bookmarked). Click or Ctrl+L turns it
     into an input with the url selected and inline host completion from `suggest`; Enter sends
-    `tab.navigate {id}`, Escape or blur cancels. With the rail collapsed or in fullscreen, Ctrl+L
+    `tab.navigate {id}`, Escape or blur cancels. With the rail hidden (collapsed or fullscreen), Ctrl+L
     opens the palette with the url instead;
-  - pinned tabs as a 4-column grid of favicon tiles (one column when collapsed), the active one
+  - pinned tabs as a 4-column grid of favicon tiles, the active one
     outlined in the workspace colour; middle-click closes;
   - the workspace header (see the overlay section);
   - the unpinned tabs of the active workspace as list rows (favicon with an accent spinner ring
@@ -659,7 +676,6 @@ downloadsActive, editRequest?, renameRequest?, onEditingChange?`), top to bottom
     or capture is lost. "New tab" opens the new-tab palette;
   - footer: workspace dots and "+", then Bookmarks / Downloads (accent dot while downloads run) /
     History sidebar toggles (`.on` while open) and Settings.
-    Collapsed (56px) keeps the toggle, pinned and tab favicons, "+", the dots, Downloads and Settings.
 - `Palette`: modes url / search / tabs (`t:`) / bookmarks (`b:`), `w:` forces search, a "New
   tab" chip when opened from Ctrl+T, Kbd hints. `b:` lists `rankBookmarks` matches (title prefix
   4, title 2, host prefix 3, host 1.5, url 1; empty query = everything by recency) with the
@@ -685,12 +701,47 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   whose `.home` has `margin: auto` (centred when it fits, scrolls when it does not).
 - CSS: Ewe tokens only (`--surface-*`, `--text-*`, `--border-*`, `--accent`, `--space-*`,
   `--dur-fast 150ms`, `--dur-base 200ms`, `--dur-slow 250ms`, `--ease-out`), plus browser tokens
-  `--rail-width 264px`, `--rail-collapsed-width 56px`, `--page-gap 8px` (mirror `RAIL_WIDTH`,
-  `RAIL_COLLAPSED_WIDTH`, `PAGE_GAP`), and `--strip-height 44px` / `--bottom-height 36px`, now
+  `--rail-width 264px`, `--page-gap 8px` (mirror `RAIL_WIDTH`, `PAGE_GAP`), and `--strip-height 44px` / `--bottom-height 36px`, now
   only the sidebar header and footer heights. Floating surfaces are solid (no glass over pages).
   Keyframes live in `base.css` (`bar-in-down`, `bar-out-up`, `bar-in-up`, `bar-out-down`,
   `ewe-fade-*`, `ewe-slide-*`); reduced motion collapses them to fades.
 - Hyprland is a tiling compositor, so there are no window controls in the UI.
+
+## Command line (`ewe-browser <verb>`, docs/CLI.md)
+
+- Rule 5: one JSON object per call on stdout, exit 0, `{"ok":false,"error":"<kebab-code>",
+"message"?,"hint"?}` on failure. Tools are the unit (`TOOLS` in `cli/tools.ts`: name,
+  summary, Companion tier 0/1/2, `where`, usage, JSON Schema); verbs are sugar
+  (`tab close <id>` → `tab_close {id}`), and `call <tool> '<json>'` reaches any tool. Adding a
+  tool: a row in `TOOLS`, a verb in `argv.ts` (a unit test fails if a tool has no verb), its
+  implementation in `data.ts` (read, both sides), `local.ts` (no browser) or `host.ts` (browser
+  side), and a line in docs/CLI.md.
+- `where`: `local` runs in the CLI process; `read` asks the socket, else reads the stores from
+  disk (`offline.ts`, `"running": false`); `store` (bookmark edits) asks the socket, else edits
+  `bookmarks.json`; `live` needs the running browser (`not-running`); `app` starts the browser
+  (`appCommand()`: `process.execPath` inside app.asar, `EWE_BROWSER_BIN`, or the dev electron +
+  app dir; `ELECTRON_RUN_AS_NODE` removed from its env), waits up to 20s for the socket to
+  accept, then asks. A refused connect means a stale socket and is removed first; a child that
+  exits while no socket appears means an older browser holds the instance lock (`no-socket`).
+- Main listens after windows are open (`listenCli` in `index.ts`, so a CLI-started browser never
+  opens its session twice) on `socketPath(userData)` = `$XDG_RUNTIME_DIR/ewe-browser-<sha256
+of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `listenCli` refuses a
+  folder that is not the user's own or that group/others can write; the CLI refuses a socket
+  owned by another uid. `userDataDir()` in
+  the CLI mirrors Electron's (`EWE_USER_DATA`, else `$XDG_CONFIG_HOME/ewe-browser`). Requests
+  are re-validated with `checkArgs` in main.
+- The CLI bundle (`out/main/cli.js`, a second main input) must not import `electron` or
+  anything that does (FileService, window-manager); it runs as
+  `ELECTRON_RUN_AS_NODE=1 <binary> app.asar/out/main/cli.js` from the `/usr/bin` wrapper, which
+  routes a lower-case first word that is not an existing path, `--help` and `--version` to it.
+  `cli.test.ts` walks the imports.
+- Acting replies carry `undo` argv lists. Only web pages go on the closed-tab stack, so closing a
+  files/home/internal tab answers `open <url>` as its undo instead of `tab reopen`; so does
+  closing a window's last tab (the window closes with its stack). `page` runs
+  in isolated world 1010 with a 3s timeout and returns `untrusted: true`.
+- Tested by unit tests and the e2e "the command line answers in JSON…" (offline status,
+  bookmark write and locate, then a launched browser: open a folder, tabs, pin by id prefix,
+  close with undo, a local page read through `page --text`, reopen, find, quit → offline).
 
 ## Testing and visual verification
 
@@ -701,18 +752,22 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   downloads-store, bookmark reorder, sidebar layout, files: places parsing, the file service on a
   temp tree, ranges, argv, the desktop entry, archive parsing and a real bsdtar round trip).
   plus music helpers, titles from file names, home: recent kinds, picking, request validation, the
-  xbel parser, snippets, the recent store and the recents service over a temp tree). 186 tests
-  (84 shared, 102 browser). Nothing reads
+  xbel parser, snippets, the recent store and the recents service over a temp tree, stale temp
+  files in json-file, and the CLI: argv, paths, schema checks, every tool reachable, the socket
+  server and a real socket, ls and locate on a temp tree, read tools over fake sources, bookmark
+  writes, and an import walk proving the CLI bundle never reaches `electron`). 206 tests
+  (84 shared, 122 browser). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
-- E2E (`smoke.spec.ts`, 26 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
+- E2E (`smoke.spec.ts`, 27 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending
   keys (keys are dropped in the first ~200ms of a load). `shellOf` also waits until the shell
   viewport matches the window and has stopped changing, because Hyprland tiles the window about
   a second after launch and coordinates taken before that land outside the overlay. Covers tabs,
-  the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8, collapsing to 56px,
-  the hover peek and Ctrl+Shift+S, identity, workspaces + history persistence, session restore, the
+  the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8, collapsing (the rail
+  disappears, the card moves to x 8, the page edge, the shell strip and a left mouseLeave each
+  reveal the peek after the grace) and Ctrl+Shift+S, identity, workspaces + history persistence, session restore, the
   tab context menu from a rail row (duplicate, close others, move to a new workspace), the
   workspace dot menu (colour, Rename routed to the rail header, inline rename with Escape, empty
   and 40-character cases, Move tabs here, Remove), tab pinning (`tab.pin` moves the tab first,
@@ -742,7 +797,11 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
 - Hyprland: `tests/e2e/hyprland.ts` and `scripts/visual.mjs` register a temporary rule
   (`hl.window_rule({ match = { class = '(?i)^(ewe-browser|electron)$' }, workspace = '2 silent' })`)
   through `hyprctl repl` so test windows open on workspace 2 next to the owner's terminal, and
-  disable it afterwards. This Hyprland build uses a Lua config: `hyprctl dispatch` takes Lua
+  disable it afterwards. If a monitor is SHOWING workspace 2 (the owner works on it since adding
+  an external monitor, 2026-10-14), both pick the first workspace from 9 up that no monitor
+  shows instead (`testWorkspace()` / `pickWorkspace()`; `EWE_TEST_WORKSPACE` /
+  `EWE_VISUAL_WORKSPACE` set the preference). The rule global and name are per workspace
+  (`__ewe_test_rule_<n>`): one shared global silently kept an old workspace. This Hyprland build uses a Lua config: `hyprctl dispatch` takes Lua
   dispatcher expressions, `hyprctl repl '<lua>'` prints a return value, globals persist.
   Never move the real cursor; the owner may be in a game on the other monitor.
   The owner's machine currently has one laptop panel showing another workspace, so workspace 2
@@ -757,8 +816,8 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   `XDG_DATA_HOME` xbel, the search dropdown, the card menu, the Docs filter, light), new-tab
   page, the rail with six tabs (full and a hover crop), the address editor, the Ctrl+D toast,
   the starred address, pinned tiles (and an active one), the tab menu and its Move submenu, a
-  second workspace, a workspace dot hover, the workspace menu and inline rename, the collapsed
-  rail, the hover peek, the sidebar (bookmarks tree, row menu, search, downloads from a local
+  second workspace, a workspace dot hover, the workspace menu and inline rename, the hidden
+  rail, the edge peek, the sidebar (bookmarks tree, row menu, search, downloads from a local
   server, paused and cancelled, history), the new-tab palette with `t:` and `b:`, Ctrl+L, thirty
   tabs, the file manager on a generated tree (grid with an empty folder, an AppImage and a zip,
   photos with thumbnails and a video frame, the viewer on an image, the next image and the video,
@@ -767,7 +826,15 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   settings, light (rail, tab menu, sidebar, files, peek), dark and the sad page. The script
   launches with `EWE_CHROME_BOOKMARKS` pointing at the fixture and `EWE_DOWNLOADS` at a temp
   directory.
-- Do not `pkill -f <pattern>`; it has killed the agent's own shell before. Kill by pid.
+- Real-pointer checks (hover and click routing between the shell, page and overlay views,
+  which `sendInputEvent` bypasses): run a nested Hyprland (aquamarine window pinned to
+  workspace 2 by a temporary host rule, then a headless `SHOT` output so it renders while
+  hidden, as ewe's `run-ewe/driver.sh` does), start the app inside it with `WAYLAND_DISPLAY`
+  set to the nested socket, move the NESTED cursor with `hl.dsp.cursor.move` or a small
+  `zwlr_virtual_pointer_v1` client for clicks, and capture with `grim -o SHOT`. That is how the
+  hidden rail was verified (edge sweep into the gap, peek, pin) at scale 1.8.
+- Do not `pkill -f <pattern>`; it has killed the agent's own shell before (again on 2026-10-14
+  with `pkill -f grim`). Kill by pid.
 
 ## Packaging (an ewe first-party app, like Komble)
 
@@ -777,7 +844,8 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   the runtime is always castlabs' build with Widevine, never a download of upstream Electron;
   `npmRebuild: false`, there are no native modules). `package()` copies
   `apps/browser/dist/linux-unpacked` to `/usr/lib/ewe-browser`, drops `default_app.asar`,
-  clears group write bits, symlinks `/usr/bin/ewe-browser`, and installs
+  clears group write bits, installs `packaging/ewe-browser.sh` as `/usr/bin/ewe-browser` (a
+  wrapper, not a symlink: verbs go to the CLI in Node mode), and installs
   `ewe-browser.desktop`, the hicolor icons and the license. ~120 MB compressed.
 - `chrome-sandbox` is not setuid: Arch allows unprivileged user namespaces; checked on the
   package that renderers run in their own user namespace with seccomp mode 2.
@@ -809,6 +877,6 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   dot notation, no `[...string]` (use `Intl.Segmenter`), `require-await`.
 - Commands and events are added in `ipc-contract.ts` first (type + validator), then handled in
   `WindowController.dispatch`, then used from the UI through `api.send`.
-- Constants shared between CSS and TypeScript (`RAIL_WIDTH`, `RAIL_COLLAPSED_WIDTH`, `PAGE_GAP`)
+- Constants shared between CSS and TypeScript (`RAIL_WIDTH`, `PAGE_GAP`)
   must be changed in both places.
 - Never commit without the owner reviewing the diff. Plan approval is not commit approval.
