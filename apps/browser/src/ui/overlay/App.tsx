@@ -27,6 +27,7 @@ import { applyTheme, createBrowserStore } from '../lib/store'
 import { tabMenuItems } from './tab-menu'
 import { workspaceMenuItems } from './workspace-menu'
 import { extensionMenuItems } from './extension-menu'
+import { SafeLayer } from './SafeLayer'
 import { createExtensions } from '../lib/extensions'
 import { InstallPrompt } from '../components/InstallPrompt'
 import './App.css'
@@ -170,8 +171,11 @@ export function OverlayApp(): JSX.Element {
       entered = true
     }
     const onLeave = (e: MouseEvent) => {
-      if (!entered || part() === 'palette' || part() === 'menu' || editing()) return
-      if (part() === 'rail' && e.clientX <= EDGE_LEAVE_ZONE) return
+      const p = part()
+      const held =
+        p === 'palette' || p === 'menu' || p === 'prompt' || p === 'suggest' || p === 'sheet'
+      if (!entered || held || editing()) return
+      if (p === 'rail' && e.clientX <= EDGE_LEAVE_ZONE) return
       close()
     }
     const onKey = (e: KeyboardEvent) => {
@@ -263,6 +267,7 @@ export function OverlayApp(): JSX.Element {
           </div>
         )}
       </Show>
+      <SafeLayer part={part()} leaving={leaving()} />
       <Show when={part() === 'toast'}>
         <div class="toast-host">
           <div class="toast" classList={{ leaving: leaving() }} role="status">

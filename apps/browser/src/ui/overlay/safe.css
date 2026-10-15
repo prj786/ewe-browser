@@ -1,0 +1,175 @@
+.safe-suggest-host {
+  position: absolute;
+  inset: 0;
+  padding: var(--suggest-pad);
+}
+
+.safe-suggest {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--panel-sm);
+  padding: var(--space-xs);
+  overflow-y: auto;
+  background: var(--surface-overlay);
+  border: var(--border-width-1) solid var(--border-subtle);
+  border-radius: var(--rounded);
+  box-shadow: var(--shadow-float);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-md);
+  transform-origin: top left;
+  animation: ewe-slide-down var(--dur-base) var(--ease-out);
+}
+
+.safe-suggest.empty {
+  display: none;
+}
+
+.safe-suggest.leaving {
+  animation: ewe-fade-out var(--dur-fast) var(--ease-out) forwards;
+}
+
+.safe-row {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-s);
+  min-height: var(--control-xl);
+  padding: var(--space-xs) var(--space-s);
+  border-radius: var(--secondary);
+  cursor: default;
+}
+
+.safe-row.active {
+  background: var(--surface-hover);
+}
+
+.safe-row.note {
+  color: var(--text-muted);
+}
+
+.safe-row-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--control-md);
+  height: var(--control-md);
+  border-radius: var(--secondary);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
+.safe-row-icon img {
+  width: var(--icon-md);
+  height: var(--icon-md);
+  object-fit: contain;
+}
+
+.safe-row-icon.passkey {
+  color: var(--accent-text);
+}
+
+.safe-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.safe-row-title,
+.safe-row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.safe-row-sub {
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+}
+
+.safe-sep {
+  flex: none;
+  height: var(--border-width-1);
+  margin: var(--space-xs) 0;
+  background: var(--border-subtle);
+}
+
+.safe-sheet {
+  width: min(var(--panel-md), calc(100vw - 2 * var(--space-md)));
+  padding: var(--space-md);
+  gap: var(--space-md);
+  outline: none;
+}
+
+.safe-sheet.leaving {
+  animation: ewe-fade-out var(--dur-fast) var(--ease-out) forwards;
+}
+
+.safe-sheet-icon {
+  color: var(--accent-text);
+}
+
+.safe-sheet-title {
+  white-space: normal;
+}
+
+.safe-sheet-note {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.safe-sheet-account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-s);
+  border-radius: var(--primary);
+  background: var(--surface-sunken);
+}
+
+.safe-sheet-list {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--panel-sm);
+  overflow-y: auto;
+}
+
+.safe-sheet-actions {
+  align-items: center;
+}
+
+.safe-sheet-spacer {
+  flex: 1;
+}
+
+.safe-sheet-native {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.safe-prompt-host {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: var(--space-s);
+}
+
+.safe-prompt {
+  width: 100%;
+  padding: var(--space-md);
+  gap: var(--space-md);
+}
+
+.safe-prompt.leaving {
+  animation: ewe-fade-out var(--dur-fast) var(--ease-out) forwards;
+}
+
+.safe-prompt-icon {
+  color: var(--accent-text);
+}

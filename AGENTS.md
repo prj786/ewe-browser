@@ -176,12 +176,12 @@ docs/screenshots/                 generated, untracked
 
 One sandboxed preload serves all four layers. `--ewe-layer=` in `additionalArguments` selects:
 
-| layer   | webContents                 | gets                                                                       |
-| ------- | --------------------------- | -------------------------------------------------------------------------- |
-| shell   | the window's own            | `window.ewe`                                                               |
-| overlay | the overlay WebContentsView | `window.ewe`                                                               |
-| sidebar | the sidebar WebContentsView | `window.ewe`                                                               |
-| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) |
+| layer   | webContents                 | gets                                                                                                                |
+| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| shell   | the window's own            | `window.ewe`                                                                                                        |
+| overlay | the overlay WebContentsView | `window.ewe`                                                                                                        |
+| sidebar | the sidebar WebContentsView | `window.ewe`                                                                                                        |
+| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) main frames; Safe in every http(s) frame |
 
 Files: the page layer on `app://files/` (main frame only) may call `fs(request)` (`ewe:fs`
 invoke, validated by `isFsRequest`, answered by `FileService`); every other layer and page gets
@@ -204,6 +204,8 @@ IPC channels (`IPC` in ipc-contract.ts): `ewe:command`, `ewe:get-state`, `ewe:ge
 `ewe:history`, `ewe:home` (invoke), and `ewe:state`, `ewe:settings`, `ewe:theme`, `ewe:bookmarks`,
 `ewe:downloads`, `ewe:history-changed` (sidebars only, throttled to 500ms), `ewe:home-changed`
 (home tabs only, throttled to 400ms), `ewe:ui` (main → renderer).
+Safe adds `ewe:safe-page` and `ewe:safe-passkey` (invoke, page layer, http(s) frames only) and
+`ewe:safe-fill` / `ewe:safe-suggest` (main → one frame); see Safe under ewe integration.
 
 Main validates every command at runtime (`isShellCommand`), checks the sender frame
 (`senderFrameUrl`: main frame only, `app://` for the page layer), and applies the per-layer policy
@@ -312,7 +314,8 @@ every tab.
 
 ## Overlay and hover state machine
 
-- Parts: `none | rail | palette | menu | toast`. `OverlayController.show(part, size, extra?)` sets
+- Parts: `none | rail | palette | menu | toast | prompt | suggest | sheet` (Safe's save prompt,
+  inline list and passkey sheet; see Safe below). `OverlayController.show(part, size, extra?, at?)` sets
   bounds, makes the view visible, records `shownAt`, sends `overlay.show {part}` on a part change,
   then any `extra` UiEvent. `hide()` sends `overlay.hide` (the UI adds `.leaving` for the exit
   animation), waits `HIDE_ANIMATION_MS` = 160ms, hides the view and sends `overlay.show none`.
@@ -560,6 +563,99 @@ every tab.
   before the first visible password field, else the password field) and then
   `ewe-pass fill <id> --pid <main pid> --what <what>`, which types through wtype.
   `passwords.copy {id, what}` runs `ewe-pass copy`. Errors come back as toasts.
+- Safe (`main/safe/`, `preload/safe/`, `ui/overlay/Safe*.tsx`, `PasskeySheet.tsx`, `safe-menu.ts`,
+  `safe.css`, `components/SafePrompt.tsx`; ewe-safe RFC-008, its `docs/PROTOCOL.md` v1 and
+  `docs/TRIO.md` §B1/§S1):
+  - Core: `SafeClient` (`client.ts`) speaks NDJSON v1 to `$EWE_SAFE_SOCKET` or
+    `$XDG_RUNTIME_DIR/ewe-safe.sock` (one connection per call, plus a `subscribe` connection with
+    backoff, started on first use). `SafeService` (`service.ts`) holds menu requests and captured
+    logins; `SafeWindow` (`window.ts`, one per `WindowController`, field `safeUi`) owns the inline
+    list, the passkey sheet and the save prompt; `registerSafeIpc` (`ipc.ts`) answers
+    `ewe:safe-page` and `ewe:safe-passkey` (invoke, page layer, http(s) frames only). Window
+    manager code only delegates (`safe.*` commands from the overlay layer → `safeUi.command`).
+  - Page preload (`preload/safe/content.ts`, every http(s) frame since page views set
+    `nodeIntegrationInSubFrames`): `forms.ts` classifies inputs (login / new-password /
+    one-time code; `autocomplete="… webauthn"` counts as a username field), a key in the focused
+    field (closed shadow root; its two colours are literals because a page has no ewe tokens).
+    Requests (`isSafePageRequest`): `state` → `{enabled, suggest, capture}`, `open {kind, field:
+username | password | code, rect, trigger: focus | click | key | icon}`, `move {rect}`, `key
+{key}`, `filter {text}`, `blur`, `focus`, `close`, `submit {kind, username, password}`.
+  - Inline list (1Password-style): `open` is sent on a field focus that follows a trusted
+    pointerdown on the field (or its label) or a trusted Tab within 1s, never on script focus or
+    page load; also on a click into the already focused field, ArrowDown in an empty field, and
+    the key. `Settings.safe.suggest` off = only the key and ArrowDown. `rect` is the field in the
+    top frame's CSS px (same-origin frames add their `frameElement` offsets; a cross-origin frame
+    sends `null` and the list opens at the last page pointer). Main shows part `suggest` at an
+    explicit rect (`suggestBounds`: under the field, flipped above when there is no room, 280–420
+    px wide, `SUGGEST_PAD` 12 = CSS `--suggest-pad` of shadow room, × the tab's zoom) without
+    focusing the overlay; if the overlay gets focus anyway (a click on a row) main gives it back
+    to the page. Focus/click opens only when there is something to show (logins, passkeys, a
+    strong password, or Unlock Safe). The overlay (`SafeSuggest`) reports its height (`safe.fit
+{requestId, height}`, 0 hides the view) and whether a row is selected (`safe.selected`); main
+    forwards that to the frame as `ewe:safe-suggest {open, visible, selected}`. While it is open
+    and visible the preload takes ↑ ↓ Esc, and Enter only when a row is selected, from a
+    window-capture keydown listener (installed before page scripts) and sends `key`; typing in a
+    username field sends `filter` (rows match title, username or host; no match hides the list),
+    typing in a password or code field closes it; `blur` closes it after 200ms unless `focus`
+    comes back; scroll and resize send `move`; navigation, a tab switch, window blur and any other
+    overlay part close it. Rows: passkeys of a waiting conditional request first, then logins
+    (favicon of the tab, title, username), footer Open Safe / Use a strong password / Unlock Safe.
+    Commands: `safe.choose {requestId, id}`, `safe.passkey {requestId, credentialId}`,
+    `safe.generate`, `safe.unlock` (reopens the list after `ewe-safe unlock --ask`),
+    `safe.openApp`, `safe.close`. Against clickjacking a mouse pick counts only after the list
+    has stood still for 500ms and the pointer has moved since (main sends `safe.suggest.moved`
+    whenever the list moves); the preload ignores untrusted scroll, resize and submit events.
+  - Fill: a request remembers the tab, the frame (process and routing id) and its origin; a fill
+    re-checks that the frame still has that origin and that the login was offered to it, then
+    sends `ewe:safe-fill` (`SafeFill`) to that frame only (native setter + `input`/`change`).
+    Site matching (`site.ts`, `tldts`): exact host, then registrable domain, https never to http,
+    ports equal; ties sort by username.
+  - Passkeys (WebAuthn): `preload/safe/passkeys.ts` runs `pageScript` (`page-script.ts`, fully
+    self-contained because Electron serializes it) in the main world with
+    `contextBridge.executeInMainWorld` at document start (verified: before the page's first
+    `<head>` script, in subframes too), passing a bridge of four functions (`available`,
+    `create`, `get`, `abort`) that call `ewe:safe-passkey`. It replaces
+    `navigator.credentials.create/get` for `publicKey` requests only (all else, and Safe not set
+    up or `Settings.safe.passkeys` off → the original), and
+    `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable`,
+    `isConditionalMediationAvailable` and `getClientCapabilities` (true / merged when Safe is set
+    up). Options travel as base64url JSON; replies are WebAuthn L3 JSON, turned into objects
+    whose prototypes are the real `PublicKeyCredential` / `Authenticator*Response` ones
+    (`getTransports` `["internal","hybrid"]`, `getAuthenticatorData`, `getPublicKey`,
+    `getPublicKeyAlgorithm`, `authenticatorAttachment: "platform"`, `credProps.rk` when asked,
+    `toJSON`). `AbortSignal` is honoured (the bridge sends `abort`). Main (`webauthn.ts`,
+    `passkeys.ts`, `window.ts`) takes the origin from `senderFrame`, refuses opaque origins and
+    frames not same-origin with every ancestor (`NotAllowedError`), checks the RP ID
+    (`checkRpId`: https, or http only on `localhost`; the host or a registrable suffix, never a
+    public or private suffix, no IPs, lower case), validates options (`parseCreate` /
+    `parseGet`: user id 1–64 bytes, timeout clamped 30 s–10 min), builds `clientDataJSON`
+    (`type, challenge, origin, crossOrigin: false`) and its SHA-256 and calls Safe's
+    `passkey-list` / `passkey-create` / `passkey-get`. Replies are checked (credential id,
+    RP ID hash, UP / AT flags) before they reach the page. Modal create/get show part `sheet`
+    (whole window, focused; `PasskeySheet`: Save / pick a passkey, Use a security key instead
+    (→ the original API, with our own timeout), Cancel; locked → Unlock Safe first; a click
+    counts only 500ms after the sheet appeared and after the pointer moved, and Enter acts only
+    after an arrow key or Tab, with no passkey selected at first); only the active tab, one sheet
+    at a time. The bridge sends the document's `location.origin`, which must equal the sender
+    frame's origin, and Save / pick re-check that the frame still has that origin. The site's
+    user name and display name are shown cleaned (`displayText`: no control, bidi or invisible
+    characters, 64 characters at most). Conditional `get` waits
+    per frame (`PasskeyBroker.wait`; a new one replaces the old; requests of frames that are gone
+    are dropped on every frame navigation) and its passkeys head the inline list; a pick is
+    signed only for the very request the list was built for. A create into an existing login (`item_id`) only when the site's user name equals the
+    login's username, the host matches exactly and Safe says that login has no passkey
+    (`passkey: null`). Errors: `excluded` → `InvalidStateError`, `unsupported` →
+    `NotSupportedError`, cancel / timeout / locked / not-found → `NotAllowedError`, abort →
+    `AbortError`, bad RP ID → `SecurityError`, bad options → `TypeError`.
+  - Save: `SafeWindow.capture` waits for the tab's next navigation (or 2.5s), `SafeService.prompt`
+    reveals the saved passwords of the same username to compare (`decide.ts`), and part `prompt`
+    (`PROMPT_WIDTH` 380 × `PROMPT_HEIGHT` 168 at the page's top right, `PROMPT_MARGIN` 12; no
+    focus, ignored by the page mouse hooks and the overlay's mouseleave) shows `SafePromptCard`;
+    `safe.prompt {promptId, action: save | update | never | dismiss}` settles it, any other part
+    dismisses it, 60s hides it.
+  - `Settings.safe { fill, suggest, passkeys, offerSave, neverSave }` (`sanitizeSafeSettings`, 500
+    hosts). Unlock runs `ewe-safe unlock --ask` (`$EWE_SAFE_BIN` or `PATH`); Open Safe runs
+    `ewe-safe-app` (`$EWE_SAFE_APP` or `PATH`). Nothing logs titles, usernames or values.
 - Web panels (`main/panels.ts`): `Settings.panels: WebPanel[] { id, url, title }` (12 at most,
   `sanitizePanels`). Sidebar sections may be `panel:<id>`. `PanelHost` keeps one
   `WebContentsView` per opened panel (page preload, the default session, popups become tabs,
@@ -738,7 +834,9 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
 - Acting replies carry `undo` argv lists. Only web pages go on the closed-tab stack, so closing a
   files/home/internal tab answers `open <url>` as its undo instead of `tab reopen`; so does
   closing a window's last tab (the window closes with its stack). `page` runs
-  in isolated world 1010 with a 3s timeout and returns `untrusted: true`.
+  in isolated world 1010 with a 3s timeout and returns `untrusted: true`. It reads
+  `document.body.innerText` only, so Safe's key (on `<html>`, in a closed shadow root) and its
+  overlay parts never reach it.
 - Tested by unit tests and the e2e "the command line answers in JSON…" (offline status,
   bookmark write and locate, then a launched browser: open a folder, tabs, pin by id prefix,
   close with undo, a local page read through `page --text`, reopen, find, quit → offline).
@@ -755,10 +853,34 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   xbel parser, snippets, the recent store and the recents service over a temp tree, stale temp
   files in json-file, and the CLI: argv, paths, schema checks, every tool reachable, the socket
   server and a real socket, ls and locate on a temp tree, read tools over fake sources, bookmark
-  writes, and an import walk proving the CLI bundle never reaches `electron`). 206 tests
-  (84 shared, 122 browser). Nothing reads
+  writes, and an import walk proving the CLI bundle never reaches `electron`). 317 tests
+  (93 shared, 224 browser; 2 skip without ewe-safe binaries). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
+- Safe: unit tests for site matching (`safe-site`), the save decision (`safe-decide`), form
+  detection on happy-dom pages (`safe-forms`), the socket client against a fake daemon
+  (`safe-client`), WebAuthn helpers (`safe-webauthn`: the RP ID table incl. public and private
+  suffixes, IPs and `localhost`, `clientDataJSON`, option parsing, reply checks), the passkey
+  broker against `tests/fake-safed.ts` with real ES256 keys and signatures checked by
+  `tests/webauthn-rp.ts` (`safe-passkeys`, also the list placement and when it opens), the
+  main-world script with stub classes (`safe-page-script`: object shape, methods, `toJSON`,
+  errors, `AbortSignal`, fallbacks), and the shared validators
+  (`packages/shared/src/safe.test.ts`). `safe-passkeys-daemon` runs the broker against a real
+  sandboxed `ewe-safed` (skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` are set).
+  E2E `tests/e2e/safe-inline.spec.ts` (13 tests, always on) runs the app against the in-process
+  fake daemon and a local relying party on `http://localhost:<port>` that verifies every
+  attestation and signature in Node: the script is in place before the page's first script,
+  save a passkey, `excludeCredentials` → `InvalidStateError`, sign in from the sheet, Cancel and
+  abort, Use a security key instead, locked → Unlock → Save, a cross-origin frame, the inline list
+  under the field with the focus kept in it (typing filters, ↓ Enter fills, Esc, no match hides),
+  Tab opens / script focus and page load do not, and conditional mediation through the list.
+  `tests/e2e/safe.spec.ts` (7 tests, skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` point at
+  built ewe-safe binaries) starts a sandboxed daemon (its own runtime, state, data and config
+  dirs, a fake `ewe-conf`, `EWE_SAFE_NO_LOGIND`, `EWE_SAFE_KDF_ITERATIONS=2`), two local servers
+  on `127.0.0.1` and `localhost` (two origins), and covers: no fill on load, click-to-fill, the
+  cross-origin frame, generate + save, update, no prompt for a known login, and locked → Unlock
+  Safe (`EWE_SAFE_ASK_CMD`). Both run inside a nested Hyprland (`WAYLAND_DISPLAY` /
+  `HYPRLAND_INSTANCE_SIGNATURE` of the nest), never the live session.
 - E2E (`smoke.spec.ts`, 27 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending

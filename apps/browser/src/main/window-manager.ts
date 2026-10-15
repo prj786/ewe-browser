@@ -58,6 +58,8 @@ import type { ExtensionHost } from './extensions'
 import { OverlayController } from './overlay'
 import { PanelHost, panelBounds, panelId } from './panels'
 import { copyPassword, fillPassword, focusScript } from './passwords'
+import type { SafeService } from './safe/service'
+import { SafeWindow } from './safe/window'
 
 const PASSWORD_WORLD = 1009
 import { SidebarController } from './sidebar'
@@ -78,6 +80,7 @@ export interface WindowDeps {
   bookmarks: BookmarksStore
   downloads: DownloadManager
   extensions?: ExtensionHost | undefined
+  safe?: SafeService | undefined
   importChromeBookmarks(): Promise<string>
   isMusicTrack(path: string): boolean
   onSessionChange(): void
@@ -130,6 +133,7 @@ export class WindowController {
   private broadcastQueued = false
   private destroyed = false
   private toastTimer: NodeJS.Timeout | null = null
+  readonly safeUi: SafeWindow | null
   private readonly deps: WindowDeps
 
   constructor(deps: WindowDeps, initial?: SessionWindow) {
@@ -210,6 +214,23 @@ export class WindowController {
       },
     })
 
+    const safe = deps.safe
+    this.safeUi =
+      safe === undefined
+        ? null
+        : new SafeWindow({
+            window: this.win,
+            overlay: this.overlay,
+            safe,
+            activeContents: () => this.tabs.active?.webContents ?? null,
+            viewBounds: (contents) => this.tabs.byWebContents(contents)?.view.getBounds() ?? null,
+            favicon: (contents) => this.tabs.byWebContents(contents)?.state.favicon ?? null,
+            contentSize: () => this.contentSize(),
+            lastMouse: () => this.lastMouse,
+            toast: (message, icon) => this.toast(message, icon),
+            hideOverlay: () => this.showOverlay('none'),
+          })
+
     this.win.on('resize', () => this.layout())
     this.win.on('maximize', () => this.layout())
     this.win.on('unmaximize', () => this.layout())
@@ -235,6 +256,7 @@ export class WindowController {
       this.destroyed = true
       if (this.toastTimer !== null) clearTimeout(this.toastTimer)
       try {
+        this.safeUi?.dispose()
         this.overlay.destroy()
         this.sidebar.destroy()
         this.panels.destroy()
@@ -714,6 +736,18 @@ export class WindowController {
         )
         break
       }
+      case 'safe.choose':
+      case 'safe.generate':
+      case 'safe.unlock':
+      case 'safe.openApp':
+      case 'safe.prompt':
+      case 'safe.fit':
+      case 'safe.selected':
+      case 'safe.close':
+      case 'safe.passkey':
+      case 'safe.sheet':
+        if (layer === 'overlay') this.safeUi?.command(command)
+        break
       case 'panel.add': {
         const panels = this.deps.settings.get().panels
         if (panels.length >= 12) return
@@ -1012,7 +1046,7 @@ export class WindowController {
   private onPageMouse(point: Point): void {
     this.lastMouse = point
     const part = this.overlay.part
-    if (part === 'palette' || part === 'menu') return
+    if (part === 'palette' || part === 'menu' || part === 'prompt' || part === 'sheet') return
     if (part === 'rail') {
       if (this.overlayPinned || Date.now() - this.overlay.shownAt < PEEK_HIDE_DELAY_MS) return
       if (point.x > RAIL_WIDTH + RAIL_PEEK_SHADOW) this.overlay.hide()

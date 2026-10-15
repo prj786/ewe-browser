@@ -158,6 +158,7 @@
   --rail-width: 264px;
   --page-gap: 8px;
   --menu-width: 220px;
+  --suggest-pad: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
