@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process'
 
-const RULE_VAR = '__ewe_test_rule'
+const RULE_VAR = /^[A-Za-z_][A-Za-z0-9_]*$/.test(process.env.EWE_TEST_RULE ?? '')
+  ? (process.env.EWE_TEST_RULE ?? '')
+  : '__ewe_test_rule'
 
 function lua(code: string): string | null {
   if (process.env.HYPRLAND_INSTANCE_SIGNATURE === undefined) return null

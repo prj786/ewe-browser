@@ -1,5 +1,6 @@
 import type { BookmarkFolder } from './bookmarks'
 import type { FsRequest, FsResult } from './files'
+import type { HistoryRequest, RemoteMachine } from './history'
 import type { HomeRequest } from './home'
 import type { MusicLibrary, MusicRequest } from './music'
 import {
@@ -24,7 +25,7 @@ import {
 import { isWorkspaceColor } from './workspaces'
 
 export type OverlayPart = 'none' | 'rail' | 'palette' | 'menu' | 'toast'
-export type InternalPage = 'newtab' | 'home' | 'settings' | 'files' | 'music'
+export type InternalPage = 'newtab' | 'home' | 'settings' | 'files' | 'music' | 'history'
 export type MenuTarget =
   { kind: 'tab'; id: TabId } | { kind: 'workspace'; id: string } | { kind: 'extension'; id: string }
 export type DownloadAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'open' | 'show' | 'remove'
@@ -124,6 +125,8 @@ export interface BrowserApi {
   suggest(query: string): Promise<HistorySuggestion[]>
   getDownloads(): Promise<DownloadEntry[]>
   history(query: string, limit: number): Promise<HistoryVisit[]>
+  historyPage<T = unknown>(request: HistoryRequest): Promise<FsResult<T>>
+  remoteTabs(): Promise<RemoteMachine[]>
   onDownloads(listener: (downloads: DownloadEntry[]) => void): () => void
   onHistory(listener: () => void): () => void
   fs<T = unknown>(request: FsRequest): Promise<FsResult<T>>
@@ -158,6 +161,8 @@ export const IPC = {
   history: 'ewe:history',
   downloads: 'ewe:downloads',
   historyChanged: 'ewe:history-changed',
+  historyPage: 'ewe:history-page',
+  remoteTabs: 'ewe:remote-tabs',
   fs: 'ewe:fs',
   defaultHandler: 'ewe:default-handler',
   fsChanged: 'ewe:fs-changed',
@@ -316,7 +321,8 @@ export function isShellCommand(value: unknown): value is ShellCommand {
         c.page === 'home' ||
         c.page === 'settings' ||
         c.page === 'files' ||
-        c.page === 'music'
+        c.page === 'music' ||
+        c.page === 'history'
       )
     case 'music.play':
       return isString(c.path) && c.path.startsWith('/')

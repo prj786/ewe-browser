@@ -57,6 +57,7 @@ export default defineConfig({
           settings: resolve(__dirname, 'src/pages/settings/index.html'),
           files: resolve(__dirname, 'src/pages/files/index.html'),
           music: resolve(__dirname, 'src/pages/music/index.html'),
+          history: resolve(__dirname, 'src/pages/history/index.html'),
           sad: resolve(__dirname, 'src/pages/sad/index.html'),
         },
       },

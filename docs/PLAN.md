@@ -11,7 +11,9 @@ bottom-left.
 - Engine: Electron 44 (Chromium 152), not a Chromium fork.
 - Extensions: MV3 only, via electron-chrome-extensions (GPL-3.0 unless licensed — decide before phase 3).
 - Shell UI: Solid + plain CSS variables. State lives in main; the shell only renders snapshots.
-- Storage: JSON files for session and settings now; SQLite (better-sqlite3) arrives with history in phase 4.
+- Storage: JSON files for session, settings, bookmarks and downloads. History is in SQLite (`history.db`)
+  through `node:sqlite`, which is built into Electron 44's Node 24, so there is no native module to
+  rebuild (decided 2026-10-15; better-sqlite3 was the earlier plan).
 - Tab model (from the mockup): horizontal strip, auto-hidden by default, floating over the page in an overlay view.
 - Navigation model: url editing inside the active tab, plus a command palette (`Ctrl+K`, and the new tab page).
 
@@ -247,14 +249,15 @@ built, verified and handed to the owner for testing before the next starts.
      development only; Netflix and similar services need production VMP signing through castlabs
      EVS (a free account) before they play in high quality, or at all.
    - Sync with Nextcloud: bookmarks, history and portable settings (search engine, theme, rail,
-     shortcuts, panels) in `ewe/browser/` on the ewe Nextcloud account, through `ewe-cloud`'s
-     app password. A three-way merge per record keeps edits from both machines and carries
-     deletions; a new machine adopts the account's settings. Every 10 minutes, 20 seconds after
-     a change, and with Sync now.
+     shortcuts, panels, how long history is kept) in `ewe/browser/` on the ewe Nextcloud
+     account, through `ewe-cloud`'s app password. A three-way merge per record keeps edits from
+     both machines; a new machine adopts the account's settings. Every 10 minutes, 20 seconds
+     after a change, and with Sync now. Since 2026-10-15 history deletions travel as clear
+     records and each machine shares its open tabs (see "History and real sync" below).
    - Known: no page context menu yet, so extension context-menu items are not shown; extension
      popups are measured after load (Electron 44 sends no preferred-size events for views);
-     `chrome.action.openPopup` still uses the library's own window; sync does not cover open
-     tabs, passwords (they stay in the password manager) or extensions themselves.
+     `chrome.action.openPopup` still uses the library's own window; sync does not cover
+     passwords (they stay in the password manager) or extensions themselves.
 
 ## Home, ewe package, CLI (agreed 2026-10-14)
 
@@ -305,6 +308,101 @@ built, verified and handed to the owner for testing before the next starts.
        recents and history) with JSON output, for the ewe companion. `RecentsService` and
        `HomeService` are the first pieces it reuses.
 
+## History and real sync (2026-10-15, branch `feat/history`, waiting for the owner's review)
+
+The owner asked for "a browser with real syncing and history management" (TRIO.md, B2).
+
+- [x] **`app://history`**: every visit, one row per page and day, grouped by day (Today,
+      Yesterday, then dates). Search (full text on title and url, `site:host` works too),
+      a site filter (click the host on a row), select with checkboxes (Shift for a range, the day
+      header selects the day), Delete or the row menu, _Delete everything from this site_ (the
+      host without `www.` and its subdomains; can also delete that site's cookies and site
+      data), _Keep history for_ forever / 1 year / 90 days / 30 days, and **Clear browsing
+      data** for the last hour / 24 hours / 7 days / 4 weeks / all time. Endless scroll.
+- [x] Opening it: Ctrl+Shift+H (new shortcut `history`; Ctrl+H stays the History sidebar, like
+      Firefox), _Show all history_ in the sidebar's History footer, the palette (type "hist"),
+      Settings → Browsing (_Open history_, _Clear data…_). One history tab: opening it again
+      switches to it.
+- [x] **Clear browsing data, honestly.** History and the downloads list work for every range.
+      Cookies and site data and cached files are **all time only**: Electron 44's
+      `session.clearData`, `clearStorageData` and `clearCache` take no time range, and a cookie
+      has no creation time in Electron's API. The dialog disables those two for other ranges and
+      says why. "Cookies and site data" clears both sessions (tabs and web panels) and keeps the
+      data of installed extensions (`excludeOrigins`). The downloads list never deletes files.
+- [x] **SQLite.** `history.db` (WAL) with `urls`, `visits`, `clears` and an FTS5 index (trigram
+      tokenizer, so any 3+ letters match inside words; shorter words use LIKE). The in-memory map
+      for the palette, the url completion and the sidebar stays, so those paths did not get
+      slower. On first start `history.json` is imported once and renamed to
+      `history.json.bak` (entry by entry: malformed entries are skipped and counted in the log).
+      A broken database is moved aside (`history.db.broken-<time>`) and a new one starts, filled
+      again from `history.json.bak` when that is all there is. Checked: `node:sqlite` loads in Electron 44.5.1 (castlabs) as Node, in the
+      sandboxed main process and in the packaged app (electron-builder, asar), SQLite 3.53.4,
+      FTS5 and trigram present. The migration of 20 000 pages takes about 2 s once.
+- [x] **Deletions sync.** Every delete is a _clear record_ `{id, at, from, to, url?, site?}`
+      (a per-page delete is a record with `url`, a site delete one with `site`, a range clear one
+      with only times). The records travel in `ewe/browser/history.json` next to `data`; each
+      machine applies the records it has not seen to its own visits, then filters base, local and
+      remote by all records before the three-way merge. A visit after the delete time wins (it
+      is new), a visit before it loses. Records live 180 days (5000 at most; an all-time clear
+      replaces older ones). 0.1.0-beta ignores the extra field and drops it when it writes; the
+      next new client puts it back.
+- [x] **One timeline.** Deletes compare times written by different machines, so they assume
+      the clocks agree. To make that true, every WebDAV answer's `Date` header is sampled (the
+      median of the last 7, at the request's midpoint) and, when this computer is more than
+      5 s off, the browser stamps visits, clear records and `savedAt` with the server's time
+      instead of its own (the offset is kept in `sync/status.json` for the next start; more
+      than a day off is not trusted). The sync status warns when this computer is more than
+      5 minutes off, and when another machine's `savedAt` is more than 5 minutes away from the
+      server's `Last-Modified` of the file it wrote (that machine runs an old version or has
+      no server time). Settings shows the warning under the sync status, the history page
+      under its summary.
+- [x] **Expired records still win.** A clear record is dropped after 180 days, so a machine
+      that was away longer could bring a deleted page back. Sync therefore never uploads a page
+      whose last visit is older than 180 days unless the server already has it: if the
+      server had it before (it is in this machine's last merged state) and no longer does, it
+      is deleted here too; if it was never synced, it stays on this computer only. The cost:
+      pages older than 180 days that were never synced do not reach other machines.
+- [x] If the server copy of a file is gone (deleted by hand, a new account), the next sync
+      uploads everything again instead of reading the gap as "everything was deleted".
+- [x] _Keep history for_ is a synced setting, so both machines keep the same window; old visits
+      are deleted on start, every day, and when the setting changes.
+- [x] **Tabs from your other computers.** Each machine writes `ewe/browser/tabs-<id>.json`
+      (windows → workspaces → tabs: url, title, pinned; web pages only, 500 at most) with
+      `savedAt`, when its tabs changed or every 6 hours, and reads the others' (PROPFIND, ETags so
+      unchanged files are not downloaded again; files older than 30 days are ignored). The
+      history page shows them under _Other computers_; the palette offers them (`t:` and plain
+      queries, hint "machine · url"). The label is the host name (`$EWE_SYNC_MACHINE` for
+      tests), like ewe-sync's machine records; the file id is 16 hex characters of a salted
+      SHA-256 of `/etc/machine-id` and the profile path (ewe-conf's convention: the raw id is
+      never published; two machines or two profiles never share a file even with the same
+      host name), or a random id kept in `<userData>/sync/machine-id` when there is no
+      machine-id. After its first write a machine deletes its own old `tabs-<host name>.json`
+      (only a file without `id` and with its own label). Two machines with the same name both
+      show, with the first 4 characters of the id after the name.
+- [x] `<userData>/sync/status.json` mirrors the sync state (`state`, `lastSync`, `error`,
+      `warning`, `account`, `machine`, `machineId`, `clockOffset`, `updatedAt`) for ewe-sync to
+      read.
+
+Known / open:
+
+- **Rule 6 ("nothing else has a sync button").** The browser still has its own sync switch and
+  _Sync now_ in Settings. ewe-sync cannot start a browser sync today (its Sync now pushes
+  `ewe.conf` and runs folder pairs only), so the button stays until it can. Proposal: a
+  _Browser_ row in ewe-sync that reads `~/.config/ewe-browser/sync/status.json` and runs
+  `ewe-browser sync` (a new verb for the command line in `rail-and-cli`, answering with the
+  status JSON); then the browser's own _Sync now_ goes and its Sync section becomes
+  "Managed in ewe Sync" with the status line.
+- The command line (`rail-and-cli`) reads history through `HistoryStore`, whose methods did not
+  change, so it keeps working; it should get `history delete` verbs later (TRIO.md).
+- Sync still uploads the whole `history.json` (up to 20 000 pages) when it changed. Splitting it
+  by month and conditional GETs would cut traffic; not done yet.
+- At most 20 000 pages are kept ("Forever" means no time limit, the oldest pages still go
+  first) and 200 000 visits.
+- Rows from another machine carry only its newest visit per page, so a page visited on several
+  days there shows on the last of those days here.
+- Not verified on two real machines or against the owner's real Nextcloud (only the mock WebDAV
+  server in unit and e2e tests).
+
 ## Phase 3 — Chrome extensions
 
 - [x] License decision: GPL-3.0 for the whole project
@@ -318,10 +416,10 @@ built, verified and handed to the owner for testing before the next starts.
 
 ## Phase 4 — browser essentials
 
-- [x] History (JSON for now): visits with frecency, palette suggestions, inline host completion in the url editor
-- [ ] History page, full-text search and a move to SQLite when it grows
+- [x] History: visits with frecency, palette suggestions, inline host completion in the url editor
+- [x] History page (`app://history`), full-text search, SQLite (2026-10-15, see below)
 - [x] Downloads in the sidebar (see roadmap step 1)
-- [x] History list in the sidebar (search, remove); a full history page is still open
+- [x] History list in the sidebar (search, remove, Show all history)
 - [ ] Permissions prompts, find in page, zoom per site, print
 - [ ] Private windows, profiles (user circle), default-browser registration
 - [ ] Reopen-closed-tab history across restarts

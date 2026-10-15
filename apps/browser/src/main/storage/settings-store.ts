@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   SIDEBAR_MAX,
   SIDEBAR_MIN,
+  isHistoryKeepDays,
   sanitizeShortcuts,
   type Settings,
   type WebPanel,
@@ -48,6 +49,7 @@ export function sanitizeSettings(patch: unknown, base: Settings): Settings {
   if (patch.shortcuts !== undefined) next.shortcuts = sanitizeShortcuts(patch.shortcuts)
   if (typeof patch.background === 'boolean') next.background = patch.background
   if (typeof patch.sync === 'boolean') next.sync = patch.sync
+  if (isHistoryKeepDays(patch.historyDays)) next.historyDays = patch.historyDays
   if (Array.isArray(patch.panels)) next.panels = sanitizePanels(patch.panels)
   return next
 }

@@ -1,11 +1,13 @@
-import { For, Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, on, onMount, type JSX } from 'solid-js'
 import {
   SEARCH_ENGINES,
   displayUrl,
   rankBookmarks,
   resolveInput,
+  searchRemoteTabs,
   type BookmarkFolder,
   type HistorySuggestion,
+  type RemoteMachine,
   type SearchEngineId,
   type TabState,
 } from '@ewe/shared'
@@ -40,6 +42,11 @@ interface Row {
   run(): void
 }
 
+function wantsHistoryPage(input: string): boolean {
+  const q = input.trim().toLowerCase()
+  return q.length >= 3 && ('history'.startsWith(q) || 'show all history'.startsWith(q))
+}
+
 function matches(tab: TabState, query: string): boolean {
   const q = query.toLowerCase()
   return q === '' || tab.title.toLowerCase().includes(q) || tab.url.toLowerCase().includes(q)
@@ -50,6 +57,13 @@ export function Palette(props: PaletteProps): JSX.Element {
   const [selected, setSelected] = createSignal(0)
   const [history, setHistory] = createSignal<HistorySuggestion[]>([])
   const [focused, setFocused] = createSignal(false)
+  const [remote, setRemote] = createSignal<RemoteMachine[]>([])
+  onMount(() => {
+    void api
+      .remoteTabs()
+      .then(setRemote)
+      .catch(() => undefined)
+  })
 
   createEffect(
     on(value, (v) => {
@@ -109,7 +123,27 @@ export function Palette(props: PaletteProps): JSX.Element {
         }))
     }
 
-    if (r.kind === 'tabs') return tabRows(r.query, 12)
+    const remoteRows = (query: string, limit: number, skip: Set<string>): Row[] =>
+      limit <= 0
+        ? []
+        : searchRemoteTabs(remote(), query, limit + skip.size)
+            .filter((hit) => !skip.has(hit.url))
+            .slice(0, limit)
+            .map((hit) => ({
+              key: `remote:${hit.machine}:${hit.url}`,
+              icon: 'monitor',
+              favicon: faviconFor(hit.url, props.tabs),
+              label: hit.title === '' ? displayUrl(hit.url) : hit.title,
+              hint: `${hit.machine} · ${displayUrl(hit.url)}`,
+              url: hit.url,
+              run: () => props.onNavigate(hit.url),
+            }))
+
+    if (r.kind === 'tabs') {
+      const local = tabRows(r.query, 12)
+      const openUrls = new Set(props.tabs.map((t) => t.url))
+      return local.concat(remoteRows(r.query, 12 - local.length, openUrls))
+    }
     if (r.kind === 'bookmarks') return bookmarkRows(r.query, 12, new Set())
     if (v === '') return props.hero === true ? [] : tabRows('', 6)
     if (r.kind === 'url') {
@@ -150,7 +184,20 @@ export function Palette(props: PaletteProps): JSX.Element {
         hint: displayUrl(h.url),
         run: () => props.onNavigate(h.url),
       }))
-    return list.concat(bookmarks, historyRows, openTabs)
+    const commands: Row[] = wantsHistoryPage(v)
+      ? [
+          {
+            key: 'command:history',
+            icon: 'history',
+            favicon: null,
+            label: 'Show all history',
+            hint: 'Ctrl+Shift+H',
+            run: () => void api.send({ type: 'open.internal', page: 'history' }),
+          },
+        ]
+      : []
+    const remoteTabs = remoteRows(r.query, 3, openUrls)
+    return list.concat(commands, bookmarks, historyRows, openTabs, remoteTabs)
   })
 
   createEffect(

@@ -9,7 +9,7 @@ been hit. `docs/PLAN.md` holds the roadmap and open bugs; `docs/DESIGN.md` holds
 A Chromium-engine browser built on Electron 44 (Chromium 152, Node 24) for the owner's "ewe"
 Linux desktop (Hyprland, Wayland). The main process owns every tab as a `WebContentsView`. The
 visible chrome is a thin Solid UI in three renderer layers (the base shell with the left tab rail,
-a transparent overlay and a full-height right sidebar) plus six internal pages served on `app://` (newtab, home, settings, sad, files, music). Styling follows the owner's Ewe design system v3.
+a transparent overlay and a full-height right sidebar) plus seven internal pages served on `app://` (newtab, home, settings, sad, files, music, history). Styling follows the owner's Ewe design system v3.
 Phases 0–2 and the history part of phase 4 are implemented and verified; nothing has been
 committed yet, and the first commit waits for the owner's review of the staged diff.
 
@@ -66,6 +66,9 @@ packages/shared/src/
                                   rankBookmarks (palette), isBookmarkNode validator, sanitizeBookmarks
   home.ts                         RecentItem/RecentKind/RecentFilter, HomeRequest + isHomeRequest,
                                   recentKindOf, isSearchResultUrl, dedupeRecents, pickRecents
+  history.ts                      HISTORY_URL, ranges and keep options, HistoryClear + clearCovers, sites
+                                  (siteOf/hostInSite), HistoryRequest + isHistoryRequest, day rows,
+                                  RemoteMachine / tabs files (isRemoteTabsFile, searchRemoteTabs)
 apps/browser/
   electron.vite.config.ts         main/preload/renderer builds, seven HTML inputs, devCsp plugin, @ewe/shared alias
   electron-builder.yml            dir target, castlabs runtime from node_modules/electron/dist, app.asar
@@ -93,12 +96,17 @@ apps/browser/
   src/main/open-args.ts           command line paths and urls → folder tabs / file tabs
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
   src/main/history.ts             frecency scoring and ranking
+  src/main/history-service.ts     HistoryService: the `ewe:history-page` ops (rows, summary, delete, deleteSite,
+                                  clear browsing data, keep), retention timer, pushes to history pages;
+                                  registerHistoryIpc (also `ewe:remote-tabs`)
   src/main/home/recents.ts        RecentsService: recent docs, videos, music and sites from recent.json, GTK
                                   recently-used.xbel, finished downloads and history; parseRecentlyUsed, snippetOf
   src/main/home/service.ts        HomeService: the `ewe:home` ops (token, places, recents, open, mpv, forget)
   src/main/chrome-bookmarks.ts    parseChromeBookmarks() (pure), chromeBookmarkPaths(), readChromeBookmarks() (read-only)
-  src/main/storage/               json-file (atomic, serialized writes), settings-store, session-store, history-store,
-                                  bookmarks-store, downloads-store, recent-store
+  src/main/storage/               json-file (atomic, serialized writes), settings-store, session-store,
+                                  history-store (SQLite, node:sqlite), bookmarks-store, downloads-store, recent-store
+  src/main/sync/                  merge (merge3, clears, filterHistory), service (SyncService, tab files),
+                                  webdav (Dav: get, put, putAlways, PROPFIND list)
   src/preload/index.ts            the only preload; picks the layer from --ewe-layer=shell|overlay|sidebar|page
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
@@ -118,12 +126,15 @@ apps/browser/
   src/pages/home/                 the home page (main.tsx, pdf.ts = pdf.js first-page previews, home.css)
   src/pages/files/                the file manager page (main.tsx, viewer.tsx, textview.tsx, archive.tsx, files.css)
   src/pages/music/                the music app (main.tsx, music.css)
+  src/pages/history/              the history page (main.tsx, history.css)
   src/main/media/library.ts       MusicLibraryStore (scan, tags via music-metadata, music-index.json), coverResponse
   scripts/visual.mjs              screenshot scenes, drives the app through window.ewe and sendInputEvent
   tests/unit/                     layout, shortcuts, settings-store, session-store, identity, protocol,
                                   ewe-theme, history, ewe-account, bookmarks-store, chrome-bookmarks, downloads-store
   tests/fixtures/                 chrome-bookmarks.json (a Chrome "Bookmarks" file for unit, e2e and screenshots)
+  tests/support/dav-mock.ts       a small WebDAV server (MKCOL, GET, PUT with If-Match, PROPFIND) for sync tests
   tests/e2e/smoke.spec.ts         25 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
+  tests/e2e/history.spec.ts       the history page, clear browsing data, opening history, sync between two profiles
 docs/PLAN.md                      roadmap, status, open bugs
 docs/DESIGN.md                    Ewe design mapping and browser-specific tokens
 docs/screenshots/                 generated, untracked
@@ -186,17 +197,24 @@ web pages cannot read local files through `app://`. `app://settings` may call
 `defaultHandler(set?)` (`ewe:default-handler`). `app://home` (main frame only) may call
 `home(request)` (`ewe:home`, validated by `isHomeRequest`, answered by `HomeService`) and gets
 `ewe:home-changed` pushes; it uses `app://home/raw|thumb|cover?path=&t=` with the same token.
+`app://history` (main frame only) may call `historyPage(request)` (`ewe:history-page`, validated by
+`isHistoryRequest`, answered by `HistoryService`) and gets `ewe:history-changed` pushes (history,
+sync status or other computers' tabs changed, throttled to 400ms). `remoteTabs()`
+(`ewe:remote-tabs`) answers the shell, overlay, sidebar and `app://history` with the other
+computers' tabs (`[]` while sync is off, and for every other page).
 
 `window.ewe` (BrowserApi): `send(command)`, `getState()`, `getSettings()`, `getTheme()`,
 `getAccount()`, `getBookmarks()`, `suggest(query)`, `getDownloads()`, `history(query, limit)`,
-`home(request)`, and subscriptions `onState`, `onSettings`, `onTheme`, `onBookmarks`, `onDownloads`,
+`home(request)`, `historyPage(request)`, `remoteTabs()`, and subscriptions `onState`, `onSettings`,
+`onTheme`, `onBookmarks`, `onDownloads`,
 `onHistory`, `onHomeChanged`, `onUi`.
 `getDownloads` and `history` answer only the shell, overlay and sidebar layers (pages get `[]`).
 
 IPC channels (`IPC` in ipc-contract.ts): `ewe:command`, `ewe:get-state`, `ewe:get-settings`,
 `ewe:get-theme`, `ewe:get-account`, `ewe:get-bookmarks`, `ewe:suggest`, `ewe:get-downloads`,
-`ewe:history`, `ewe:home` (invoke), and `ewe:state`, `ewe:settings`, `ewe:theme`, `ewe:bookmarks`,
-`ewe:downloads`, `ewe:history-changed` (sidebars only, throttled to 500ms), `ewe:home-changed`
+`ewe:history`, `ewe:home`, `ewe:history-page`, `ewe:remote-tabs` (invoke), and `ewe:state`,
+`ewe:settings`, `ewe:theme`, `ewe:bookmarks`, `ewe:downloads`, `ewe:history-changed` (sidebars,
+throttled to 500ms, and history pages, throttled to 400ms), `ewe:home-changed`
 (home tabs only, throttled to 400ms), `ewe:ui` (main → renderer).
 
 Main validates every command at runtime (`isShellCommand`), checks the sender frame
@@ -209,7 +227,8 @@ in `WindowController.dispatch`: the page layer may only send `PAGE_COMMANDS`
 and `tab.navigate` from a page is pinned to that page's own tab. Pages get no `bookmark.*` editing
 commands yet; a future bookmarks page adds what it needs.
 
-`InternalPage` (`open.internal`): `'newtab' | 'home' | 'settings' | 'files'`. A fresh profile (no session, or
+`InternalPage` (`open.internal`): `'newtab' | 'home' | 'settings' | 'files' | 'music' | 'history'`
+(music and history activate their existing tab instead of opening a second one). A fresh profile (no session, or
 `restoreSession` off) opens its first window on `app://home/`; Ctrl+T and new windows after that
 still use the new-tab flow. Home is never recorded in history (http(s) only).
 
@@ -295,6 +314,7 @@ every tab.
   Ctrl+N / Ctrl+Shift+N new window, Ctrl+Tab/PageDown next tab, Ctrl+Shift+Tab/PageUp prev,
   Ctrl+1-9 and Alt+1-9 select tab, Alt+Shift+1-9 select workspace, Ctrl+Shift+PageDown/PageUp and
   Ctrl+Alt+Right/Left workspace next/prev, Alt+Home home page, Ctrl+D bookmark toggle,
+  Ctrl+H History sidebar, Ctrl+Shift+H the history page (`history`), Ctrl+J downloads,
   Ctrl+= / Ctrl+- / Ctrl+0 zoom,
   Ctrl+[ / Ctrl+] and Alt+Left/Right back/forward, Ctrl+Shift+T reopen, Ctrl+Shift+W close window,
   Ctrl+Shift+I / F12 devtools, F11 fullscreen, Ctrl+Shift+Q quit. Main applies changes live
@@ -529,6 +549,38 @@ every tab.
   the root). PUT uses `If-Match` / `If-None-Match: *` and retries twice on 412.
   `Settings.sync` toggles it; `ewe:sync` (invoke, `app://settings` only) returns or runs
   `SyncStatus`, pushed as `ewe:sync-status`. `SettingsStore.flush()` now runs on quit.
+  `historyDays` is a synced setting too.
+- History deletions: `history.json` on the server also carries `clears` (the clear records of
+  every machine, 180 days, 5000 at most, `compactClears`). A sync first applies the records it has
+  not seen to the local visits (`prepare`), then filters base, local and remote through all
+  records and the keep window (`filterHistory`) before `merge3`, and applies the result as a diff
+  (`applyMerged`: only pages it saw locally can be deleted; a newer remote visit adds a visit
+  row). 0.1.0-beta ignores `clears` and drops it on write; `sameClears` makes the next new
+  client upload them again.
+- Tabs: after the three kinds, `syncTabs` PUTs `tabs-<id>.json` (`RemoteTabsFile { version, id,
+machine, savedAt, windows: [{ workspaces: [{ name, color, tabs: [{ url, title, pinned }] }] }] }`,
+  http(s) only, 500 tabs) when the tabs changed or every 6 h, PROPFINDs the folder and GETs the
+  other machines' files whose ETag changed (older than 30 days: ignored). Errors there never fail
+  the sync. The list is cached in `<userData>/sync/tabs-remote.json` and emitted as `tabs`.
+  `sync/machine.ts`: `machineLabel()` is `$EWE_SYNC_MACHINE` or the host name;
+  `machineId(userData)` is 16 hex of sha256(`ewe-browser:<machine-id>:<userData>`) (ewe-conf's
+  convention), else a random id in `<userData>/sync/machine-id`. After its first PUT a run
+  deletes the machine's own legacy `tabs-<label>.json` (no `id`, same label). Readers skip only
+  their own id (and a legacy file with their own label), so same-named machines both show.
+- Clock: `Dav` reports every response's `Date` (+500ms, at the request midpoint) to
+  `SyncService.observeServerTime`; the median of 7 samples becomes `clockOffset()` when it is
+  5 s to 1 day, and `HistoryStore.setClock(() => sync.now())` makes visits, clears and `savedAt`
+  use it. `warning` (in `SyncStatus`) reports this computer more than 5 min off, or another
+  machine whose `savedAt` is more than 5 min from the server's `Last-Modified`.
+- `narrowHistory` (the history kind's `narrow`): local pages older than now − 180 days (the
+  clear-record TTL) that the server lacks are dropped when the last merged state had them, and
+  kept local-only (never uploaded, never deleted) when it did not. A missing server file means
+  an empty base (re-upload, never "everything was deleted"). `SyncService.dispose()` stops new
+  cycles, and the history kind refuses to build an upload once `HistoryStore` is closed (it is
+  closed on `will-quit` after `flush()`).
+- `<userData>/sync/status.json` mirrors `SyncStatus` plus `machine`, `machineId`, `clockOffset`
+  and `updatedAt` (debounced 500ms) so ewe-sync can show the browser's state. The browser still has its own Sync now
+  (rule 6 says only ewe-sync should have one); see PLAN.md, "History and real sync".
 
 ## ewe integration (roadmap step 5)
 
@@ -585,21 +637,38 @@ every tab.
   that over MPRIS (the e2e test sees `org.mpris.MediaPlayer2.*` for the app's pid on the session
   bus), so the ewe media controls and media keys drive it.
 
-## Storage (all JSON under the user-data directory, atomic writes via `json-file.ts`)
+## Storage (JSON under the user-data directory, atomic writes via `json-file.ts`; history is SQLite)
 
 - `settings.json`: `Settings { rail: 'expanded'|'collapsed', searchEngine: google|duckduckgo|bing|
-kagi|brave, theme: 'system'|'dark'|'light', restoreSession, sidebarWidth, shortcuts }` with `DEFAULT_SETTINGS`.
+kagi|brave, theme: 'system'|'dark'|'light', restoreSession, sidebarWidth, background, sync, historyDays,
+panels, shortcuts }` with `DEFAULT_SETTINGS`.
   Changes broadcast to every renderer and sync `nativeTheme.themeSource`.
 - `session.json`: windows with `bounds`, `tabs [{ url, title, workspace, pinned }]`, `activeIndex`,
   `workspaces [{ id, name, color }]`, `activeWorkspace`. The exact validator is `isSessionFile` in
   `session-store.ts`; `sanitizeWindows` drops unrestorable URLs, clamps indexes and name length,
   and turns a missing `pinned` (files written before tab pinning) into `false`.
   Saved 1s after any change, on window close and on quit.
-- `history.json`: one entry per URL with title, host, visit count and last visit;
-  `recordable()` keeps http(s) only; at most 20000 entries; writes debounced 2s.
-  Ranking (`history.ts`): host-prefix 4, host-contains 2, title 1.5, url 1, multiplied by
-  `1 + log2(count)` and `exp(-ageDays / 45)`. `suggest(query, 6)` feeds the palette;
-  `complete(typed)` feeds the inline host completion in the url editor.
+- `history.db` (SQLite through `node:sqlite`, WAL, written through on every change; not JSON):
+  `urls (id, url UNIQUE, title, host, count, last)`, `visits (id, url_id, time)`, `clears (id,
+at, start, stop, url, site)`, `meta`, and `urls_fts` (FTS5, external content, trigram
+  tokenizer, kept in step by triggers). `HistoryStore` keeps every url in an in-memory map too,
+  so `suggest`, `complete`, `list` and `all` never touch the disk; its public methods are the
+  same as when it was JSON (the command line in `rail-and-cli` relies on that). `recordable()`
+  keeps http(s) only; at most 20000 pages and 200000 visits (the oldest go first). The first
+  `load()` imports `history.json` in one transaction (one visit per page, at its last time) and
+  renames it to `history.json.bak` (malformed entries are skipped one by one and counted in the
+  log); a database that cannot be opened is renamed to `history.db.broken-<time>`, and a new
+  database with no `migrated` mark re-imports `history.json.bak` when `history.json` is gone.
+  `record()` writes the page and its visit in one transaction. `rows(query, {site, before, limit})` answers the history page: one
+  row per page and local day, newest first, paged by a `{time, id}` cursor; words of 3+ letters
+  go through FTS5, shorter ones through LIKE. Every delete goes through `clear` / `clearMany`
+  (a clear record is stored and applied: visits in the range go, pages with no visit left go,
+  the others get their `last` and `count` back from what is left). `enforceRetention(days)`
+  deletes older visits without a record. Ranking (`history.ts`): host-prefix 4,
+  host-contains 2, title 1.5, url 1, multiplied by `1 + log2(count)` and `exp(-ageDays / 45)`.
+  `suggest(query, 6)` feeds the palette; `complete(typed)` feeds the inline host completion in
+  the url editor. `Settings.historyDays` (0 = forever, 365, 90, 30) is enforced by
+  `HistoryService` on start, every day and when it changes.
 - `bookmarks.json`: `{ version: 1, root }` where `root` is a `BookmarkFolder { id: 'root', kind,
 title, children, added }` and children are `{ id, kind: 'bookmark', title, url, added }` or
   nested folders. New bookmarks (Ctrl+D, the star, `bookmark.add` without a folder) land directly
@@ -701,10 +770,25 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   downloads-store, bookmark reorder, sidebar layout, files: places parsing, the file service on a
   temp tree, ranges, argv, the desktop entry, archive parsing and a real bsdtar round trip).
   plus music helpers, titles from file names, home: recent kinds, picking, request validation, the
-  xbel parser, snippets, the recent store and the recents service over a temp tree). 186 tests
-  (84 shared, 102 browser). Nothing reads
+  xbel parser, snippets, the recent store and the recents service over a temp tree). 232 tests
+  (95 shared, 137 browser). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
+- History tests: `history-store.test.ts` (migration, a broken database, rows by day and paging,
+  FTS and short words, site filters, range and page clears, remote clears, retention, the merge
+  diff, the page cap), `history-sync.test.ts` (clear filtering, compaction, tab files, PROPFIND
+  parsing, and two `SyncService`s against `tests/support/dav-mock.ts`: deletes, a newer visit
+  winning, range and site clears, an old client dropping `clears`, the keep window through
+  sync, tab files and ETags), `history-service.test.ts` (Clear browsing data with fake sessions,
+  site delete, rows, keep) and `packages/shared/src/history.test.ts`.
+  `tests/e2e/history.spec.ts` (4 tests): the page (migration, days, search, site filter, select
+  and delete, a whole site, a restart), Clear browsing data (last hour vs all time, a real
+  cookie, the downloads list, Keep history for), opening it (Ctrl+H, the sidebar button, the
+  palette row, one history tab) and two profiles syncing a delete and open tabs through the
+  mock WebDAV server. `EWE_TEST_RULE=<lua name>` gives an e2e run its own Hyprland rule, so two
+  runs in sibling worktrees do not switch each other's rule off. Keep `TMPDIR` short (for
+  example `/tmp/x`): Chromium aborts with "Socket path too long" for its singleton socket under
+  a long temp path.
 - E2E (`smoke.spec.ts`, 26 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending

@@ -15,6 +15,7 @@ import { DownloadManager } from './downloads'
 import { DefaultHandler } from './files/default-handler'
 import { ExtensionHost } from './extensions'
 import { FileService } from './files/service'
+import { HistoryService, registerHistoryIpc } from './history-service'
 import { RecentsService } from './home/recents'
 import { HomeService } from './home/service'
 import { MusicLibraryStore } from './media/library'
@@ -279,10 +280,24 @@ async function main(): Promise<void> {
     windows.applyWindowColors()
     for (const c of windows.all()) c.layout()
   })
+  const historyService = new HistoryService({
+    history,
+    settings,
+    downloads: downloadsStore,
+    sync,
+    sessions: () => [persistent, session.defaultSession],
+    extensionOrigins: () => extensions.state().list.map((e) => `chrome-extension://${e.id}`),
+  })
+  sync.setTabsSource(() => windows.toSession())
+  history.setClock(() => sync.now())
+  registerHistoryIpc(windows, historyService, sync)
+  historyService.start()
   app.on('will-quit', () => {
     unwatchTheme()
     files.dispose()
     sync.dispose()
+    historyService.dispose()
+    void history.flush().then(() => history.close())
   })
   registerIpc(windows, settings, {
     getTheme: () => eweTheme,

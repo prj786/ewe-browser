@@ -80,6 +80,7 @@ export interface Settings {
   sidebarWidth: number
   background: boolean
   sync: boolean
+  historyDays: number
   panels: WebPanel[]
   shortcuts: ShortcutMap
 }
@@ -150,6 +151,7 @@ export interface SyncStatus {
   lastSync: number | null
   error: string | null
   account: string | null
+  warning?: string | null | undefined
 }
 
 export interface PasswordItem {
@@ -176,6 +178,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarWidth: 360,
   background: false,
   sync: false,
+  historyDays: 0,
   panels: [],
   shortcuts: {},
 }
