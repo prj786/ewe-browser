@@ -867,7 +867,7 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   errors, `AbortSignal`, fallbacks), and the shared validators
   (`packages/shared/src/safe.test.ts`). `safe-passkeys-daemon` runs the broker against a real
   sandboxed `ewe-safed` (skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` are set).
-  E2E `tests/e2e/safe-inline.spec.ts` (12 tests, always on) runs the app against the in-process
+  E2E `tests/e2e/safe-inline.spec.ts` (13 tests, always on) runs the app against the in-process
   fake daemon and a local relying party on `http://localhost:<port>` that verifies every
   attestation and signature in Node: the script is in place before the page's first script,
   save a passkey, `excludeCredentials` → `InvalidStateError`, sign in from the sheet, Cancel and
