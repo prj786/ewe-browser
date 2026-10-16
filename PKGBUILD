@@ -13,8 +13,8 @@ pkgname=ewe-browser
 # extracts to <repo>-<tag without the leading v>, so the source URL and
 # the directory below follow _tag, never pkgver. The release workflow
 # rewrites both.
-_tag=v0.2.1-beta
-pkgver=0.2.1beta
+_tag=v0.2.2-beta
+pkgver=0.2.2beta
 pkgrel=1
 pkgdesc="ewe browser — the web, your files and your music in one window"
 arch=('x86_64')
