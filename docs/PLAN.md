@@ -33,6 +33,7 @@ bottom-left.
 - [x] Typed IPC: commands validated in main, state snapshots broadcast to shell, overlay and app:// pages
 - [x] Popups and `window.open`: sized popups become real windows, everything else becomes a tab that keeps `window.opener`
 - [x] Identity: `Electron/` and app tokens stripped from the user agent on every webContents, `window.chrome` filled, FedCM disabled (as Flow Browser does)
+- [x] Identity follows Chrome stable (2026-10-15): Gmail said "This browser version is no longer supported" because pages saw Chromium 152 while Chrome stable was 155. The user agent, `Sec-CH-UA*` and `navigator.userAgentData` now report the current stable major from the two-week schedule (see AGENTS.md, Process model)
 - [x] Shortcuts matched on physical key codes (layout independent): Ctrl+T, Ctrl+W, Ctrl+L, Ctrl+K, Ctrl+Tab, Ctrl+Shift+T, Ctrl+1..9, Alt+arrows, F5, F11, F12
 - [x] Crash handling: `render-process-gone` and failed loads show `app://sad` with a reload button
 - [x] Session restore from `session.json` (windows, tabs, active tab, bounds); background tabs load lazily on first activation

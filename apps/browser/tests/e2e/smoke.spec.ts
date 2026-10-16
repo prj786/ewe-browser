@@ -436,14 +436,53 @@ test.describe('browser', () => {
 
   test('pages see a chrome-like identity', async () => {
     const page = await windowWith(app, 'example.org')
-    const identity = await page.evaluate(() => ({
-      ua: navigator.userAgent,
-      chrome: Object.keys((window as unknown as { chrome?: object }).chrome ?? {}),
-    }))
+    const identity = await page.evaluate(async () => {
+      interface Brand {
+        brand: string
+        version: string
+      }
+      const data = (
+        navigator as Navigator & {
+          userAgentData?: {
+            brands: Brand[]
+            getHighEntropyValues(hints: string[]): Promise<{ fullVersionList?: Brand[] }>
+          }
+        }
+      ).userAgentData
+      const values = await data?.getHighEntropyValues(['fullVersionList'])
+      return {
+        ua: navigator.userAgent,
+        chrome: Object.keys((window as unknown as { chrome?: object }).chrome ?? {}),
+        brands: data?.brands ?? [],
+        full: values?.fullVersionList ?? [],
+      }
+    })
     expect(identity.ua).not.toContain('Electron')
     expect(identity.ua).not.toContain('ewe')
     expect(identity.ua).toContain('Chrome/')
     expect(identity.chrome).toEqual(expect.arrayContaining(['app', 'runtime', 'csi', 'loadTimes']))
+    const major = /Chrome\/(\d+)\.0\.0\.0 /.exec(identity.ua)?.[1] ?? '0'
+    expect(Number(major)).toBeGreaterThanOrEqual(155)
+    expect(identity.brands).toContainEqual({ brand: 'Chromium', version: major })
+    expect(identity.full).toContainEqual({ brand: 'Chromium', version: `${major}.0.0.0` })
+
+    const site = await serve({
+      '/early.html': {
+        body: '<script>document.title = navigator.userAgentData.brands.map((b) => `${b.brand}/${b.version}`).join(" ")</script>',
+        type: 'text/html',
+      },
+    })
+    await shell.evaluate(
+      (url) => window.ewe.send({ type: 'tab.create', url }),
+      `${site.url}/early.html`,
+    )
+    const early = await windowWith(app, '/early.html')
+    await expect.poll(() => early.title()).toContain(`Chromium/${major}`)
+    const id = (await shell.evaluate(() => window.ewe.getState()))?.activeTabId
+    if (id === null || id === undefined) throw new Error('no active tab')
+    await shell.evaluate((tabId) => window.ewe.send({ type: 'tab.close', id: tabId }), id)
+    await expect.poll(() => activeUrl(shell)).toBe('https://example.org/')
+    site.close()
   })
 
   test('the palette filters open tabs with t:', async () => {
