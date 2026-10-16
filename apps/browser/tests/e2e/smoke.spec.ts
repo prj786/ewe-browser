@@ -485,6 +485,36 @@ test.describe('browser', () => {
     site.close()
   })
 
+  test('web pages cannot mark draggable regions', async () => {
+    const site = await serve({
+      '/drag.html': {
+        body: '<div id="bar" style="height:40px;-webkit-app-region:drag"></div><div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = \'<div style="height:40px;app-region:drag"></div>\'</script>',
+        type: 'text/html',
+      },
+    })
+    await shell.evaluate(
+      (url) => window.ewe.send({ type: 'tab.create', url }),
+      `${site.url}/drag.html`,
+    )
+    const page = await windowWith(app, '/drag.html')
+    const regions = await page.evaluate(() => {
+      const region = (el: Element | null | undefined) =>
+        el === null || el === undefined
+          ? 'missing'
+          : getComputedStyle(el).getPropertyValue('-webkit-app-region')
+      return [
+        region(document.getElementById('bar')),
+        region(document.getElementById('host')?.shadowRoot?.firstElementChild),
+      ]
+    })
+    expect(regions).toEqual(['no-drag', 'no-drag'])
+    const id = (await shell.evaluate(() => window.ewe.getState()))?.activeTabId
+    if (id === null || id === undefined) throw new Error('no active tab')
+    await shell.evaluate((tabId) => window.ewe.send({ type: 'tab.close', id: tabId }), id)
+    await expect.poll(() => activeUrl(shell)).toBe('https://example.org/')
+    site.close()
+  })
+
   test('the palette filters open tabs with t:', async () => {
     await shell.evaluate(() => window.ewe.send({ type: 'overlay.request', part: 'palette' }))
     const overlay = await windowWith(app, '/ui/overlay/')

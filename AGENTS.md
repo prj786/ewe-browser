@@ -139,7 +139,7 @@ apps/browser/
                                   ewe-theme, history, ewe-account, bookmarks-store, chrome-bookmarks, downloads-store
   tests/fixtures/                 chrome-bookmarks.json (a Chrome "Bookmarks" file for unit, e2e and screenshots)
   tests/support/dav-mock.ts       a small WebDAV server (MKCOL, GET, PUT with If-Match, PROPFIND) for sync tests
-  tests/e2e/smoke.spec.ts         27 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
+  tests/e2e/smoke.spec.ts         28 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
   tests/e2e/history.spec.ts       the history page, clear browsing data, opening history, sync between two profiles
 docs/CLI.md                       the command line reference (contract, verbs, Companion registry, socket)
 docs/PLAN.md                      roadmap, status, open bugs
@@ -202,12 +202,12 @@ docs/screenshots/                 generated, untracked
 
 One sandboxed preload serves all four layers. `--ewe-layer=` in `additionalArguments` selects:
 
-| layer   | webContents                 | gets                                                                                                                                       |
-| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| shell   | the window's own            | `window.ewe`                                                                                                                               |
-| overlay | the overlay WebContentsView | `window.ewe`                                                                                                                               |
-| sidebar | the sidebar WebContentsView | `window.ewe`                                                                                                                               |
-| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) main frames; the Chrome version and Safe in every http(s) frame |
+| layer   | webContents                 | gets                                                                                                                                                                                |
+| ------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| shell   | the window's own            | `window.ewe`                                                                                                                                                                        |
+| overlay | the overlay WebContentsView | `window.ewe`                                                                                                                                                                        |
+| sidebar | the sidebar WebContentsView | `window.ewe`                                                                                                                                                                        |
+| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) main frames; the Chrome version and Safe in every http(s) frame; no drag regions in any non-`app:` frame |
 
 Files: the page layer on `app://files/` (main frame only) may call `fs(request)` (`ewe:fs`
 invoke, validated by `isFsRequest`, answered by `FileService`); every other layer and page gets
@@ -435,6 +435,17 @@ every tab.
   (`NativeWindowViews::ShouldDescendIntoChildForEventHandling` returns false when
   `NonClientHitTest` is not `HTNOWHERE`; fullscreen short-circuits that check). The rail is
   `no-drag`; there is no drag region at all (Hyprland tiles the window).
+- Web pages hit the same gotcha: every tab's `WebContentsView` reports its page's
+  `app-region: drag` areas to the window, so such an area on a site (pages built to double as
+  installed apps use it; Chrome ignores it on ordinary pages) swallowed every click
+  and hover, for good (owner, 2026-10-16: "sometimes I can't click on website content"). The
+  page preload (`ignoreDragRegions` in `chrome-shim.ts`) injects
+  `app-region: no-drag !important` for every element as a user-origin sheet
+  (`webFrame.insertCSS`, `cssOrigin: 'user'`, which beats a page's own `!important`) in every
+  non-`app:` frame. Checked with a real pointer in a nested Hyprland: before, clicks on a drag
+  element and on one inside a shadow root never arrived (a drag area inside an iframe never
+  counted); after, all arrive. The e2e test checks the computed value, since `sendInputEvent`
+  bypasses the window's hit test.
 
 ## Files (`app://files`, roadmap step 3)
 
@@ -983,7 +994,7 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   runs in sibling worktrees do not switch each other's rule off. Keep `TMPDIR` short (for
   example `/tmp/x`): Chromium aborts with "Socket path too long" for its singleton socket under
   a long temp path.
-- E2E (`smoke.spec.ts`, 27 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
+- E2E (`smoke.spec.ts`, 28 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending
   keys (keys are dropped in the first ~200ms of a load). `shellOf` also waits until the shell
@@ -992,7 +1003,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8, collapsing (the rail
   disappears, the card moves to x 8, the page edge, the shell strip and a left mouseLeave each
   reveal the peek after the grace) and Ctrl+Shift+S, identity (the reported major in the user agent,
-  `userAgentData` and its high-entropy values, and in place before a local page's first script), workspaces + history persistence, session restore, the
+  `userAgentData` and its high-entropy values, and in place before a local page's first script),
+  a page's `app-region: drag` (also in a shadow root) computing to `no-drag`, workspaces + history persistence, session restore, the
   tab context menu from a rail row (duplicate, close others, move to a new workspace), the
   workspace dot menu (colour, Rename routed to the rail header, inline rename with Escape, empty
   and 40-character cases, Move tabs here, Remove), tab pinning (`tab.pin` moves the tab first,
