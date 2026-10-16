@@ -81,7 +81,7 @@ apps/browser/
   src/main/shortcuts.ts           matchShortcut(): keymap from settings (setShortcuts) → ShortcutAction
   src/main/ipc.ts                 ipcMain handlers, sender-frame checks, per-layer command policy
   src/main/protocol.ts            app:// scheme (prod from out/renderer with CSP, dev proxied to Vite)
-  src/main/identity.ts            user agent cleanup and window.chrome shim injection
+  src/main/identity.ts            user agent cleanup, the reported Chrome major, Sec-CH-UA rewriting
   src/main/ewe-theme.ts           reads/watches ~/.config/quickshell/theme-tokens.json (v3): colours, shadows,
                                   shape, size, fonts, motion, text scale
   src/main/sidebar.ts             SidebarController: the lazily created right sidebar WebContentsView
@@ -115,6 +115,7 @@ apps/browser/
   src/preload/index.ts            the only preload; picks the layer from --ewe-layer=shell|overlay|sidebar|page
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
+  src/preload/chrome-version.ts    navigator.userAgentData with the reported Chrome major (main world)
   src/ui/shell/                   base layer: the tab rail (or none when collapsed), the edge strip, the page slot (card)
   src/ui/overlay/                 floating layer: rail peek, palette, context menus (tab-menu.ts, workspace-menu.ts),
                                   toast
@@ -156,6 +157,20 @@ docs/screenshots/                 generated, untracked
   tab attach re-raises the sidebar and then the overlay, so the order is pages < sidebar < overlay.
 - Every tab lives on `session.fromPartition('persist:default')`. The default session gets the same
   identity and permission handlers. `will-attach-webview` is denied everywhere.
+- Identity (`identity.ts`, `preload/chrome-version.ts`): pages are told the major Chrome stable is
+  on today, not the engine's. Since 153 (2026-09-08) Chrome ships a major every two weeks and
+  Electron's newest stable still carries Chromium 152, so Gmail, which supports the two newest
+  majors, showed "This browser version is no longer supported" (2026-10-15). `stableMajor` counts
+  from the official schedule (`STABLE_MAJOR` 155 on `STABLE_SINCE` 2026-10-06, one more every
+  `STABLE_CADENCE_MS` 14 days, never below the engine), computed once per run. All three places
+  agree: the user agent is reduced (`Chrome/<major>.0.0.0`, `Electron/` and app tokens stripped),
+  `Sec-CH-UA`, `Sec-CH-UA-Full-Version-List` and `Sec-CH-UA-Full-Version` are rewritten on every
+  https request (`versionHeaders`; Electron sends them on subresource requests, never on
+  navigations, even with the user agent overridden), and `navigator.userAgentData` (`brands`,
+  `getHighEntropyValues`, `toJSON`) is patched by `chromeVersion` through
+  `contextBridge.executeInMainWorld` at document start in every http(s) frame, reading the major
+  from `navigator.userAgent`. A full version is the engine's own build when the majors match,
+  else `<major>.0.0.0`. If Google changes the cadence, move the three constants.
 - The overlay view is transparent (`transparent: true`, background `#00000000`), hidden when
   `part === 'none'`, and sized by `overlayBounds(part, size, page)`: rail = the left 264 + 24px
   (shadow room) at full height, toast = centred at the bottom of the page rect, palette and
@@ -187,12 +202,12 @@ docs/screenshots/                 generated, untracked
 
 One sandboxed preload serves all four layers. `--ewe-layer=` in `additionalArguments` selects:
 
-| layer   | webContents                 | gets                                                                                                                |
-| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| shell   | the window's own            | `window.ewe`                                                                                                        |
-| overlay | the overlay WebContentsView | `window.ewe`                                                                                                        |
-| sidebar | the sidebar WebContentsView | `window.ewe`                                                                                                        |
-| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) main frames; Safe in every http(s) frame |
+| layer   | webContents                 | gets                                                                                                                                       |
+| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| shell   | the window's own            | `window.ewe`                                                                                                                               |
+| overlay | the overlay WebContentsView | `window.ewe`                                                                                                                               |
+| sidebar | the sidebar WebContentsView | `window.ewe`                                                                                                                               |
+| page    | every tab and popup         | `window.ewe` only on `app://` main frames; `window.chrome` shim on http(s) main frames; the Chrome version and Safe in every http(s) frame |
 
 Files: the page layer on `app://files/` (main frame only) may call `fs(request)` (`ewe:fs`
 invoke, validated by `isFsRequest`, answered by `FileService`); every other layer and page gets
@@ -548,7 +563,7 @@ every tab.
   rounded like the page. Blur, Escape, a second click or `window.close()` closes it.
 - Installs: the Web Store's own button refuses non-Chrome browsers (even with the
   `Google Chrome` brand added to `navigator.userAgentData` and `Sec-CH-UA` for that host, which
-  `chrome-shim.ts` and `identity.ts` still do), so `extension.install {source}` (a store url or
+  `chrome-version.ts` and `identity.ts` still do), so `extension.install {source}` (a store url or
   id, `storeExtensionId`) downloads the CRX with `downloadExtension`, reads name (resolving
   `__MSG_` keys), icon and permissions, shows the overlay `InstallPrompt` (UiEvent
   `extension.install`, answered by `extension.confirm {requestId, allow}`), then loads it or
@@ -916,7 +931,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
 
 - Unit: `packages/shared` (url, ipc-contract, workspaces, text, menu incl. clamping, shortcuts,
   bookmarks) and `apps/browser/tests/unit` (layout incl. rail peek and toast rects, shortcuts, stores incl.
-  bookmarks-store, chrome-bookmarks against `tests/fixtures/chrome-bookmarks.json`, identity,
+  bookmarks-store, chrome-bookmarks against `tests/fixtures/chrome-bookmarks.json`, identity
+  (the stable schedule, the reduced user agent, client hint headers), chrome-version,
   protocol, ewe-theme incl. base vars, history incl. `recentEntries`, ewe-account,
   downloads-store, bookmark reorder, sidebar layout, files: places parsing, the file service on a
   temp tree, ranges, argv, the desktop entry, archive parsing and a real bsdtar round trip).
@@ -924,8 +940,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   xbel parser, snippets, the recent store and the recents service over a temp tree, stale temp
   files in json-file, and the CLI: argv, paths, schema checks, every tool reachable, the socket
   server and a real socket, ls and locate on a temp tree, read tools over fake sources, bookmark
-  writes, and an import walk proving the CLI bundle never reaches `electron`). 364 tests
-  (104 shared, 260 browser; 2 skip without ewe-safe binaries). Nothing reads
+  writes, and an import walk proving the CLI bundle never reaches `electron`). 373 tests
+  (104 shared, 269 browser; 2 skip without ewe-safe binaries). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
 - Safe: unit tests for site matching (`safe-site`), the save decision (`safe-decide`), form
@@ -975,7 +991,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   a second after launch and coordinates taken before that land outside the overlay. Covers tabs,
   the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8, collapsing (the rail
   disappears, the card moves to x 8, the page edge, the shell strip and a left mouseLeave each
-  reveal the peek after the grace) and Ctrl+Shift+S, identity, workspaces + history persistence, session restore, the
+  reveal the peek after the grace) and Ctrl+Shift+S, identity (the reported major in the user agent,
+  `userAgentData` and its high-entropy values, and in place before a local page's first script), workspaces + history persistence, session restore, the
   tab context menu from a rail row (duplicate, close others, move to a new workspace), the
   workspace dot menu (colour, Rename routed to the rail header, inline rename with Escape, empty
   and 40-character cases, Move tabs here, Remove), tab pinning (`tab.pin` moves the tab first,
