@@ -29,6 +29,13 @@ const SHIM = `
 
 export const STORE_HOST = 'chromewebstore.google.com'
 
+const NO_DRAG =
+  '*, *::before, *::after { app-region: no-drag !important; -webkit-app-region: no-drag !important; }'
+
+export function ignoreDragRegions(): void {
+  webFrame.insertCSS(NO_DRAG, { cssOrigin: 'user' })
+}
+
 export function installChromeShim(): void {
   void webFrame.executeJavaScript(SHIM).catch(() => undefined)
 }
