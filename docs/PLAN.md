@@ -496,6 +496,23 @@ Known / open:
 - Not verified on two real machines or against the owner's real Nextcloud (only the mock WebDAV
   server in unit and e2e tests).
 
+## Bottom bar (asked 2026-10-17, 0.3.0-beta)
+
+The owner: workspaces and the tool buttons (bookmarks, downloads, …) do not fit in the rail's
+small foot. Done on `feat/bottom-bar`:
+
+1. [x] A thin (32px) full-width bar under the page card, always visible except in fullscreen
+       (also with the rail hidden): workspace chips with names on the left (click, double-click
+       renames inline, right-click opens the workspace menu with rename and colour, a dragged
+       rail tab drops onto a chip), `+` at their end; Bookmarks / Downloads / History, Music,
+       Files and Settings at the right end. The sidebar and the rail peek end above it.
+2. [x] `+` creates "Workspace N" (N = count + 1, next free colour) and opens it on Home; any
+       empty workspace now falls back to Home instead of the new-tab page.
+3. [x] The rail lost its workspace header and foot: pinned tiles sit where the extension row
+       was (under the address field), and the extension buttons sit at the old foot.
+4. [ ] Not done: dropping a tab from the rail PEEK onto a chip (the peek is the overlay
+       document; its tab menu has Move to workspace).
+
 ## Phase 3 — Chrome extensions
 
 - [x] License decision: GPL-3.0 for the whole project

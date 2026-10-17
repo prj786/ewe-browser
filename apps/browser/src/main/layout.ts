@@ -42,9 +42,9 @@ export function pageBounds(reported: Rect | null, size: Size, inset = 0): Rect {
   return rect
 }
 
-export function sidebarBounds(width: number, size: Size): Rect {
+export function sidebarBounds(width: number, size: Size, bottom = 0): Rect {
   const w = Math.min(Math.max(0, Math.round(width)), size.width)
-  return { x: size.width - w, y: 0, width: w, height: size.height }
+  return { x: size.width - w, y: 0, width: w, height: Math.max(0, size.height - bottom) }
 }
 
 export function sidebarWidthFor(requested: number, windowWidth: number): number {
@@ -52,12 +52,12 @@ export function sidebarWidthFor(requested: number, windowWidth: number): number 
   return Math.round(Math.min(Math.max(requested, SIDEBAR_MIN), max))
 }
 
-export function overlayBounds(part: OverlayPart, full: Size, area?: Rect): Rect | null {
+export function overlayBounds(part: OverlayPart, full: Size, area?: Rect, bottom = 0): Rect | null {
   const page = area ?? { x: 0, y: 0, width: full.width, height: full.height }
   switch (part) {
     case 'rail':
       return clampRect(
-        { x: 0, y: 0, width: RAIL_WIDTH + RAIL_PEEK_SHADOW, height: full.height },
+        { x: 0, y: 0, width: RAIL_WIDTH + RAIL_PEEK_SHADOW, height: full.height - bottom },
         full,
       )
     case 'palette':

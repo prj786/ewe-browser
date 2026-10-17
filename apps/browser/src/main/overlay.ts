@@ -17,6 +17,7 @@ export class OverlayController {
   private readonly host: OverlayHost
   private size: Size = { width: 0, height: 0 }
   private area: Rect | undefined
+  private bottom = 0
   shownAt = 0
   private hideTimer: NodeJS.Timeout | null = null
   private shrinkTimer: NodeJS.Timeout | null = null
@@ -50,12 +51,13 @@ export class OverlayController {
     content.addChildView(this.view)
   }
 
-  relayout(size: Size, area: Rect | undefined = this.area): void {
+  relayout(size: Size, area: Rect | undefined = this.area, bottom = this.bottom): void {
     this.size = size
     this.area = area
+    this.bottom = bottom
     if (this.part === 'none' || this.fixed !== null) return
     this.clearShrink()
-    const bounds = overlayBounds(this.part, size, area)
+    const bounds = overlayBounds(this.part, size, area, bottom)
     if (bounds !== null) this.view.setBounds(bounds)
   }
 
@@ -93,7 +95,7 @@ export class OverlayController {
       return
     }
     this.size = size
-    const bounds = at ?? overlayBounds(part, size, this.area)
+    const bounds = at ?? overlayBounds(part, size, this.area, this.bottom)
     if (bounds === null) return
     this.fixed = at ?? null
     if (this.hideTimer !== null) {

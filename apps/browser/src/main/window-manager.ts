@@ -9,6 +9,7 @@ import {
 } from 'electron'
 import {
   IPC,
+  BOTTOM_BAR_HEIGHT,
   HOME_URL,
   LAYER_ARG,
   NEW_TAB_URL,
@@ -331,17 +332,22 @@ export class WindowController {
     const page = pageBounds(this.reportedPage, size, inset)
     this.tabs.setBounds(page)
     this.tabs.setRadius(this.win.isFullScreen() ? 0 : this.pageRadius())
-    this.sidebar.relayout(inset === 0 ? null : sidebarBounds(inset, size))
+    const bar = this.barHeight()
+    this.sidebar.relayout(inset === 0 ? null : sidebarBounds(inset, size, bar))
     const section = this.sidebar.section
     const panel =
       inset === 0 || section?.startsWith('panel:') !== true
         ? undefined
         : this.deps.settings.get().panels.find((p) => `panel:${p.id}` === section)
     if (panel === undefined) this.panels.hide()
-    else this.panels.show(panel, panelBounds(sidebarBounds(inset, size)))
-    this.overlay.relayout(size, page)
+    else this.panels.show(panel, panelBounds(sidebarBounds(inset, size, bar)))
+    this.overlay.relayout(size, page, bar)
     this.scheduleBroadcast()
     this.deps.onSessionChange()
+  }
+
+  barHeight(): number {
+    return this.win.isFullScreen() ? 0 : BOTTOM_BAR_HEIGHT
   }
 
   pageRadius(): number {
@@ -351,7 +357,7 @@ export class WindowController {
 
   openSidebar(section: SidebarSection): void {
     this.lastSection = section
-    this.sidebar.show(section, sidebarBounds(1, this.contentSize()))
+    this.sidebar.show(section, sidebarBounds(1, this.contentSize(), this.barHeight()))
     this.panels.raise()
     this.overlay.raise()
     this.deps.extensions?.popup.raise()
@@ -588,18 +594,10 @@ export class WindowController {
       case 'workspace.rename':
         if (!this.tabs.workspaceList().some((w) => w.id === command.id)) return
         this.tabs.activateWorkspace(command.id)
-        if (this.railVisible()) {
-          if (this.overlay.part === 'menu') this.overlay.hide()
-          this.win.webContents.focus()
-          this.sendUi({ type: 'workspace.rename', id: command.id })
-        } else {
-          this.overlayPinned = true
-          this.overlay.show('rail', this.contentSize(), {
-            type: 'workspace.rename',
-            id: command.id,
-          })
-          this.overlay.webContents.focus()
-        }
+        if (this.overlay.part === 'menu') this.overlay.hide()
+        if (this.win.isFullScreen()) return
+        this.win.webContents.focus()
+        this.sendUi({ type: 'workspace.rename', id: command.id })
         break
       case 'overlay.pin':
         this.overlayPinned = command.pinned
