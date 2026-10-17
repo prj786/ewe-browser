@@ -255,6 +255,7 @@ export const SAD_TAB_URL = 'app://sad/'
 export const RAIL_WIDTH = 264
 export const RAIL_PEEK_SHADOW = 24
 export const PAGE_GAP = 8
+export const BOTTOM_BAR_HEIGHT = 32
 export const TOAST_MARGIN = 16
 export const TOAST_WIDTH = 360
 export const TOAST_HEIGHT = 56

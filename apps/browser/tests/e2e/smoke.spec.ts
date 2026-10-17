@@ -173,13 +173,13 @@ async function openWorkspaceMenu(
   index: number,
 ): Promise<void> {
   await expect.poll(() => overlay.locator('.menu').count()).toBe(0)
-  const dot = shell.locator('.rail-ws-dot').nth(index)
+  const dot = shell.locator('.bar-ws').nth(index)
   let box = await dot.boundingBox()
   for (let i = 0; box === null && i < 50; i++) {
     await new Promise((r) => setTimeout(r, 100))
     box = await dot.boundingBox()
   }
-  if (box === null) throw new Error(`workspace dot ${index} not found`)
+  if (box === null) throw new Error(`workspace chip ${index} not found`)
   await rightClick(
     app,
     'shell',
@@ -279,7 +279,7 @@ function sidebarSection(shell: Page): Promise<string | null | undefined> {
 
 function viewWidths(
   app: ElectronApplication,
-): Promise<{ page: number; sidebar: number; rest: number }> {
+): Promise<{ page: number; sidebar: number; rest: number; below: number }> {
   return app.evaluate(({ BrowserWindow, WebContentsView }) => {
     const win = BrowserWindow.getAllWindows()[0]
     const views =
@@ -292,7 +292,13 @@ function viewWidths(
     const pageRight = box === undefined ? 0 : box.x + box.width
     const sidebarWidth = sidebar?.getBounds().width ?? 0
     const total = win?.getContentBounds().width ?? 0
-    return { page: box?.width ?? 0, sidebar: sidebarWidth, rest: total - pageRight - sidebarWidth }
+    const sidebarBottom = (sidebar?.getBounds().y ?? 0) + (sidebar?.getBounds().height ?? 0)
+    return {
+      page: box?.width ?? 0,
+      sidebar: sidebarWidth,
+      rest: total - pageRight - sidebarWidth,
+      below: (win?.getContentBounds().height ?? 0) - sidebarBottom,
+    }
   })
 }
 
@@ -393,11 +399,18 @@ test.describe('browser', () => {
   test('the page is a card next to the rail; collapsing hides it and the left edge reveals it', async () => {
     await expect.poll(() => activeLoading(shell), { timeout: 15_000 }).toBe(false)
     await expect.poll(() => pageBox(app).then((b) => [b?.x, b?.y])).toEqual([264, 8])
+    const { window: height } = await overlayHeight(app)
+    await expect
+      .poll(() => pageBox(app).then((b) => (b?.y ?? 0) + (b?.height ?? 0)))
+      .toBe(height - 32)
+    await expect(shell.locator('.bar')).toBeVisible()
+    await expect(shell.locator('.rail [data-ws]')).toHaveCount(0)
     await shell.evaluate(() =>
       window.ewe.send({ type: 'settings.update', patch: { rail: 'collapsed' } }),
     )
     await expect(shell.locator('.rail')).toHaveCount(0)
     await expect.poll(() => pageBox(app).then((b) => b?.x)).toBe(8)
+    await expect(shell.locator('.bar .bar-ws')).toHaveCount(1)
     await movePage(app, 2, 300)
     expect(await overlayVisible(app)).toBe(false)
     await new Promise((resolve) => setTimeout(resolve, 600))
@@ -413,6 +426,7 @@ test.describe('browser', () => {
     await expect.poll(() => overlayVisible(app)).toBe(true)
     const overlay = await windowWith(app, '/ui/overlay/')
     await expect(overlay.locator('.rail.peek')).toHaveCount(1)
+    expect(await overlayHeight(app)).toEqual({ overlay: height - 32, window: height })
     const rows = await shell.evaluate(async () => {
       const s = await window.ewe.getState()
       return s?.tabs.filter((t) => t.workspaceId === s.activeWorkspaceId && !t.pinned).length ?? 0
@@ -423,6 +437,11 @@ test.describe('browser', () => {
     await shellMouse(app, 'mouseMove', 3, 400)
     await expect.poll(() => overlayVisible(app)).toBe(true)
     await hide()
+
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await shellMouse(app, 'mouseMove', 3, height - 12)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(await overlayVisible(app)).toBe(false)
 
     await movePage(app, 40, 500)
     await pageMouse(app, 'mouseLeave', 10, 500)
@@ -680,7 +699,7 @@ test('workspaces group tabs, persist, and history suggests visited pages', async
   expect(work).toMatchObject({ color: 'sky' })
   expect(snapshot?.activeWorkspaceId).toBe(work?.id)
   expect(snapshot?.tabs.filter((t) => t.workspaceId === work?.id).map((t) => t.url)).toEqual([
-    'app://newtab/',
+    'app://home/',
   ])
   await shell.evaluate(
     (id) => window.ewe.send({ type: 'workspace.update', id, name: 'Deep work' }),
@@ -708,7 +727,7 @@ test('workspaces group tabs, persist, and history suggests visited pages', async
   await second.close()
 })
 
-test('workspaces in the rail: dot menu, inline rename, move tabs here, remove', async () => {
+test('workspaces in the bottom bar: + opens home, menu, inline rename, move tabs here, remove', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'ewe-e2e-wsmenu-'))
   const app = await launch(userData)
   const shell = await shellOf(app)
@@ -719,8 +738,8 @@ test('workspaces in the rail: dot menu, inline rename, move tabs here, remove', 
   await expect
     .poll(() => shell.evaluate(async () => (await window.ewe.getState())?.tabs.length))
     .toBe(3)
-  await expect(shell.locator('.rail-ws-dot')).toHaveCount(2)
-  await expect(shell.locator('.rail-ws-head-name')).toHaveText('Work')
+  await expect(shell.locator('.bar-ws')).toHaveCount(2)
+  await expect(shell.locator('.bar-ws.on .bar-ws-name')).toHaveText('Work')
   const overlay = await windowWith(app, '/ui/overlay/')
 
   await openWorkspaceMenu(app, shell, overlay, 1)
@@ -740,41 +759,42 @@ test('workspaces in the rail: dot menu, inline rename, move tabs here, remove', 
   await expect.poll(() => overlay.locator('.menu').count()).toBe(0)
   await expect.poll(() => overlayVisible(app)).toBe(false)
 
-  await shell.locator('.rail-ws-dot').nth(0).click()
-  await expect(shell.locator('.rail-ws-head-name')).toHaveText('Home')
+  await shell.locator('.bar-ws').nth(0).click()
+  await expect(shell.locator('.bar-ws.on .bar-ws-name')).toHaveText('Home')
   await openWorkspaceMenu(app, shell, overlay, 1)
   await overlay.locator('.menu-item', { hasText: 'Rename' }).click()
-  await expect(shell.locator('.rail-ws-input')).toBeFocused()
-  expect(await shell.locator('.rail-ws-input').inputValue()).toBe('Work')
+  await expect(shell.locator('.bar-ws-input')).toBeFocused()
+  expect(await shell.locator('.bar-ws-input').inputValue()).toBe('Work')
   await shell.keyboard.type('Deep work')
   await shell.keyboard.press('Enter')
   await expect.poll(() => workspaceNames(shell)).toEqual(['Home', 'Deep work'])
-  await expect(shell.locator('.rail-ws-input')).toHaveCount(0)
+  await expect(shell.locator('.bar-ws-input')).toHaveCount(0)
   await expect.poll(() => overlayVisible(app)).toBe(false)
 
-  await shell.locator('.rail-ws-dot').nth(0).click()
-  await shell.locator('.rail-ws-head').dblclick()
-  await expect(shell.locator('.rail-ws-input')).toBeFocused()
+  await shell.locator('.bar-ws').nth(0).click()
+  await expect(shell.locator('.bar-ws.on .bar-ws-name')).toHaveText('Home')
+  await shell.locator('.bar-ws.on').dblclick()
+  await expect(shell.locator('.bar-ws-input')).toBeFocused()
   await shell.keyboard.type('Scratch')
-  expect(await shell.locator('.rail-ws-input').inputValue()).toBe('Scratch')
+  expect(await shell.locator('.bar-ws-input').inputValue()).toBe('Scratch')
   await shell.keyboard.press('Escape')
-  await expect(shell.locator('.rail-ws-input')).toHaveCount(0)
+  await expect(shell.locator('.bar-ws-input')).toHaveCount(0)
   expect(await workspaceNames(shell)).toEqual(['Home', 'Deep work'])
 
-  await shell.locator('.rail-ws-head').dblclick()
+  await shell.locator('.bar-ws.on').dblclick()
   await shell.keyboard.press('Control+a')
   await shell.keyboard.press('Backspace')
   await shell.keyboard.press('Enter')
-  await expect(shell.locator('.rail-ws-input')).toHaveCount(0)
+  await expect(shell.locator('.bar-ws-input')).toHaveCount(0)
   expect(await workspaceNames(shell)).toEqual(['Home', 'Deep work'])
 
-  await shell.locator('.rail-ws-head').dblclick()
+  await shell.locator('.bar-ws.on').dblclick()
   await shell.keyboard.press('Control+a')
   await shell.keyboard.type('x'.repeat(60))
-  expect(await shell.locator('.rail-ws-input').inputValue()).toBe('x'.repeat(40))
+  expect(await shell.locator('.bar-ws-input').inputValue()).toBe('x'.repeat(40))
   await shell.keyboard.press('Enter')
   await expect.poll(() => workspaceNames(shell).then((n) => n?.[0]?.length)).toBe(40)
-  await shell.locator('.rail-ws-head').dblclick()
+  await shell.locator('.bar-ws.on').dblclick()
   await shell.keyboard.press('Control+a')
   await shell.keyboard.type('Home')
   await shell.keyboard.press('Enter')
@@ -811,6 +831,17 @@ test('workspaces in the rail: dot menu, inline rename, move tabs here, remove', 
   await overlay.keyboard.press('Escape')
   await expect.poll(() => overlay.locator('.menu').count()).toBe(0)
   await expect.poll(() => overlayVisible(app)).toBe(false)
+
+  await shell.locator('.bar-ws-add').click()
+  await expect.poll(() => workspaceNames(shell)).toEqual(['Home', 'Workspace 2'])
+  await expect(shell.locator('.bar-ws.on .bar-ws-name')).toHaveText('Workspace 2')
+  await expect.poll(() => activeUrl(shell)).toBe('app://home/')
+  await shell.locator('.bar-ws-add').click()
+  await expect.poll(() => workspaceNames(shell)).toEqual(['Home', 'Workspace 2', 'Workspace 3'])
+  const colors = await shell.evaluate(async () =>
+    (await window.ewe.getState())?.workspaces.map((w) => w.color),
+  )
+  expect(new Set(colors).size).toBe(3)
   await app.close()
 })
 
@@ -1104,10 +1135,10 @@ test('bookmarks: Ctrl+D, the star, b: in the palette, Chrome import, the sidebar
   await new Promise((r) => setTimeout(r, 500))
   expect(await bookmarkUrls(shell)).toHaveLength(7)
 
-  await shell.locator('.rail-sidebar-btn[data-section="bookmarks"]').click()
+  await shell.locator('.bar-action[data-section="bookmarks"]').click()
   await expect.poll(() => sidebarSection(shell)).toBe('bookmarks')
   const sidebar = await windowWith(first, '/ui/sidebar/')
-  await expect.poll(() => viewWidths(first)).toMatchObject({ sidebar: 360, rest: 8 })
+  await expect.poll(() => viewWidths(first)).toMatchObject({ sidebar: 360, rest: 8, below: 32 })
   await expect(sidebar.locator('.sb-search input')).toBeFocused()
   const today = new Date().toISOString().slice(0, 10)
   const labels = () => sidebar.locator('.sb-row .sb-label').allTextContents()
@@ -1481,7 +1512,7 @@ test('music: library views, playback, next track and MPRIS', async () => {
   const app = await launch(userData, { EWE_MUSIC_DIR: musicDir, XDG_CACHE_HOME: cache })
   try {
     const shell = await shellOf(app)
-    await shell.locator('.rail-music').click()
+    await shell.locator('.bar-music').click()
     const page = await windowWith(app, 'app://music/')
     await expect(page.locator('.mu-tile-title')).toHaveText(['Hills', 'Pasture'])
     await page.locator('.mu-nav-item[data-view="artists"]').click()
@@ -1522,7 +1553,7 @@ test('music: library views, playback, next track and MPRIS', async () => {
     await expect.poll(() => page.evaluate(() => document.querySelector('audio')?.paused)).toBe(true)
     const before = await tabCount(shell)
     await shell.evaluate(() => window.ewe.send({ type: 'open.internal', page: 'home' }))
-    await shell.locator('.rail-music').click()
+    await shell.locator('.bar-music').click()
     await expect.poll(() => activeUrl(shell)).toBe('app://music/')
     expect(await tabCount(shell)).toBe(before + 1)
     await page.locator('.mu-search input').fill('lone')
@@ -1796,7 +1827,7 @@ test('ewe plugins: password picker through ewe-pass, web panels, background star
   server.close()
 })
 
-test('extensions: load, rail button with badge, popup in the window, menu, settings, remove', async () => {
+test('extensions: load, button with badge at the rail foot, popup above it, menu, settings, remove', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ewe-e2e-ext-'))
   const fixture = join(__dirname, '../fixtures/extension')
   const app = await launch(join(dir, 'profile'), { EWE_EXTENSIONS: join(dir, 'Extensions') })
@@ -1839,7 +1870,7 @@ test('extensions: load, rail button with badge, popup in the window, menu, setti
   const [popup] = await views()
   const box = await button.boundingBox()
   expect(popup?.bounds.x).toBe(Math.round(box?.x ?? 0))
-  expect(popup?.bounds.y).toBeGreaterThan((box?.y ?? 0) + (box?.height ?? 0))
+  expect((popup?.bounds.y ?? 0) + (popup?.bounds.height ?? 0)).toBeLessThan(box?.y ?? 0)
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
   await button.click()
   await expect.poll(async () => (await views()).length).toBe(0)

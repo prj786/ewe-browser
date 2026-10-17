@@ -6,9 +6,7 @@ import {
   hostOf,
   isBookmarkableUrl,
   pathFromFilesUrl,
-  type SidebarSection,
   type TabState,
-  type Workspace,
 } from '@ewe/shared'
 import { api } from '../lib/api'
 import type { BrowserStore } from '../lib/store'
@@ -23,10 +21,9 @@ export type RailMode = 'expanded' | 'peek'
 export interface RailProps {
   store: BrowserStore
   mode: RailMode
-  downloadsActive: number
   editRequest?: number | undefined
-  renameRequest?: { id: string; n: number } | undefined
   onEditingChange?: ((editing: boolean) => void) | undefined
+  onDropTarget?: ((workspaceId: string | null) => void) | undefined
 }
 
 interface Drag {
@@ -36,14 +33,6 @@ interface Drag {
   target: number | null
   workspace: string | null
 }
-
-const WORKSPACE_NAME_MAX = 40
-
-const SIDEBAR_BUTTONS: { section: SidebarSection; label: string; icon: IconName }[] = [
-  { section: 'bookmarks', label: 'Bookmarks', icon: 'bookmark' },
-  { section: 'downloads', label: 'Downloads', icon: 'download' },
-  { section: 'history', label: 'History', icon: 'history' },
-]
 
 function tabTitle(tab: TabState): string {
   if (tab.kind === 'newtab') return 'New tab'
@@ -68,7 +57,7 @@ function TabGlyph(props: { tab: TabState }): JSX.Element {
   )
 }
 
-function openMenu(e: MouseEvent, menu: { kind: 'tab' | 'workspace'; id: string }): void {
+function openMenu(e: MouseEvent, menu: { kind: 'tab'; id: string }): void {
   e.preventDefault()
   void api.send({ type: 'menu.open', menu, x: e.clientX, y: e.clientY })
 }
@@ -77,8 +66,6 @@ export function Rail(props: RailProps): JSX.Element {
   const store = () => props.store
   const [editing, setEditing] = createSignal(false)
   const [draft, setDraft] = createSignal('')
-  const [renaming, setRenaming] = createSignal<string | null>(null)
-  const [nameDraft, setNameDraft] = createSignal('')
   const [drag, setDrag] = createSignal<Drag | null>(null)
   let addressInput: HTMLInputElement | undefined
   let listEl: HTMLDivElement | undefined
@@ -105,7 +92,6 @@ export function Rail(props: RailProps): JSX.Element {
       .visibleTabs()
       .filter((t) => !t.pinned),
   )
-  const sidebar = () => store().state()?.sidebar?.section ?? null
   const isBookmarked = () => {
     const tab = active()
     return tab !== undefined && store().bookmarked().has(tab.url)
@@ -162,41 +148,10 @@ export function Rail(props: RailProps): JSX.Element {
   )
   createEffect(on(activeId, endEdit, { defer: true }))
 
-  const startRename = (ws: Workspace) => {
-    setNameDraft(ws.name)
-    setRenaming(ws.id)
-    props.onEditingChange?.(true)
-  }
-
-  const endRename = () => {
-    if (renaming() === null) return
-    setRenaming(null)
-    props.onEditingChange?.(false)
-  }
-
-  const commitRename = () => {
-    const id = renaming()
-    if (id === null) return
-    const next = nameDraft().trim().slice(0, WORKSPACE_NAME_MAX)
-    const current = store()
-      .workspaces()
-      .find((w) => w.id === id)
-    if (next !== '' && current !== undefined && next !== current.name)
-      void api.send({ type: 'workspace.update', id, name: next })
-    endRename()
-  }
-
   createEffect(
     on(
-      () => props.renameRequest?.n,
-      () => {
-        const request = props.renameRequest
-        const ws = store()
-          .workspaces()
-          .find((w) => w.id === request?.id)
-        if (ws !== undefined && (request?.n ?? 0) > 0) startRename(ws)
-      },
-      { defer: true },
+      () => drag()?.workspace ?? null,
+      (id) => props.onDropTarget?.(id),
     ),
   )
 
@@ -508,20 +463,6 @@ export function Rail(props: RailProps): JSX.Element {
         </Show>
       </div>
 
-      <ExtensionActions state={extensions()} />
-
-      <Show when={storeOffer()}>
-        {(id) => (
-          <button
-            class="rail-store-add"
-            onClick={() => void api.send({ type: 'extension.install', source: id() })}
-          >
-            <Icon name="puzzle" />
-            <span>Add to ewe browser</span>
-          </button>
-        )}
-      </Show>
-
       <Show when={pinned().length > 0}>
         <div class="rail-pins">
           <For each={pinned()}>
@@ -547,44 +488,6 @@ export function Rail(props: RailProps): JSX.Element {
         </div>
       </Show>
 
-      <Show when={workspace()}>
-        {(ws) => (
-          <div
-            class="rail-ws-head"
-            onDblClick={() => startRename(ws())}
-            onContextMenu={(e) => openMenu(e, { kind: 'workspace', id: ws().id })}
-          >
-            <span class="rail-ws-head-dot" />
-            <Show
-              when={renaming() === ws().id}
-              fallback={<span class="rail-ws-head-name">{ws().name}</span>}
-            >
-              <input
-                ref={(el) => {
-                  queueMicrotask(() => {
-                    el.focus()
-                    el.select()
-                  })
-                }}
-                class="rail-ws-input"
-                value={nameDraft()}
-                maxLength={WORKSPACE_NAME_MAX}
-                spellcheck={false}
-                aria-label="Workspace name"
-                onInput={(e) => setNameDraft(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  e.stopPropagation()
-                  if (e.key === 'Enter') commitRename()
-                  else if (e.key === 'Escape') endRename()
-                }}
-                onBlur={commitRename}
-              />
-            </Show>
-            <span class="rail-ws-count">{store().visibleTabs().length}</span>
-          </div>
-        )}
-      </Show>
-
       <div class="rail-tabs" role="tablist" aria-label="Open tabs" ref={listEl}>
         <Index each={unpinned()}>{(tab, i) => <TabRow tab={tab} index={i} />}</Index>
         <button class="rail-tab rail-new" title="New tab (Ctrl+T)" onClick={newTab}>
@@ -595,84 +498,19 @@ export function Rail(props: RailProps): JSX.Element {
         </button>
       </div>
 
-      <div class="rail-foot">
-        <div class="rail-ws-dots" role="tablist" aria-label="Workspaces">
-          <For each={store().workspaces()}>
-            {(ws) => (
-              <button
-                class="rail-ws-dot"
-                classList={{
-                  on: ws.id === workspace()?.id,
-                  target: drag()?.workspace === ws.id,
-                }}
-                style={{ '--dot': WORKSPACE_COLORS[ws.color] }}
-                data-ws={ws.id}
-                role="tab"
-                aria-selected={ws.id === workspace()?.id}
-                aria-label={ws.name}
-                title={ws.name}
-                onClick={() => void api.send({ type: 'workspace.activate', id: ws.id })}
-                onDblClick={() => void api.send({ type: 'workspace.rename', id: ws.id })}
-                onContextMenu={(e) => openMenu(e, { kind: 'workspace', id: ws.id })}
-              >
-                <i />
-              </button>
-            )}
-          </For>
+      <Show when={storeOffer()}>
+        {(id) => (
           <button
-            class="iconbtn iconbtn--sm rail-ws-add"
-            title="New workspace"
-            aria-label="New workspace"
-            onClick={() => void api.send({ type: 'workspace.create' })}
+            class="rail-store-add"
+            onClick={() => void api.send({ type: 'extension.install', source: id() })}
           >
-            <Icon name="plus" />
+            <Icon name="puzzle" />
+            <span>Add to ewe browser</span>
           </button>
-        </div>
-        <div class="rail-actions">
-          <For each={SIDEBAR_BUTTONS}>
-            {(b) => (
-              <button
-                class="iconbtn rail-sidebar-btn"
-                classList={{ on: sidebar() === b.section }}
-                data-section={b.section}
-                title={b.label}
-                aria-label={b.label}
-                aria-pressed={sidebar() === b.section}
-                onClick={() => void api.send({ type: 'sidebar.toggle', section: b.section })}
-              >
-                <Icon name={b.icon} />
-                <Show when={b.section === 'downloads' && props.downloadsActive > 0}>
-                  <span class="rail-dot" />
-                </Show>
-              </button>
-            )}
-          </For>
-          <button
-            class="iconbtn rail-music"
-            title="Music"
-            aria-label="Music"
-            onClick={() => void api.send({ type: 'open.internal', page: 'music' })}
-          >
-            <Icon name="music" />
-          </button>
-          <button
-            class="iconbtn rail-files"
-            title="Files (Ctrl+Shift+E)"
-            aria-label="Files"
-            onClick={() => void api.send({ type: 'open.internal', page: 'files' })}
-          >
-            <Icon name="folder" />
-          </button>
-          <button
-            class="iconbtn rail-settings"
-            title="Settings"
-            aria-label="Settings"
-            onClick={() => void api.send({ type: 'open.internal', page: 'settings' })}
-          >
-            <Icon name="settings" />
-          </button>
-        </div>
-      </div>
+        )}
+      </Show>
+
+      <ExtensionActions state={extensions()} />
     </nav>
   )
 }

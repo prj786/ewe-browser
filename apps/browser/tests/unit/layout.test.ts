@@ -49,6 +49,21 @@ describe('overlayBounds', () => {
     expect(overlayBounds('none', size)).toBeNull()
   })
 
+  it('stops the rail peek above the bottom bar', () => {
+    expect(overlayBounds('rail', size, undefined, 32)).toEqual({
+      x: 0,
+      y: 0,
+      width: 288,
+      height: 768,
+    })
+    expect(overlayBounds('menu', size, undefined, 32)).toEqual({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    })
+  })
+
   it('centres the toast at the bottom of the page area', () => {
     expect(overlayBounds('toast', size)).toEqual({ x: 420, y: 728, width: 360, height: 56 })
     expect(overlayBounds('toast', size, { x: 272, y: 8, width: 920, height: 784 })).toEqual({
@@ -90,6 +105,10 @@ describe('sameRect', () => {
 describe('sidebar layout', () => {
   it('pins the sidebar to the right edge at full height', () => {
     expect(sidebarBounds(360, size)).toEqual({ x: 840, y: 0, width: 360, height: 800 })
+  })
+
+  it('leaves the bottom bar uncovered', () => {
+    expect(sidebarBounds(360, size, 32)).toEqual({ x: 840, y: 0, width: 360, height: 768 })
   })
 
   it('narrows the page by the sidebar inset, also inside a reported slot', () => {

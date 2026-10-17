@@ -1,7 +1,18 @@
 .shell {
   display: flex;
+  flex-direction: column;
   height: 100%;
   background: var(--surface-base);
+}
+
+.shell-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.shell-bar {
+  flex: none;
 }
 
 .shell-rail {
@@ -13,7 +24,7 @@
 .page-slot {
   flex: 1;
   min-width: 0;
-  margin: var(--page-gap) var(--page-gap) var(--page-gap) 0;
+  margin: var(--page-gap) var(--page-gap) 0 0;
   border-radius: var(--rounded);
   background: var(--surface-raised);
 }

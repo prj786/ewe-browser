@@ -8,6 +8,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { EDGE_LEAVE_ZONE, EDGE_ZONE, type Rect } from '@ewe/shared'
+import { BottomBar } from '../components/BottomBar'
 import { Rail } from '../components/Rail'
 import { api } from '../lib/api'
 import { createDownloads, isActiveDownload } from '../lib/downloads'
@@ -31,7 +32,9 @@ export function ShellApp(): JSX.Element {
   const downloads = createDownloads()
   const [editRequest, setEditRequest] = createSignal(0)
   const [renameRequest, setRenameRequest] = createSignal({ id: '', n: 0 })
+  const [dropTarget, setDropTarget] = createSignal<string | null>(null)
   let slot: HTMLDivElement | undefined
+  let bar: HTMLDivElement | undefined
 
   createEffect(() => applyTheme(store.settings, store.theme))
 
@@ -52,17 +55,19 @@ export function ShellApp(): JSX.Element {
   onMount(() => {
     let lastX = Number.POSITIVE_INFINITY
     let sentAt = 0
-    const reveal = () => {
-      if (!collapsed() || fullscreen() || Date.now() - sentAt < REVEAL_THROTTLE_MS) return
+    const overBar = (y: number) => bar !== undefined && y >= bar.getBoundingClientRect().top
+    const reveal = (y: number) => {
+      if (!collapsed() || fullscreen() || overBar(y)) return
+      if (Date.now() - sentAt < REVEAL_THROTTLE_MS) return
       sentAt = Date.now()
       void api.send({ type: 'overlay.request', part: 'rail' })
     }
     const onMove = (e: MouseEvent) => {
       lastX = e.clientX
-      if (e.clientX <= EDGE_ZONE) reveal()
+      if (e.clientX <= EDGE_ZONE) reveal(e.clientY)
     }
     const onLeave = (e: MouseEvent) => {
-      if (Math.min(e.clientX, lastX) <= EDGE_LEAVE_ZONE) reveal()
+      if (Math.min(e.clientX, lastX) <= EDGE_LEAVE_ZONE) reveal(e.clientY)
       lastX = Number.POSITIVE_INFINITY
     }
     const root = document.documentElement
@@ -89,23 +94,33 @@ export function ShellApp(): JSX.Element {
   })
 
   return (
-    <div
-      class="shell"
-      classList={{ fullscreen: fullscreen(), 'rail-hidden': hidden() }}
-      style={{ 'padding-right': `${store.state()?.sidebar?.width ?? 0}px` }}
-    >
-      <Show when={!hidden()}>
-        <div class="shell-rail">
-          <Rail
+    <div class="shell" classList={{ fullscreen: fullscreen(), 'rail-hidden': hidden() }}>
+      <div
+        class="shell-main"
+        style={{ 'padding-right': `${store.state()?.sidebar?.width ?? 0}px` }}
+      >
+        <Show when={!hidden()}>
+          <div class="shell-rail">
+            <Rail
+              store={store}
+              mode="expanded"
+              editRequest={editRequest()}
+              onDropTarget={setDropTarget}
+            />
+          </div>
+        </Show>
+        <div class="page-slot" ref={slot} />
+      </div>
+      <Show when={!fullscreen()}>
+        <div class="shell-bar" ref={bar}>
+          <BottomBar
             store={store}
-            mode="expanded"
             downloadsActive={activeDownloads()}
-            editRequest={editRequest()}
             renameRequest={renameRequest()}
+            dropTarget={dropTarget()}
           />
         </div>
       </Show>
-      <div class="page-slot" ref={slot} />
     </div>
   )
 }

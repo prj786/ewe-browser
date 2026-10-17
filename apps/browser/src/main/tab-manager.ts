@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { WebContentsView, type BrowserWindow, type Session, type WebContents } from 'electron'
 import {
   LAYER_ARG,
+  HOME_URL,
   NEW_TAB_URL,
   SAD_TAB_URL,
   defaultWorkspaceName,
@@ -174,7 +175,7 @@ export class TabManager {
     const remembered = this.lastActive.get(id)
     const tab = (remembered === undefined ? undefined : this.get(remembered)) ?? this.tabsIn(id)[0]
     if (tab?.state.workspaceId === id) this.activate(tab.id)
-    else this.create(NEW_TAB_URL, { workspaceId: id })
+    else this.create(HOME_URL, { workspaceId: id })
     this.host.onChange()
   }
 

@@ -8,8 +8,8 @@ been hit. `docs/PLAN.md` holds the roadmap and open bugs; `docs/DESIGN.md` holds
 
 A Chromium-engine browser built on Electron 44 (Chromium 152, Node 24) for the owner's "ewe"
 Linux desktop (Hyprland, Wayland). The main process owns every tab as a `WebContentsView`. The
-visible chrome is a thin Solid UI in three renderer layers (the base shell with the left tab rail,
-a transparent overlay and a full-height right sidebar) plus seven internal pages served on `app://` (newtab, home, settings, sad, files, music, history). Styling follows the owner's Ewe design system v3.
+visible chrome is a thin Solid UI in three renderer layers (the base shell with the left tab rail
+and the full-width bottom bar, a transparent overlay and a right sidebar) plus seven internal pages served on `app://` (newtab, home, settings, sad, files, music, history). Styling follows the owner's Ewe design system v3.
 Phases 0–2 and the history part of phase 4 are implemented and verified; nothing has been
 committed yet, and the first commit waits for the owner's review of the staged diff.
 
@@ -120,7 +120,7 @@ apps/browser/
   src/ui/overlay/                 floating layer: rail peek, palette, context menus (tab-menu.ts, workspace-menu.ts),
                                   toast
   src/ui/sidebar/                 right sidebar layer: section tabs, search, resize handle, footer actions
-  src/ui/components/              Rail, Palette, Menu, Favicon, Icon (Lucide paths inline)
+  src/ui/components/              Rail, BottomBar (workspaces + tools), Palette, Menu, Favicon, Icon (Lucide paths inline)
   src/ui/components/sidebar/      BookmarksPane (tree, drag and drop, inline forms), DownloadsPane, HistoryPane
   src/ui/lib/store.ts             createBrowserStore(): state, settings, theme, account, tabs, workspaces + applyTheme
   src/ui/lib/                     also downloads.ts (createDownloads), favicon.ts (faviconFor), format.ts (bytes,
@@ -172,18 +172,22 @@ docs/screenshots/                 generated, untracked
   from `navigator.userAgent`. A full version is the engine's own build when the majors match,
   else `<major>.0.0.0`. If Google changes the cadence, move the three constants.
 - The overlay view is transparent (`transparent: true`, background `#00000000`), hidden when
-  `part === 'none'`, and sized by `overlayBounds(part, size, page)`: rail = the left 264 + 24px
-  (shadow room) at full height, toast = centred at the bottom of the page rect, palette and
+  `part === 'none'`, and sized by `overlayBounds(part, size, page, bar)`: rail = the left 264 + 24px
+  (shadow room) from the top down to the bottom bar (`barHeight()`: `BOTTOM_BAR_HEIGHT` 32, 0 in
+  fullscreen), toast = centred at the bottom of the page rect, palette and
   menu = whole window.
 - The page rect comes from the shell: it always reports its page slot via `layout.report` (right
-  of the rail, `PAGE_GAP` 8px from the other edges, or the whole window in fullscreen, where the
-  rail is hidden). An open sidebar insets the page from the right
+  of the rail, `PAGE_GAP` 8px from the top and right edges, directly on the bottom bar, or the
+  whole window in fullscreen, where the rail and the bar are hidden). The shell is a column:
+  `.shell-main` (rail + page slot, padded by the sidebar width) over `.shell-bar`, so the bar
+  always spans the whole window. An open sidebar insets the page from the right
   (`pageBounds(reported, size, inset)`) and the shell pads itself by the same width. The visible
   page view gets `setBorderRadius` with the ewe `--rounded` token (10px by default, 0 in
   fullscreen) so it reads as a card; hidden views are reset to 0, because rounding views that are
   not shown left the shell compositing stale frames on Wayland (the rail stayed collapsed on
   screen while its DOM was expanded).
-- Sidebar: a full-height `WebContentsView` on the right (`sidebarBounds`), opaque, background
+- Sidebar: a `WebContentsView` on the right from the top down to the bottom bar
+  (`sidebarBounds(width, size, barHeight())`, so it never covers the bar's tool buttons), opaque, background
   synced with the window. Sections `bookmarks | downloads | history` (`SidebarSection`). It pushes
   the page instead of floating over it. Width comes from `Settings.sidebarWidth` (default 360,
   clamped 280–640 and so that the page keeps 320px, `sidebarWidthFor`); dragging the left edge
@@ -263,7 +267,8 @@ workspace), `tab.closeOthers {id}`, `tab.closeRight {id}`, `tab.copyUrl {id}` (E
 tab), `layout.report {page}`, `overlay.request {part, newTab?}` (`part: 'menu'` is
 ignored, menus open through `menu.open`), `menu.open {menu: {kind: 'tab' | 'workspace', id}, x, y}` (coordinates from the overlay are
 shifted by the overlay view origin in main, so the peek can send its own client coords),
-`workspace.rename {id}` (activates the workspace and starts the inline rename in the rail),
+`workspace.rename {id}` (activates the workspace and starts the inline rename in the bottom bar;
+nothing to rename in fullscreen, where the bar is hidden),
 `overlay.pin {pinned}`, `workspace.create {name?, color?}`, `workspace.activate {id}`,
 `workspace.update {id, name?, color?}`, `workspace.remove {id}`, `workspace.mergeInto {from, to}` (moves every tab of `from` into `to`,
 keeps `from` as an empty workspace), `settings.update {patch}`,
@@ -302,7 +307,8 @@ every tab.
 - Workspaces are `{ id, name, color }` with colours from `WORKSPACE_COLORS` (ewellow, amber, coral,
   rose, violet, sky, mint, slate). Tabs are grouped by `workspaceId`; `insert()` keeps a
   workspace's tabs contiguous. `activateWorkspace` remembers the last active tab per workspace and
-  creates a new-tab page when a workspace is empty. `removeWorkspace` refuses to remove the last
+  opens Home (`HOME_URL`) when a workspace is empty, so a new workspace (`workspace.create`
+  without a name is "Workspace N", N = count + 1, the next free colour) starts on Home. `removeWorkspace` refuses to remove the last
   one. Names are capped at 40 characters.
 - `create(url, { activate, index, lazy, title, workspaceId })`, `activate`, `close` (picks the
   neighbour inside the workspace or opens a new tab), `move` (inside the workspace), `navigate`,
@@ -356,7 +362,7 @@ every tab.
   animation), waits `HIDE_ANIMATION_MS` = 160ms, hides the view and sends `overlay.show none`.
   Leaving `menu` for another part keeps the full-window bounds for the same 160ms (`shrinkTimer`,
   cancelled by any later show, hide or relayout) so the menu can fade out before the view shrinks.
-- Context menus: a right-click on a rail tab, pinned tile, workspace head or workspace dot sends
+- Context menus: a right-click on a rail tab, pinned tile or bottom-bar workspace chip sends
   `menu.open {menu: {kind: 'tab' | 'workspace', id}, x, y}` from the shell (window coordinates)
   or from the peek (overlay coordinates, shifted by the overlay origin in main). Main shows part
   `menu` (whole window, focused) and echoes `menu.open` to the overlay, which renders `Menu` at
@@ -375,7 +381,8 @@ every tab.
   through the window's left edge: page mouseMove at x <= `EDGE_ZONE` 12 (window coordinates)
   or a page mouseLeave whose last x <= `EDGE_LEAVE_ZONE` 24 (main, `revealEdge`), and the
   shell's own 8px gap strip (shell `mousemove` at x <= 12, `mouseleave` at x <= 24, sent as
-  `overlay.request rail`, throttled 300ms). For `RAIL_HIDE_GRACE_MS` 500 after the rail is
+  `overlay.request rail`, throttled 300ms; never over the bottom bar, whose first chip sits
+  there). For `RAIL_HIDE_GRACE_MS` 500 after the rail is
   hidden, reveals are ignored, so hiding it with the toggle never flips it straight back;
   `overlay.request rail` is also ignored while the rail is visible.
 - Rail peek: the overlay renders the expanded `Rail` in `peek` mode (`.rail.peek`, `shadow-float` plus a
@@ -420,16 +427,19 @@ every tab.
   250ms unless the status changes. Start and finish raise toasts ("Downloading x" with the
   download icon, "Downloaded x" with a check, failures with the alert icon in `danger`). A tab that
   only existed to start a download (blank url, no history, not the last tab) is closed.
-- Workspaces in the rail: the header shows the active workspace (dot, name, tab count);
-  double-click renames it inline. The dots in the footer switch workspaces (click), open the
-  workspace menu (right-click) or rename (double-click). `workspace-menu.ts` builds Rename, the
-  colour swatch row, Move tabs here (submenu of other workspaces with tab counts) and Remove
-  (disabled for the last workspace). The menu's Rename is routed through main: the overlay sends
-  `workspace.rename {id}` after the menu closes, main activates that workspace and sends the
-  `workspace.rename` UiEvent to the shell (expanded rail) or shows the peek with it (hidden rail).
-  The input focuses itself from its `ref`, because the rename event arrives before the state
-  broadcast that switches the header to that workspace. Enter or blur commits, Escape cancels,
-  empty keeps the old name, 40 characters at most.
+- Workspaces in the bottom bar (2026-10-17, `components/BottomBar.tsx`; the rail header and
+  the foot dots are gone): a chip per workspace (colour dot and name, `data-ws`, the active one
+  raised; the tooltip has the tab count) switches (click), renames inline (double-click) or opens
+  the workspace menu (right-click); `+` sends `workspace.create`, which opens "Workspace N" on
+  Home. `workspace-menu.ts` builds Rename, the colour swatch row, Move tabs here (submenu of other
+  workspaces with tab counts) and Remove (disabled for the last workspace). The menu's Rename is
+  routed through main: the overlay sends `workspace.rename {id}` after the menu closes, main
+  activates that workspace, focuses the shell and sends the `workspace.rename` UiEvent to it, rail
+  hidden or not (the bar stays). The input replaces the chip and focuses itself from its `ref`.
+  Enter or blur commits, Escape cancels, empty keeps the old name, 40 characters at most. The
+  bar's right end holds the Bookmarks / Downloads (accent dot while downloads run) / History
+  sidebar toggles (`.on` while open), then Music, Files and Settings. The bar is hidden in
+  fullscreen.
 - Gotcha, verified in Electron 44 source: in a windowed frameless window on Linux any
   `-webkit-app-region: drag` area swallows mouse events before they reach a `WebContentsView`
   (`NativeWindowViews::ShouldDescendIntoChildForEventHandling` returns false when
@@ -449,7 +459,7 @@ every tab.
 
 ## Files (`app://files`, roadmap step 3)
 
-- Opening: Ctrl+Shift+E, the rail's folder button, `open.internal {page: 'files'}`, typing `/path`,
+- Opening: Ctrl+Shift+E, the bottom bar's folder button, `open.internal {page: 'files'}`, typing `/path`,
   `~` or `~/path` in the rail address field or the palette (`resolveInput` →
   `filesUrl(path)`), Downloads → Show in folder (`filesUrl(dir, select)`), or the command line
   (`openArgs`: folders become files tabs, files become `file://` tabs, also from a second
@@ -570,7 +580,8 @@ every tab.
   namespace without those APIs, and extensions such as uBlock Origin Lite prefer `browser`.
 - Popups: `PopupHost` shows `chrome-extension://…/popup.html` in a `WebContentsView` above the
   overlay, laid out off-screen at 800×600 until `MEASURE_POPUP` (html `max-content`) gives its
-  size, then placed by `popupBounds` under the button (flipping up, clamped, 25–800 × 25–600),
+  size, then placed by `popupBounds` under the button (flipping up, which is the usual case now
+  that the buttons sit at the rail foot; clamped, 25–800 × 25–600),
   rounded like the page. Blur, Escape, a second click or `window.close()` closes it.
 - Installs: the Web Store's own button refuses non-Chrome browsers (even with the
   `Google Chrome` brand added to `navigator.userAgentData` and `Sec-CH-UA` for that host, which
@@ -844,10 +855,13 @@ received, total, speed, status, started, ended`, times in epoch ms), newest firs
 
 ## Renderer conventions
 
-- Solid 1.9. Rail tab rows use `<Index>` so DOM nodes survive state broadcasts.
+- Solid 1.9. Rail tab rows and the bottom bar's workspace chips use `<Index>` so DOM nodes
+  survive state broadcasts (every snapshot carries new objects; with `<For>` the chips were
+  rebuilt by the broadcast that follows a rename's `workspace.activate`, and the rename input
+  lost focus mid-typing and committed what it had).
   `createBrowserStore()` guards against the initial fetch overwriting a newer push.
 - `Rail` (`components/Rail.tsx`, props `store, mode: expanded | peek,
-downloadsActive, editRequest?, renameRequest?, onEditingChange?`), top to bottom:
+editRequest?, onEditingChange?, onDropTarget?`), top to bottom:
   - top row: collapse toggle (`settings.update {rail}`; Ctrl+Shift+S, `rail.toggle`), back,
     forward, reload / stop;
   - address field: lock / globe / app glyph, host in `text-primary` and path in `text-muted`, and
@@ -857,16 +871,17 @@ downloadsActive, editRequest?, renameRequest?, onEditingChange?`), top to bottom
     opens the palette with the url instead;
   - pinned tabs as a 4-column grid of favicon tiles, the active one
     outlined in the workspace colour; middle-click closes;
-  - the workspace header (see the overlay section);
   - the unpinned tabs of the active workspace as list rows (favicon with an accent spinner ring
     while loading, title, mute button when audible or muted, close on hover and on the active
     row; the active row is `surface-raised` with a 3px workspace-colour bar). Click activates,
     middle-click closes, right-click opens the tab menu. Pointer drag reorders (`tab.move` with
-    the workspace-relative index, after the pinned group) or, dropped on another workspace dot,
-    moves the tab there (`tab.moveToWorkspace`); a drag ends when the button is no longer held
-    or capture is lost. "New tab" opens the new-tab palette;
-  - footer: workspace dots and "+", then Bookmarks / Downloads (accent dot while downloads run) /
-    History sidebar toggles (`.on` while open) and Settings.
+    the workspace-relative index, after the pinned group) or, dropped on another workspace's chip
+    in the bottom bar (`elementFromPoint(...).closest('[data-ws]')`; the shell lifts the target
+    through `onDropTarget` so the chip lights up), moves the tab there (`tab.moveToWorkspace`); a
+    drag ends when the button is no longer held or capture is lost. The peek lives in the overlay
+    document, so it cannot drop onto chips; its tab menu has Move to workspace. "New tab" opens
+    the new-tab palette;
+  - foot: "Add to ewe browser" on store pages, then the extension buttons after a hairline.
 - `Palette`: modes url / search / tabs (`t:`) / bookmarks (`b:`), `w:` forces search, a "New
   tab" chip when opened from Ctrl+T, Kbd hints. `b:` lists `rankBookmarks` matches (title prefix
   4, title 2, host prefix 3, host 1.5, url 1; empty query = everything by recency) with the
@@ -892,7 +907,8 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   whose `.home` has `margin: auto` (centred when it fits, scrolls when it does not).
 - CSS: Ewe tokens only (`--surface-*`, `--text-*`, `--border-*`, `--accent`, `--space-*`,
   `--dur-fast 150ms`, `--dur-base 200ms`, `--dur-slow 250ms`, `--ease-out`), plus browser tokens
-  `--rail-width 264px`, `--page-gap 8px` (mirror `RAIL_WIDTH`, `PAGE_GAP`), and `--strip-height 44px` / `--bottom-height 36px`, now
+  `--rail-width 264px`, `--page-gap 8px`, `--bottom-bar-height 32px` (mirror `RAIL_WIDTH`,
+  `PAGE_GAP`, `BOTTOM_BAR_HEIGHT`), and `--strip-height 44px` / `--bottom-height 36px`, now
   only the sidebar header and footer heights. Floating surfaces are solid (no glass over pages).
   Keyframes live in `base.css` (`bar-in-down`, `bar-out-up`, `bar-in-up`, `bar-out-down`,
   `ewe-fade-*`, `ewe-slide-*`); reduced motion collapses them to fades.
@@ -1000,19 +1016,21 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   keys (keys are dropped in the first ~200ms of a load). `shellOf` also waits until the shell
   viewport matches the window and has stopped changing, because Hyprland tiles the window about
   a second after launch and coordinates taken before that land outside the overlay. Covers tabs,
-  the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8, collapsing (the rail
-  disappears, the card moves to x 8, the page edge, the shell strip and a left mouseLeave each
-  reveal the peek after the grace) and Ctrl+Shift+S, identity (the reported major in the user agent,
+  the palette, Ctrl+L into the rail address field, the page card at x 264 / y 8 ending on the
+  32px bottom bar, collapsing (the rail disappears, the bar stays, the card moves to x 8, the page
+  edge, the shell strip and a left mouseLeave each reveal the peek after the grace, the peek ends
+  above the bar, the strip over the bar reveals nothing) and Ctrl+Shift+S, identity (the reported major in the user agent,
   `userAgentData` and its high-entropy values, and in place before a local page's first script),
   a page's `app-region: drag` (also in a shadow root) computing to `no-drag`, workspaces + history persistence, session restore, the
   tab context menu from a rail row (duplicate, close others, move to a new workspace), the
-  workspace dot menu (colour, Rename routed to the rail header, inline rename with Escape, empty
-  and 40-character cases, Move tabs here, Remove), tab pinning (`tab.pin` moves the tab first,
+  workspace chip menu (colour, Rename routed to the bar chip, inline rename with Escape, empty
+  and 40-character cases, Move tabs here, Remove, `+` opening "Workspace 2" / "Workspace 3" on
+  Home in new colours), tab pinning (`tab.pin` moves the tab first,
   `move` clamps to the group, close others / close to the right keep pinned tabs, a duplicate
   lands unpinned after the group, `pinned` survives a restart), bookmarks (Ctrl+D adds and removes
   with a toast, the rail star toggles, `b:` and plain palette rows find the bookmark, the settings
-  Import button reads the fixture twice without duplicating, the rail's bookmarks button opens the
-  sidebar and the page keeps 8px before it, folders expand, the row menu deletes and edits, New
+  Import button reads the fixture twice without duplicating, the bar's bookmarks button opens the
+  sidebar, the page keeps 8px before it and the sidebar ends 32px above the window bottom, folders expand, the row menu deletes and edits, New
   folder, search with the folder path hint, a row click navigates, Ctrl+Shift+B closes and Ctrl+J
   opens downloads, the tree and the open section survive a restart), downloads and history (a
   local http server; two downloads of the same file land as `report.txt` and `report (1).txt` in
@@ -1053,7 +1071,8 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   `XDG_DATA_HOME` xbel, the search dropdown, the card menu, the Docs filter, light), new-tab
   page, the rail with six tabs (full and a hover crop), the address editor, the Ctrl+D toast,
   the starred address, pinned tiles (and an active one), the tab menu and its Move submenu, a
-  second workspace, a workspace dot hover, the workspace menu and inline rename, the hidden
+  second workspace (full and the bar's two ends), a chip hover, the workspace menu and inline
+  rename, a new workspace on Home, the hidden
   rail, the edge peek, the sidebar (bookmarks tree, row menu, search, downloads from a local
   server, paused and cancelled, history), the new-tab palette with `t:` and `b:`, Ctrl+L, thirty
   tabs, the file manager on a generated tree (grid with an empty folder, an AppImage and a zip,

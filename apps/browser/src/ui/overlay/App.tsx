@@ -22,7 +22,6 @@ import { Passwords } from '../components/Passwords'
 import { Palette } from '../components/Palette'
 import { Rail } from '../components/Rail'
 import { api } from '../lib/api'
-import { createDownloads, isActiveDownload } from '../lib/downloads'
 import { applyTheme, createBrowserStore } from '../lib/store'
 import { tabMenuItems } from './tab-menu'
 import { workspaceMenuItems } from './workspace-menu'
@@ -57,16 +56,13 @@ export function OverlayApp(): JSX.Element {
   const [editing, setEditing] = createSignal(false)
   const [menu, setMenu] = createSignal<OpenMenu | null>(null)
   const [under, setUnder] = createSignal<'rail' | null>(null)
-  const [renameRequest, setRenameRequest] = createSignal({ id: '', n: 0 })
   let pendingRename: string | null = null
   const [toast, setToast] = createSignal<{ message: string; icon: ToastIcon }>({
     message: '',
     icon: 'star',
   })
-  const downloads = createDownloads()
   const extensions = createExtensions()
   const [install, setInstall] = createSignal<ExtensionInstallRequest | null>(null)
-  const activeDownloads = createMemo(() => downloads().filter(isActiveDownload).length)
   let entered = false
 
   createEffect(() => applyTheme(store.settings, store.theme))
@@ -161,8 +157,6 @@ export function OverlayApp(): JSX.Element {
         setPaletteNewTab(event.newTab ?? false)
       } else if (event.type === 'menu.open') {
         setMenu({ target: event.menu, at: { x: event.x, y: event.y }, leaving: false })
-      } else if (event.type === 'workspace.rename') {
-        setRenameRequest((r) => ({ id: event.id, n: r.n + 1 }))
       } else if (event.type === 'toast') {
         setToast({ message: event.message, icon: event.icon ?? 'star' })
       }
@@ -201,8 +195,6 @@ export function OverlayApp(): JSX.Element {
           <Rail
             store={store}
             mode="peek"
-            downloadsActive={activeDownloads()}
-            renameRequest={renameRequest()}
             onEditingChange={(on) => {
               setEditing(on)
               pin(on)
