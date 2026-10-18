@@ -398,9 +398,9 @@ built, verified and handed to the owner for testing before the next starts.
      password-only second step of a two-step sign-in is saved without its username; no identities
      or cards; the one-time-code fill is unit-tested only (`ewe-safe add` cannot store a code
      yet).
-3. [ ] **Sign-ups always ask; cards and addresses** (built 2026-10-18 on
-       `feat/safe-signup-cards`, ewe-safe `docs/SYSTEM.md` §5, staged for the owner's review; lands
-       after wave 2 and is rebased onto it). The owner: "When I register somewhere it should ask me
+3. [x] **Sign-ups always ask; cards and addresses** (built 2026-10-18 on
+       `feat/safe-signup-cards`, ewe-safe `docs/SYSTEM.md` §5, released in 0.5.0-beta with Safe
+       0.3.0-beta). The owner: "When I register somewhere it should ask me
        if I want to save the data as a new login."
    - Why it often did not ask: a locked Safe dropped the captured login without a word; a
      sign-up whose username was not seen was treated as "update the only login of this site" (or
