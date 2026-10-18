@@ -1,6 +1,8 @@
 import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto'
 import type { KeyObject } from 'node:crypto'
+import { chmodSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
+import { join } from 'node:path'
 
 export const FAKE_AAGUID = Buffer.from('452b824e42d34324bc6c581888ca2851', 'hex')
 export const FAKE_MASTER = 'master-password-1'
@@ -14,13 +16,38 @@ export interface FakePasskey {
   publicKey: KeyObject
 }
 
+export interface FakeCard {
+  holder: string
+  number: string
+  expiry: string
+  security_code: string
+  pin: string
+  brand: string
+}
+
+export interface FakeAddress {
+  full_name: string
+  organization: string
+  line1: string
+  line2: string
+  city: string
+  region: string
+  postal_code: string
+  country: string
+  phone: string
+  email: string
+}
+
 export interface FakeItem {
   id: string
+  kind: 'login' | 'card' | 'address'
   title: string
   username: string
   urls: string[]
   password: string
   passkey: FakePasskey | null
+  card: FakeCard | null
+  address: FakeAddress | null
 }
 
 export interface FakeSafe {
@@ -28,8 +55,12 @@ export interface FakeSafe {
   items: FakeItem[]
   calls: { verb: string; args: Record<string, unknown> }[]
   locked: boolean
+  confirmCards: boolean
   lock(): void
+  clearConfirm(): void
   addLogin(title: string, username: string, url: string, password: string): FakeItem
+  addCard(title: string, card: FakeCard): FakeItem
+  addAddress(title: string, address: FakeAddress): FakeItem
   close(): Promise<void>
 }
 
@@ -115,10 +146,58 @@ function authData(rpId: string, verified: boolean, attested: Buffer | null): Buf
 const validRpId = (v: unknown): v is string =>
   typeof v === 'string' && /^[a-z0-9.-]{1,253}$/.test(v) && !v.startsWith('.')
 
+function cardSummary(card: FakeCard | null): Reply | null {
+  if (card === null) return null
+  return {
+    brand: card.brand,
+    last4: card.number.replace(/\D/g, '').slice(-4),
+    expiry: card.expiry,
+    holder: card.holder,
+  }
+}
+
+function addressSummary(a: FakeAddress | null): Reply | null {
+  if (a === null) return null
+  return { name: a.full_name, line1: a.line1, city: a.city, country: a.country }
+}
+
+function fieldsOf(item: FakeItem): Reply | null {
+  if (item.card !== null) {
+    const [month = '', year = ''] = item.card.expiry.split('/')
+    return {
+      holder: item.card.holder,
+      number: item.card.number,
+      expiry_month: month,
+      expiry_year: year,
+      security_code: item.card.security_code,
+      brand: item.card.brand,
+    }
+  }
+  if (item.address !== null) {
+    const a = item.address
+    const parts = a.full_name.split(' ')
+    return {
+      full_name: a.full_name,
+      given_name: parts.slice(0, -1).join(' '),
+      family_name: parts.at(-1) ?? '',
+      organization: a.organization,
+      line1: a.line1,
+      line2: a.line2,
+      city: a.city,
+      region: a.region,
+      postal_code: a.postal_code,
+      country: a.country,
+      phone: a.phone,
+      email: a.email,
+    }
+  }
+  return null
+}
+
 function summary(item: FakeItem): Reply {
   return {
     id: item.id,
-    kind: 'login',
+    kind: item.kind,
     title: item.title,
     username: item.username,
     urls: item.urls,
@@ -130,8 +209,12 @@ function summary(item: FakeItem): Reply {
     modified: new Date().toISOString(),
     passkey:
       item.passkey === null ? null : { rp_id: item.passkey.rpId, username: item.passkey.userName },
+    card: cardSummary(item.card),
+    address: addressSummary(item.address),
   }
 }
+
+export const FAKE_CONFIRM_SECONDS = 300
 
 const LOCKED: Reply = { ok: false, error: 'locked', message: 'Safe is locked.' }
 
@@ -140,7 +223,7 @@ export async function startFakeSafe(path: string): Promise<FakeSafe> {
   const calls: FakeSafe['calls'] = []
   const subscribers = new Set<Socket>()
   const sockets = new Set<Socket>()
-  const state = { locked: false }
+  const state = { locked: false, confirmCards: true, confirmedUntil: 0 }
 
   const emit = (event: Reply) => {
     for (const s of subscribers) s.write(`${JSON.stringify({ v: 1, ...event })}\n`)
@@ -151,11 +234,35 @@ export async function startFakeSafe(path: string): Promise<FakeSafe> {
   const addLogin = (title: string, username: string, url: string, password: string): FakeItem => {
     const item: FakeItem = {
       id: randomUUID(),
+      kind: 'login',
       title,
       username,
       urls: [url],
       password,
       passkey: null,
+      card: null,
+      address: null,
+    }
+    items.push(item)
+    return item
+  }
+
+  const addOther = (
+    kind: 'card' | 'address',
+    title: string,
+    card: FakeCard | null,
+    address: FakeAddress | null,
+  ): FakeItem => {
+    const item: FakeItem = {
+      id: randomUUID(),
+      kind,
+      title,
+      username: '',
+      urls: [],
+      password: '',
+      passkey: null,
+      card,
+      address,
     }
     items.push(item)
     return item
@@ -262,8 +369,26 @@ export async function startFakeSafe(path: string): Promise<FakeSafe> {
     }
     if (state.locked) return LOCKED
     switch (verb) {
-      case 'list':
-        return { ok: true, items: items.map(summary) }
+      case 'list': {
+        const kind = typeof a.kind === 'string' ? a.kind : null
+        return {
+          ok: true,
+          items: items.filter((i) => kind === null || i.kind === kind).map(summary),
+        }
+      }
+      case 'fields': {
+        const item = find(a.item_id)
+        const fields = item === undefined ? null : fieldsOf(item)
+        if (item === undefined || fields === null)
+          return { ok: false, error: 'not-found', message: 'No item.' }
+        if (item.kind === 'card' && state.confirmCards && Date.now() > state.confirmedUntil)
+          return { ok: false, error: 'confirm-needed', message: 'Confirm it is you first.' }
+        return { ok: true, fields }
+      }
+      case 'confirm':
+        if (a.password !== FAKE_MASTER) return { ok: false, error: 'wrong-key', message: 'Wrong.' }
+        state.confirmedUntil = Date.now() + FAKE_CONFIRM_SECONDS * 1000
+        return { ok: true, confirmed_for: FAKE_CONFIRM_SECONDS }
       case 'reveal': {
         const item = find(a.id)
         if (item === undefined) return { ok: false, error: 'not-found', message: 'No item.' }
@@ -350,11 +475,23 @@ export async function startFakeSafe(path: string): Promise<FakeSafe> {
     set locked(value: boolean) {
       state.locked = value
     },
+    get confirmCards() {
+      return state.confirmCards
+    },
+    set confirmCards(value: boolean) {
+      state.confirmCards = value
+    },
     lock: () => {
       state.locked = true
+      state.confirmedUntil = 0
       emit({ event: 'locked', reason: 'user' })
     },
+    clearConfirm: () => {
+      state.confirmedUntil = 0
+    },
     addLogin,
+    addCard: (title, card) => addOther('card', title, card, null),
+    addAddress: (title, address) => addOther('address', title, null, address),
     close: () =>
       new Promise<void>((resolve) => {
         for (const s of sockets) s.destroy()
@@ -415,4 +552,29 @@ export function decodeCbor(data: Buffer, at = 0): CborReader {
     default:
       throw new Error(`cbor: major type ${String(major)} not supported`)
   }
+}
+
+export function writeFakeCli(dir: string): string {
+  const path = join(dir, 'ewe-safe')
+  writeFileSync(
+    path,
+    `#!/usr/bin/env node
+const fs = require('node:fs')
+const argv = process.argv.slice(2)
+if (process.env.EWE_FAKE_CLI_LOG) fs.appendFileSync(process.env.EWE_FAKE_CLI_LOG, JSON.stringify(argv) + '\\n')
+const out = (v) => { process.stdout.write(JSON.stringify(v) + '\\n') }
+const refuse = process.env.EWE_FAKE_CLI_REFUSE
+if (refuse && fs.existsSync(refuse)) { out({ ok: false, error: 'cancelled', message: 'Cancelled.' }); process.exit(0) }
+const verb = argv[0]
+if (verb !== 'unlock' && verb !== 'confirm') { out({ ok: false, error: 'bad-request' }); process.exit(0) }
+const s = require('node:net').createConnection(process.env.EWE_SAFE_SOCKET)
+s.on('connect', () => s.write(JSON.stringify({ v: 1, id: 1, verb, args: { password: ${JSON.stringify(FAKE_MASTER)} } }) + '\\n'))
+let b = ''
+s.setEncoding('utf8')
+s.on('data', (d) => { b += d; const i = b.indexOf('\\n'); if (i >= 0) { process.stdout.write(b.slice(0, i) + '\\n'); s.end() } })
+s.on('error', () => out({ ok: false, error: 'daemon-unavailable' }))
+`,
+  )
+  chmodSync(path, 0o755)
+  return path
 }

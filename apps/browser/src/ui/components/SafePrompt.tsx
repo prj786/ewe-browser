@@ -9,29 +9,33 @@ export function SafePromptCard(props: {
   onDecide(action: SafePromptAction): void
 }): JSX.Element {
   const update = () => props.prompt.mode === 'update'
+  const locked = () => props.prompt.locked && !update()
+  const title = () => (update() ? 'Update the password in Safe?' : 'Save this login to Safe?')
+  const primary = (): SafePromptAction => (update() ? 'update' : locked() ? 'unlock' : 'save')
   return (
     <div
       class="palette safe-prompt"
       classList={{ leaving: props.leaving }}
       role="dialog"
-      aria-label={update() ? 'Update the password in Safe?' : 'Save to Safe?'}
+      aria-label={title()}
       onKeyDown={(e) => {
         if (e.key === 'Escape') props.onDecide('dismiss')
       }}
     >
       <div class="install-head">
         <span class="install-icon safe-prompt-icon">
-          <Icon name="key-round" size={22} />
+          <Icon name={locked() ? 'lock' : 'key-round'} size={22} />
         </span>
         <span class="install-text">
-          <span class="install-title">
-            {update() ? 'Update the password in Safe?' : 'Save to Safe?'}
-          </span>
-          <span class="install-sub">
+          <span class="install-title">{title()}</span>
+          <span class="install-sub safe-prompt-who">
             <Show when={props.prompt.username !== ''} fallback={props.prompt.host}>
               {props.prompt.username} · {update() ? props.prompt.title : props.prompt.host}
             </Show>
           </span>
+          <Show when={locked()}>
+            <span class="install-sub safe-prompt-locked">Safe is locked. Unlock it to save.</span>
+          </Show>
         </span>
       </div>
       <div class="install-actions">
@@ -51,9 +55,9 @@ export function SafePromptCard(props: {
         </button>
         <button
           class="btn btn--primary btn--sm safe-prompt-save"
-          onClick={() => props.onDecide(update() ? 'update' : 'save')}
+          onClick={() => props.onDecide(primary())}
         >
-          {update() ? 'Update' : 'Save'}
+          {update() ? 'Update' : locked() ? 'Unlock and save' : 'Save'}
         </button>
       </div>
     </div>

@@ -241,6 +241,7 @@ export const IPC = {
   safeFill: 'ewe:safe-fill',
   safeSuggest: 'ewe:safe-suggest',
   safePasskey: 'ewe:safe-passkey',
+  safeWalletFill: 'ewe:safe-wallet-fill',
   getExtensions: 'ewe:get-extensions',
   sync: 'ewe:sync',
   syncStatus: 'ewe:sync-status',

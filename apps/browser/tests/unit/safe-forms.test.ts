@@ -152,7 +152,7 @@ describe('captureFrom', () => {
     input(doc, '#n').value = 'new-one'
     input(doc, '#r').value = 'new-one'
     expect(forms.captureFrom(doc, visible)).toEqual({
-      kind: 'new-password',
+      kind: 'change',
       username: 'sam',
       password: 'new-one',
     })

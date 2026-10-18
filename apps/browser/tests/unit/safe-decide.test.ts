@@ -48,3 +48,43 @@ describe('candidatesToCheck', () => {
     expect(candidatesToCheck('', logins, 2).map((l) => l.id)).toEqual(['0', '1'])
   })
 })
+
+describe('sign-ups', () => {
+  const exact = (id: string, username: string, samePassword = false) => ({
+    ...login(id, username, samePassword),
+    exact: true,
+  })
+  const other = (id: string, username: string) => ({ ...login(id, username), exact: false })
+
+  it('saves a new login unless the same host has that username', () => {
+    expect(decideSave('sam', [], 'signup')).toEqual({ mode: 'save' })
+    expect(decideSave('sam', [exact('a', 'alex')], 'signup')).toEqual({ mode: 'save' })
+    expect(decideSave('sam', [other('a', 'sam')], 'signup')).toEqual({ mode: 'save' })
+    expect(decideSave('sam', [exact('a', 'SAM')], 'signup')).toEqual({
+      mode: 'update',
+      id: 'a',
+      title: 'Login a',
+    })
+    expect(decideSave('sam', [exact('a', 'sam', true)], 'signup')).toEqual({ mode: 'none' })
+  })
+
+  it('never updates the only login of the site when the username is unknown', () => {
+    expect(decideSave('', [exact('a', 'sam')], 'signup')).toEqual({ mode: 'save' })
+    expect(decideSave('', [exact('a', 'sam', true)], 'signup')).toEqual({ mode: 'save' })
+    expect(decideSave('', [exact('a', 'sam')], 'change')).toEqual({
+      mode: 'update',
+      id: 'a',
+      title: 'Login a',
+    })
+  })
+
+  it('reveals only same-host logins with that username', () => {
+    const logins = [
+      { id: '1', username: 'sam', match: 'exact' },
+      { id: '2', username: 'sam', match: 'domain' },
+      { id: '3', username: 'alex', match: 'exact' },
+    ]
+    expect(candidatesToCheck('Sam', logins, 5, 'signup').map((l) => l.id)).toEqual(['1'])
+    expect(candidatesToCheck('', logins, 5, 'signup')).toEqual([])
+  })
+})

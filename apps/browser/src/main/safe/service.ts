@@ -11,6 +11,7 @@ import {
 import {
   IPC,
   siteHostOf,
+  type SafeCaptureKind,
   type SafeField,
   type SafeFieldKind,
   type SafeFill,
@@ -27,7 +28,9 @@ import type { SettingsStore } from '../storage/settings-store'
 import { SafeClient, parseLine, type SafeReply } from './client'
 import { candidatesToCheck, decideSave, type SaveDecision } from './decide'
 import { PasskeyBroker, frameRef } from './passkeys'
+import { SignupMemory, type Draft, type DraftFrame } from './signup'
 import { displayHost, matchLogins, matchSite, siteOf, type Site, type SiteMatch } from './site'
+import { SafeWallet, type WalletRef, type WalletTarget } from './wallet'
 
 export interface Summary {
   id: string
@@ -54,11 +57,22 @@ interface Capture {
   contentsId: number
   origin: string
   site: Site
+  kind: SafeCaptureKind
   username: string
   password: string
   decision: SaveDecision | null
   created: number
+  busy: boolean
 }
+
+export interface CaptureInput {
+  kind: SafeCaptureKind
+  username: string
+  password: string
+}
+
+export type UnlockSave =
+  { kind: 'done'; outcome: SafeOutcome | null } | { kind: 'prompt'; prompt: SafePrompt }
 
 export interface SafeOutcome {
   ok: boolean
@@ -143,22 +157,54 @@ function hostOfUrl(page: Site, urls: string[]): string {
   return displayHost(page)
 }
 
+function resolveFrame(ref: WalletRef): WalletTarget | null {
+  const contents = allContents.fromId(ref.contentsId)
+  if (contents === undefined || contents.isDestroyed()) return null
+  const frame = webFrameMain.fromId(ref.processId, ref.routingId)
+  if (frame === undefined || frame.isDestroyed() || frame.origin !== ref.origin) return null
+  return {
+    send: (channel, value) => {
+      frame.send(channel, value)
+    },
+    focus: () => {
+      contents.focus()
+    },
+  }
+}
+
 export class SafeService {
   readonly client: SafeClient
   readonly passkeys: PasskeyBroker
+  readonly wallet: SafeWallet
+  readonly signup = new SignupMemory()
   private readonly store: SettingsStore
   private readonly tools: SafeTools
   private readonly requests = new Map<string, MenuRequest>()
   private readonly captures = new Map<string, Capture>()
   private ready: { at: number; value: boolean } | null = null
 
-  constructor(store: SettingsStore, client = new SafeClient(), tools: SafeTools = defaultTools) {
+  constructor(
+    store: SettingsStore,
+    client = new SafeClient(),
+    tools: SafeTools = defaultTools,
+    resolve: (ref: WalletRef) => WalletTarget | null = resolveFrame,
+  ) {
     this.store = store
     this.client = client
     this.tools = tools
     this.passkeys = new PasskeyBroker(client)
+    this.wallet = new SafeWallet({
+      client,
+      settings: () => this.settings(),
+      cli: () => this.tools.cli(),
+      state: () => this.state(),
+      resolve,
+    })
     this.client.on('event', (event) => {
-      if (event.event === 'locked' || event.event === 'gone') this.requests.clear()
+      if (event.event === 'locked' || event.event === 'gone') {
+        this.requests.clear()
+        this.wallet.clear()
+      }
       this.ready = null
     })
   }
@@ -174,6 +220,8 @@ export class SafeService {
       enabled: settings.fill && reachable,
       suggest: settings.fill && settings.suggest && reachable,
       capture: settings.offerSave && reachable,
+      cards: settings.fill && settings.fillCards && reachable,
+      addresses: settings.fill && settings.fillAddresses && reachable,
     }
   }
 
@@ -193,7 +241,7 @@ export class SafeService {
     for (const [id, r] of this.requests)
       if (now - r.created > REQUEST_TTL_MS) this.requests.delete(id)
     for (const [id, c] of this.captures) {
-      if (now - c.created > CAPTURE_TTL_MS) {
+      if (!c.busy && now - c.created > CAPTURE_TTL_MS) {
         c.password = ''
         this.captures.delete(id)
       }
@@ -330,6 +378,7 @@ export class SafeService {
   }
 
   async choose(requestId: string, id: string): Promise<SafeOutcome | null> {
+    if (this.wallet.has(requestId)) return this.wallet.choose(requestId, id)
     const t = this.target(requestId)
     if (t === null) return { ok: false, message: 'The page changed. Try again.' }
     const username = t.request.logins.get(id)
@@ -362,6 +411,7 @@ export class SafeService {
     if (again === null) return { ok: false, message: 'The page changed. Try again.' }
     this.requests.delete(requestId)
     this.send(again.frame, { kind: 'new-password', password: reply.value })
+    this.signup.generated(frameRef(again.contents, again.frame), reply.value)
     again.contents.focus()
     return null
   }
@@ -371,6 +421,14 @@ export class SafeService {
   }
 
   frameOf(requestId: string): { contents: WebContents; frame: WebFrameMain } | null {
+    const ref = this.wallet.refOf(requestId)
+    if (ref !== null) {
+      const contents = allContents.fromId(ref.contentsId)
+      const frame = webFrameMain.fromId(ref.processId, ref.routingId)
+      if (contents === undefined || contents.isDestroyed()) return null
+      if (frame === undefined || frame.isDestroyed() || frame.origin !== ref.origin) return null
+      return { contents, frame }
+    }
     const t = this.target(requestId)
     return t === null ? null : { contents: t.contents, frame: t.frame }
   }
@@ -404,40 +462,58 @@ export class SafeService {
     return true
   }
 
-  capture(
-    contents: WebContents,
-    frame: WebFrameMain,
-    username: string,
-    password: string,
-  ): string | null {
+  capture(contentsId: number, origin: string, input: CaptureInput): string | null {
     this.prune()
     const settings = this.settings()
     if (!settings.offerSave) return null
-    const site = siteOf(frame.origin)
-    const neverHost = siteHostOf(frame.origin)
+    const site = siteOf(origin)
+    const neverHost = siteHostOf(origin)
     if (site === null || neverHost === null || settings.neverSave.includes(neverHost)) return null
+    this.signup.drop(contentsId, origin)
+    const typed = input.username.trim()
+    const username = typed === '' ? this.signup.usernameFor(contentsId, origin) : typed
     const now = Date.now()
     for (const [id, c] of this.captures) {
       if (
-        c.contentsId === contents.id &&
-        c.origin === frame.origin &&
+        c.contentsId === contentsId &&
+        c.origin === origin &&
         c.username === username &&
-        c.password === password &&
+        c.password === input.password &&
         now - c.created < DUPLICATE_WINDOW_MS
       )
         return id
     }
     const promptId = randomUUID()
     this.captures.set(promptId, {
-      contentsId: contents.id,
-      origin: frame.origin,
+      contentsId,
+      origin,
       site,
-      username: username.trim(),
-      password,
+      kind: input.kind,
+      username,
+      password: input.password,
       decision: null,
       created: now,
+      busy: false,
     })
     return promptId
+  }
+
+  captureDraft(draft: Draft): string | null {
+    if (draft.password === '') return null
+    return this.capture(draft.contentsId, draft.origin, {
+      kind: 'signup',
+      username: draft.username,
+      password: draft.password,
+    })
+  }
+
+  rememberUsername(contentsId: number, origin: string, username: string): void {
+    if (!this.settings().offerSave) return
+    this.signup.rememberUsername(contentsId, origin, username)
+  }
+
+  draft(frame: DraftFrame, username: string, keep: boolean): void {
+    this.signup.draft(frame, username, keep)
   }
 
   drop(promptId: string): void {
@@ -451,20 +527,11 @@ export class SafeService {
     return this.captures.get(promptId)?.contentsId ?? null
   }
 
-  async prompt(promptId: string): Promise<SafePrompt | null> {
-    const c = this.captures.get(promptId)
-    if (c === undefined) return null
-    if ((await this.state()) !== 'ready') {
-      this.drop(promptId)
-      return null
-    }
+  private async decide(c: Capture): Promise<SaveDecision | null> {
     const logins = await this.logins(c.site, 'login')
-    if (logins === null) {
-      this.drop(promptId)
-      return null
-    }
+    if (logins === null) return null
     const candidates = []
-    for (const login of candidatesToCheck(c.username, logins)) {
+    for (const login of candidatesToCheck(c.username, logins, 5, c.kind)) {
       const reply = await this.client.call(
         'reveal',
         { id: login.id, field: 'password' },
@@ -475,22 +542,74 @@ export class SafeService {
         title: login.title,
         username: login.username,
         samePassword: reply.ok && reply.value === c.password,
+        exact: login.match === 'exact',
       })
     }
-    const decision = decideSave(c.username, candidates)
-    if (decision.mode === 'none' || !this.captures.has(promptId)) {
+    return decideSave(c.username, candidates, c.kind)
+  }
+
+  private promptOf(promptId: string, c: Capture, locked: boolean): SafePrompt {
+    const host = displayHost(c.site)
+    const decision = c.decision
+    return {
+      promptId,
+      mode: decision?.mode === 'update' ? 'update' : 'save',
+      host,
+      username: c.username,
+      title: decision?.mode === 'update' ? decision.title : host,
+      locked,
+    }
+  }
+
+  async prompt(promptId: string): Promise<SafePrompt | null> {
+    const c = this.captures.get(promptId)
+    if (c === undefined) return null
+    const state = await this.state()
+    if (state === 'locked' && this.captures.has(promptId)) {
+      c.decision = null
+      return this.promptOf(promptId, c, true)
+    }
+    if (state !== 'ready') {
+      this.drop(promptId)
+      return null
+    }
+    const decision = await this.decide(c)
+    if (decision === null || decision.mode === 'none' || !this.captures.has(promptId)) {
       this.drop(promptId)
       return null
     }
     c.decision = decision
-    const host = displayHost(c.site)
-    return {
-      promptId,
-      mode: decision.mode,
-      host,
-      username: c.username,
-      title: decision.mode === 'update' ? decision.title : host,
+    return this.promptOf(promptId, c, false)
+  }
+
+  async unlockAndSave(promptId: string): Promise<UnlockSave> {
+    const c = this.captures.get(promptId)
+    if (c === undefined) return { kind: 'done', outcome: null }
+    c.busy = true
+    const ok = await this.unlock()
+    c.busy = false
+    c.created = Date.now()
+    if (!this.captures.has(promptId)) return { kind: 'done', outcome: null }
+    if (!ok) {
+      this.drop(promptId)
+      return {
+        kind: 'done',
+        outcome: { ok: false, message: 'Safe is still locked. The login was not saved.' },
+      }
     }
+    const decision = await this.decide(c)
+    if (decision === null || !this.captures.has(promptId)) {
+      this.drop(promptId)
+      return { kind: 'done', outcome: { ok: false, message: 'Safe could not save the login.' } }
+    }
+    c.decision = decision
+    if (decision.mode === 'none') {
+      this.drop(promptId)
+      return { kind: 'done', outcome: { ok: true, message: 'This login is already in Safe' } }
+    }
+    if (decision.mode === 'update')
+      return { kind: 'prompt', prompt: this.promptOf(promptId, c, false) }
+    return { kind: 'done', outcome: await this.settle(promptId, 'save') }
   }
 
   async settle(promptId: string, action: SafePromptAction): Promise<SafeOutcome | null> {
@@ -500,7 +619,7 @@ export class SafeService {
     const password = c.password
     c.password = ''
     const host = displayHost(c.site)
-    if (action === 'dismiss') return null
+    if (action === 'dismiss' || action === 'unlock') return null
     if (action === 'never') {
       const neverHost = siteHostOf(c.origin)
       if (neverHost === null) return null

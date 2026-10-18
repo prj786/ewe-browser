@@ -1,10 +1,13 @@
 import type { Rect } from './models'
 
 export type SafeFieldKind = 'login' | 'new-password' | 'otp'
+export type SafeWalletKind = 'card' | 'address'
+export type SafeListKind = SafeFieldKind | SafeWalletKind
+export type SafeCaptureKind = 'login' | 'signup' | 'change'
 export type SafeField = 'username' | 'password' | 'code'
 export type SafeMenuState = 'ready' | 'empty' | 'locked' | 'not-set-up' | 'unavailable'
 export type SafePromptMode = 'save' | 'update'
-export type SafePromptAction = 'save' | 'update' | 'never' | 'dismiss'
+export type SafePromptAction = 'save' | 'update' | 'never' | 'dismiss' | 'unlock'
 export type SafeTrigger = 'icon' | 'click' | 'key' | 'focus'
 export type SafeSuggestKey = 'ArrowDown' | 'ArrowUp' | 'Enter' | 'Escape'
 
@@ -22,15 +25,36 @@ export interface SafePasskey {
   rpId: string
 }
 
+export interface SafeCard {
+  id: string
+  title: string
+  brand: string
+  last4: string
+  expiry: string
+  holder: string
+}
+
+export interface SafeAddress {
+  id: string
+  title: string
+  name: string
+  line1: string
+  city: string
+  country: string
+}
+
 export interface SafeMenu {
   requestId: string
-  kind: SafeFieldKind
+  kind: SafeListKind
   field: SafeField
   state: SafeMenuState
   host: string
   favicon: string | null
   items: SafeLogin[]
   passkeys: SafePasskey[]
+  cards?: SafeCard[] | undefined
+  addresses?: SafeAddress[] | undefined
+  insecure?: boolean | undefined
 }
 
 export interface SafeSuggestState {
@@ -45,6 +69,7 @@ export interface SafePrompt {
   host: string
   username: string
   title: string
+  locked: boolean
 }
 
 export type SafeSheetMode = 'create' | 'get'
@@ -67,6 +92,8 @@ export interface SafeSettings {
   suggest: boolean
   passkeys: boolean
   offerSave: boolean
+  fillCards: boolean
+  fillAddresses: boolean
   neverSave: string[]
 }
 
@@ -75,6 +102,8 @@ export const DEFAULT_SAFE_SETTINGS: SafeSettings = {
   suggest: true,
   passkeys: true,
   offerSave: true,
+  fillCards: true,
+  fillAddresses: true,
   neverSave: [],
 }
 
@@ -84,7 +113,36 @@ export interface SafePageState {
   enabled: boolean
   suggest: boolean
   capture: boolean
+  cards: boolean
+  addresses: boolean
 }
+
+export interface SafeCardFill {
+  holder: string
+  number: string
+  expiryMonth: string
+  expiryYear: string
+  securityCode: string
+  brand: string
+}
+
+export interface SafeAddressFill {
+  fullName: string
+  givenName: string
+  familyName: string
+  organization: string
+  line1: string
+  line2: string
+  city: string
+  region: string
+  postalCode: string
+  country: string
+  phone: string
+  email: string
+}
+
+export type SafeWalletFill =
+  { kind: 'card'; card: SafeCardFill } | { kind: 'address'; address: SafeAddressFill }
 
 export interface SafeFill {
   kind: SafeFieldKind
@@ -102,7 +160,10 @@ export type SafePageRequest =
   | { op: 'blur' }
   | { op: 'focus' }
   | { op: 'close' }
-  | { op: 'submit'; kind: 'login' | 'new-password'; username: string; password: string }
+  | { op: 'submit'; kind: SafeCaptureKind; username: string; password: string }
+  | { op: 'wallet'; kind: SafeWalletKind; rect: Rect | null; trigger: SafeTrigger }
+  | { op: 'username'; username: string }
+  | { op: 'draft'; username: string; keep: boolean }
 
 export type SafePasskeyRequest =
   | { op: 'available' }
@@ -131,8 +192,51 @@ export function isSafePageState(value: unknown): value is SafePageState {
   return (
     typeof v.enabled === 'boolean' &&
     typeof v.suggest === 'boolean' &&
-    typeof v.capture === 'boolean'
+    typeof v.capture === 'boolean' &&
+    typeof v.cards === 'boolean' &&
+    typeof v.addresses === 'boolean'
   )
+}
+
+const CARD_FILL_KEYS = [
+  'holder',
+  'number',
+  'expiryMonth',
+  'expiryYear',
+  'securityCode',
+  'brand',
+] as const
+const ADDRESS_FILL_KEYS = [
+  'fullName',
+  'givenName',
+  'familyName',
+  'organization',
+  'line1',
+  'line2',
+  'city',
+  'region',
+  'postalCode',
+  'country',
+  'phone',
+  'email',
+] as const
+
+function hasTexts(value: unknown, keys: readonly string[]): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return keys.every((k) => typeof v[k] === 'string' && v[k].length <= SAFE_TEXT_MAX)
+}
+
+export function isSafeWalletFill(value: unknown): value is SafeWalletFill {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (v.kind === 'card') return hasTexts(v.card, CARD_FILL_KEYS)
+  if (v.kind === 'address') return hasTexts(v.address, ADDRESS_FILL_KEYS)
+  return false
+}
+
+export function isSafeWalletKind(value: unknown): value is SafeWalletKind {
+  return value === 'card' || value === 'address'
 }
 
 export function isSafeSuggestState(value: unknown): value is SafeSuggestState {
@@ -170,7 +274,13 @@ export function isSafeFieldKind(value: unknown): value is SafeFieldKind {
 }
 
 export function isSafePromptAction(value: unknown): value is SafePromptAction {
-  return value === 'save' || value === 'update' || value === 'never' || value === 'dismiss'
+  return (
+    value === 'save' ||
+    value === 'update' ||
+    value === 'never' ||
+    value === 'dismiss' ||
+    value === 'unlock'
+  )
 }
 
 export function isSafeSheetAction(value: unknown): value is SafeSheetAction {
@@ -203,11 +313,22 @@ export function isSafePageRequest(value: unknown): value is SafePageRequest {
       return isShortText(r.text)
     case 'submit':
       return (
-        (r.kind === 'login' || r.kind === 'new-password') &&
+        (r.kind === 'login' || r.kind === 'signup' || r.kind === 'change') &&
         isShortText(r.username) &&
         isShortText(r.password) &&
         r.password !== ''
       )
+    case 'wallet':
+      return (
+        isSafeWalletKind(r.kind) &&
+        (r.rect === null || isRectLike(r.rect)) &&
+        typeof r.trigger === 'string' &&
+        TRIGGERS.has(r.trigger)
+      )
+    case 'username':
+      return isShortText(r.username) && r.username.trim() !== ''
+    case 'draft':
+      return isShortText(r.username) && typeof r.keep === 'boolean'
     default:
       return false
   }
@@ -257,6 +378,8 @@ export function sanitizeSafeSettings(value: unknown, base: SafeSettings): SafeSe
   if (typeof v.suggest === 'boolean') next.suggest = v.suggest
   if (typeof v.passkeys === 'boolean') next.passkeys = v.passkeys
   if (typeof v.offerSave === 'boolean') next.offerSave = v.offerSave
+  if (typeof v.fillCards === 'boolean') next.fillCards = v.fillCards
+  if (typeof v.fillAddresses === 'boolean') next.fillAddresses = v.fillAddresses
   if (Array.isArray(v.neverSave)) {
     const seen = new Set<string>()
     for (const entry of v.neverSave) {

@@ -30,7 +30,7 @@ function sandbox(): Sandbox {
   const fakeConf = join(root, 'bin', 'ewe-conf')
   writeFileSync(
     fakeConf,
-    '#!/bin/sh\nif [ "$1" = get ]; then echo null; else echo \'{"ok": true}\'; fi\n',
+    '#!/bin/sh\nif [ "$1" = get ] && [ "$2" = safe ]; then echo \'{"confirm_cards": false}\'; elif [ "$1" = get ]; then echo null; else echo \'{"ok": true}\'; fi\n',
   )
   chmodSync(fakeConf, 0o755)
   const socket = join(root, 'runtime', 'ewe-safe.sock')
@@ -102,6 +102,19 @@ const SIGNUP_FORM = `<form method="post" action="/welcome" id="register">
   <p><input id="confirm" name="confirm" type="password" style="width:320px;height:32px"></p>
   <p><button id="go" type="submit">Create account</button></p></form>`
 
+const ADDRESS_FORM = `<form onsubmit="return false">
+  <p><input id="name" autocomplete="name" style="width:320px;height:32px"></p>
+  <p><input id="line1" autocomplete="address-line1" style="width:320px;height:32px"></p>
+  <p><input id="city" autocomplete="address-level2" style="width:320px;height:32px"></p>
+  <p><select id="country" autocomplete="country"><option value="">-</option>
+    <option value="GE">Georgia</option></select></p></form>`
+
+const CARD_FORM = `<form onsubmit="return false">
+  <p><input id="cname" autocomplete="cc-name" style="width:320px;height:32px"></p>
+  <p><input id="num" autocomplete="cc-number" style="width:320px;height:32px"></p>
+  <p><input id="exp" autocomplete="cc-exp" placeholder="MM/YY" style="width:320px;height:32px"></p>
+  <p><input id="csc" autocomplete="cc-csc" style="width:320px;height:32px"></p></form>`
+
 async function windowWith(app: ElectronApplication, part: string): Promise<Page> {
   await expect
     .poll(() => app.windows().some((w) => w.url().includes(part)), { timeout: 20_000 })
@@ -134,6 +147,23 @@ async function pick(app: ElectronApplication, text: string): Promise<void> {
   await overlay.locator('.safe-suggest .safe-row').filter({ hasText: text }).first().click()
 }
 
+async function pickFirst(app: ElectronApplication, page: Page): Promise<void> {
+  const overlay = await windowWith(app, '/ui/overlay/')
+  const first = overlay.locator('.safe-suggest .safe-row').first()
+  const on = () => first.evaluate((el) => el.classList.contains('active')).catch(() => false)
+  await page.waitForTimeout(300)
+  for (let i = 0; i < 6 && !(await on()); i++) {
+    await page.keyboard.press('ArrowDown')
+    await expect
+      .poll(on, { timeout: 800 })
+      .toBe(true)
+      .catch(() => undefined)
+  }
+  expect(await on()).toBe(true)
+  await page.waitForTimeout(300)
+  await page.keyboard.press('Enter')
+}
+
 async function promptButton(app: ElectronApplication, text: string): Promise<void> {
   const overlay = await windowWith(app, '/ui/overlay/')
   const button = overlay.locator('.safe-prompt button').filter({ hasText: text })
@@ -154,17 +184,21 @@ test.describe('Safe in ewe browser', () => {
   let b: Served
   let app: ElectronApplication
   let shell: Page
+  let wallet = false
 
   test.beforeAll(async () => {
     sb = sandbox()
     await expect.poll(() => existsSync(sb.socket), { timeout: 10_000 }).toBe(true)
     b = await serve('localhost', {
       '/inner': html(`<h3>Partner sign in</h3>${LOGIN_FORM()}`),
+      '/address': html(`<h2>Shipping</h2>${ADDRESS_FORM}`),
+      '/card': html(`<h2>Pay</h2>${CARD_FORM}`),
     })
     a = await serve('127.0.0.1', {
       '/login': html(`<h2>Sign in</h2>${LOGIN_FORM()}`),
       '/autofocus': html(`<h2>Sign in</h2>${LOGIN_FORM('autofocus')}`),
       '/signup': html(`<h2>Create account</h2>${SIGNUP_FORM}`),
+      '/card': html(`<h2>Pay</h2>${CARD_FORM}`),
       '/frame': html(
         `<h2>Embeds a partner</h2><iframe src="${b.origin}/inner" style="width:520px;height:300px;border:1px solid #888"></iframe>`,
       ),
@@ -190,6 +224,27 @@ test.describe('Safe in ewe browser', () => {
       )
     expect(add('Fixture A', 'sam', a.origin, 'pw-A-123').ok).toBe(true)
     expect(add('Partner B', 'bob', b.origin, 'pw-B-456').ok).toBe(true)
+    const home = cli(sb, [
+      'add',
+      '--kind',
+      'address',
+      '--title',
+      'Home',
+      '--full-name',
+      'Sam Moe',
+      '--line1',
+      '12 Main St',
+      '--city',
+      'Tbilisi',
+      '--country',
+      'GE',
+    ])
+    const card = cli(
+      sb,
+      ['add', '--kind', 'card', '--holder', 'Sam Moe', '--expiry', '08/29', '--card-stdin'],
+      '4242424242424242\n123\n\n',
+    )
+    wallet = home.ok === true && card.ok === true
     const user = mkdtempSync(join(tmpdir(), 'ewe-safe-browser-'))
     app = await electron.launch({
       args: [MAIN],
@@ -303,5 +358,52 @@ test.describe('Safe in ewe browser', () => {
       .toBe(true)
     await pick(app, 'Fixture A')
     await expect.poll(() => page.inputValue('#pass')).toBe('pw-A-changed')
+  })
+
+  test('a locked safe still asks to save a sign-up: Unlock and save', async () => {
+    expect(cli(sb, ['lock']).ok).toBe(true)
+    const page = await open(app, shell, `${a.origin}/signup`)
+    await page.fill('#user', 'lockie')
+    await page.fill('#pass', 'Locked-pw-9')
+    await page.fill('#confirm', 'Locked-pw-9')
+    await page.click('#go')
+    const overlay = await windowWith(app, '/ui/overlay/')
+    const button = overlay.locator('.safe-prompt .safe-prompt-save')
+    await expect(button).toHaveText('Unlock and save', { timeout: 10_000 })
+    await button.click()
+    await expect
+      .poll(() => logins(sb).some((l) => l.username === 'lockie' && l.urls.includes(a.origin)), {
+        timeout: 20_000,
+      })
+      .toBe(true)
+  })
+
+  test('an address fills from the real Safe', async () => {
+    test.skip(!wallet, 'this ewe-safe has no cards or addresses')
+    const page = await open(app, shell, `${b.origin}/address`)
+    await page.click('#line1')
+    expect((await menuItems(app)).some((t) => t.includes('Home'))).toBe(true)
+    await pickFirst(app, page)
+    await expect.poll(() => page.inputValue('#line1')).toBe('12 Main St')
+    expect(await page.inputValue('#name')).toBe('Sam Moe')
+    expect(await page.inputValue('#city')).toBe('Tbilisi')
+    expect(await page.inputValue('#country')).toBe('GE')
+  })
+
+  test('a card fills from the real Safe on localhost, never on another http page', async () => {
+    test.skip(!wallet, 'this ewe-safe has no cards or addresses')
+    const page = await open(app, shell, `${b.origin}/card`)
+    await page.click('#num')
+    expect((await menuItems(app)).some((t) => t.includes('Visa •••• 4242'))).toBe(true)
+    await pickFirst(app, page)
+    await expect.poll(() => page.inputValue('#num')).toBe('4242424242424242')
+    expect(await page.inputValue('#exp')).toBe('08/29')
+    expect(await page.inputValue('#csc')).toBe('123')
+    expect(await page.inputValue('#cname')).toBe('Sam Moe')
+    const plain = await open(app, shell, `${a.origin}/card`)
+    await plain.click('#num')
+    await plain.keyboard.press('ArrowDown')
+    expect(await menuItems(app)).toEqual(['Safe fills cards only on secure (https) pages'])
+    expect(await plain.inputValue('#num')).toBe('')
   })
 })

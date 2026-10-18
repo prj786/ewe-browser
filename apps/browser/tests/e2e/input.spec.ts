@@ -857,6 +857,10 @@ test('Safe only: Ctrl+Shift+L, the rail key and the right-click menu open Safe',
     expect(fake.calls.filter((c) => c.verb === 'generate')).toHaveLength(1)
 
     await open(app, shell, `${site.origin}/plain`)
+    const offer = overlay.locator('.safe-prompt')
+    await expect(offer).toContainText('Save this login to Safe?', { timeout: 10_000 })
+    await offer.locator('.safe-prompt-later').click()
+    await expect.poll(async () => (await overlayView(app)).visible).toBe(false)
     await key(app, 'L', ['control', 'shift'])
     await expect(overlay.locator('.toast')).toContainText('No sign-in field on this page', {
       timeout: 5_000,
