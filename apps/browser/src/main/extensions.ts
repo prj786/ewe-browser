@@ -18,6 +18,7 @@ import {
   localizedName,
   popupBounds,
   readJson,
+  storeIdAt,
   type ActionDetails,
 } from './extension-helpers'
 import {
@@ -28,6 +29,8 @@ import {
 } from 'electron-chrome-web-store'
 import {
   EXTENSION_PARTITION,
+  SAFE_ONLY_MESSAGE,
+  passwordManagerName,
   storeExtensionId,
   type ExtensionInfo,
   type ExtensionInstallRequest,
@@ -58,6 +61,7 @@ export interface ExtensionHostDeps {
   focusedWindow(): BrowserWindow | null
   confirmInstall(request: ExtensionInstallRequest, window: BrowserWindow | null): Promise<boolean>
   onChange(): void
+  onBlocked(message: string): void
 }
 
 function manifestOptionsUrl(extension: Electron.Extension): string | null {
@@ -243,6 +247,7 @@ export class ExtensionHost {
   private readonly deps: ExtensionHostDeps
   private readonly pending = new Map<string, (allow: boolean) => void>()
   private activeTab: WebContents | null = null
+  private readonly turnedOff = new Set<string>()
   private ready: Promise<void>
 
   constructor(deps: ExtensionHostDeps) {
@@ -287,13 +292,29 @@ export class ExtensionHost {
       isDestroyed: () => false,
     })
     const sessionExtensions = deps.session.extensions
-    sessionExtensions.on('extension-loaded', () => deps.onChange())
+    const load = sessionExtensions.loadExtension.bind(sessionExtensions)
+    sessionExtensions.loadExtension = async (path, options) => {
+      const id = await storeIdAt(path)
+      if (id !== null && passwordManagerName(id) !== null) {
+        this.refused(id, 'refused to load')
+        throw new Error(SAFE_ONLY_MESSAGE)
+      }
+      return load(path, options)
+    }
+    sessionExtensions.on('extension-loaded', (_event, extension) => {
+      if (passwordManagerName(extension.id) !== null) this.turnOff(extension)
+      deps.onChange()
+    })
     sessionExtensions.on('extension-unloaded', () => deps.onChange())
     this.ready = installChromeWebStore({
       session: deps.session,
       extensionsPath: this.extensionsPath,
       autoUpdate: true,
       beforeInstall: async (details) => {
+        if (passwordManagerName(details.id) !== null) {
+          deps.onBlocked(SAFE_ONLY_MESSAGE)
+          return { action: 'deny' }
+        }
         const allow = await this.confirm(details)
         return { action: allow ? 'allow' : 'deny' }
       },
@@ -304,6 +325,23 @@ export class ExtensionHost {
 
   whenReady(): Promise<void> {
     return this.ready
+  }
+
+  private refused(id: string, what: string): void {
+    if (this.turnedOff.has(id)) return
+    this.turnedOff.add(id)
+    const name = passwordManagerName(id) ?? id
+    console.warn(`[ewe] ${what} ${name}: ${SAFE_ONLY_MESSAGE}`)
+    this.deps.onBlocked(`${name} is off: Safe fills passwords`)
+  }
+
+  private turnOff(extension: Electron.Extension): void {
+    const id = extension.id
+    setImmediate(() => {
+      if (this.deps.session.extensions.getExtension(id) === null) return
+      this.deps.session.extensions.removeExtension(id)
+      this.refused(id, 'turned off')
+    })
   }
 
   private browserAction(): BrowserActionApi {
@@ -386,6 +424,7 @@ export class ExtensionHost {
   ): Promise<{ ok: boolean; message: string } | null> {
     const id = storeExtensionId(source)
     if (id === null) return { ok: false, message: 'That is not a Chrome Web Store link' }
+    if (passwordManagerName(id) !== null) return { ok: false, message: SAFE_ONLY_MESSAGE }
     const existing = this.deps.session.extensions.getExtension(id)
     if (existing !== null) return { ok: true, message: `${existing.name} is already added` }
     let path: string

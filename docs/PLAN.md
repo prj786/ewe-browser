@@ -365,7 +365,7 @@ built, verified and handed to the owner for testing before the next starts.
    - Locked: "Unlock Safe" runs `ewe-safe unlock --ask`, then the list comes back.
    - Settings → ewe: Fill from Safe, Offer to save logins, the never-save sites.
    - Ctrl+Shift+L keeps going through ewe Passwords (`ewe-pass`), whose provider `ewe` fills from
-     Safe too.
+     Safe too. (Replaced in wave 2: Ctrl+Shift+L opens Safe itself, see below.)
 2. [x] **Like 1Password: suggestions in the field, passkeys** (built 2026-10-15 on `feat/safe`,
        ewe-safe `docs/TRIO.md` §B1; approved and merged 2026-10-15).
    - When you click or Tab into a login, email, password or code field, a small list drops right
@@ -513,6 +513,93 @@ small foot. Done on `feat/bottom-bar`:
 4. [ ] Not done: dropping a tab from the rail PEEK onto a chip (the peek is the overlay
        document; its tab menu has Move to workspace).
 
+## Wave 2, browser details (asked 2026-10-18, branch `feat/input-menus`)
+
+The owner: finger gestures, more shortcuts, right-click menus on websites, and no third-party
+passwords (only Safe fills inputs). Built on `feat/input-menus`, released in 0.4.0-beta:
+
+1. [x] **Two-finger swipe** back and forward: the page preload watches `wheel` in the main frame,
+       an arrow at the page edge fills as the swipe nears the threshold (160 px), letting go past
+       it navigates, before it does nothing; only with history that way, never when something
+       under the pointer can still scroll sideways or the page handles the wheel itself.
+       Settings → Browsing → _Swipe to go back_ (on). Four fingers switch the browser's own
+       workspaces through `ewe-browser workspace next|prev` (ewe's Hyprland config, stream E).
+2. [x] **Mouse side buttons**: in pages Chromium already goes back and forward (and lets a page
+       cancel it); on the rail, the bottom bar, the overlay and the sidebar they now do too.
+3. [x] **Find in page**: Ctrl+F opens a find bar at the page's top right with a match count;
+       Enter / F3 / Ctrl+G next, Shift+Enter / Shift+F3 / Ctrl+Shift+G previous, Esc closes and
+       keeps the match selected; prefilled with the selection. Files, Music, History and the
+       sidebar keep their own Ctrl+F.
+4. [x] **New shortcuts** (Settings → Keyboard shortcuts, all rebindable): Ctrl+F, Ctrl+G / F3,
+       Ctrl+Shift+G / Shift+F3, Alt+Shift+N new workspace, Alt+Shift+R rename it, Alt+Shift+Left
+       / Right workspaces, Ctrl+Alt+Shift+Left / Right move the tab to the previous / next
+       workspace, Alt+Shift+H home, Ctrl+, settings, Ctrl+P print, Ctrl+U page source,
+       Alt+Shift+D duplicate, Alt+Shift+P pin, Ctrl+M mute, Alt+Shift+C copy the address,
+       Ctrl+Shift+A search open tabs, Alt+Shift+M music. None changed from the plan: none clashes
+       with Chromium's keys or ewe's Hyprland binds (all Super), Ctrl+Shift+A is Chrome's own tab
+       search, Ctrl+M is Firefox's mute.
+5. [x] **Right-click on web pages**: links (new tab, new workspace, new window, save, copy),
+       images (open, save, copy, copy address), video and audio (play/pause, mute, loop,
+       controls, open, save, copy address), selected text (copy, search, Go to), fields
+       (spelling, Fill from Safe / Use a strong password, undo, redo, cut, copy, paste, paste as
+       plain text, select all), the page (back, forward, reload, bookmark, save page, print,
+       view source) and always Inspect. The menu key and Shift+F10 open it too.
+6. [x] **Safe only**: Ctrl+Shift+L, the key in the address field and the right-click menu open
+       Safe's list for the focused field (or the page's first login field) and fill through
+       Safe; the ewe-pass route and its picker are gone. Password-manager extensions (a
+       best-effort list of 36 checked Web Store ids) cannot be added, and an installed one is
+       refused before it loads, with a toast.
+7. [x] **Review fixes** (same day): the new keys a web app may use (Ctrl+F, Ctrl+U, Ctrl+P,
+       Ctrl+M, Ctrl+G, Ctrl+, and the Alt+Shift ones) go to the page first and only act when the
+       page did not handle them; a page menu closes when its page navigates and refuses stale
+       actions; "Use a strong password" is armed for the clicked frame only; the swipe arrow is
+       dropped on navigation, a crash, a tab switch or a second without movement.
+
+Known / open:
+
+- The swipe is tested with synthetic wheel events only; how it feels on a real touchpad
+  (threshold, kinetic scrolling after the fingers lift, a mouse with a tilt wheel) is unverified.
+- Print opens the system dialog (`webContents.print`), untested by hand; tests stub it.
+- Extension context-menu items (`chrome.contextMenus`) are not in the page menu yet.
+- A turned-off password-manager extension stays in `<userData>/Extensions` and is not listed in
+  Settings; there is no way to delete it from the UI.
+- The find bar closes when another overlay part opens (a menu, the palette, Safe's list).
+
+## Wave 2 — privacy, site search, command line (stream B, 2026-10-18, `feat/privacy-site-search`)
+
+The owner asked for DNS and security settings, and for Shaun to reach further into the browser
+("search men's shoes on zara" → Zara's own results). Built on `feat/privacy-site-search`,
+released in 0.4.0-beta:
+
+1. [x] **Command line (contract 1)**: `search --site`, `site`, `workspaces`, `workspace
+ activate|next|prev|create|rename|remove`, `back`, `forward`, `download open|show`,
+       `open --workspace`. `workspace next` answers in ~45 ms (the 4-finger swipe runs it).
+2. [x] **Site search**: history-learned templates (keeps the owner's locale), OpenSearch
+       descriptors found on visited pages (`site-search.json`), a 66-site table with `{cc}` from
+       the time zone and `{lang}` from `LANG`, a `site:` filter fallback, `@site words` in the
+       palette and the address field. Every table template was requested once on 2026-10-18 (curl
+       with a Chrome user agent, then Electron for the 403s); Mango (404 for `/ge/en/`), Shein,
+       Unsplash, Yelp and Merriam-Webster (bot walls) were dropped; Adidas, Best Buy, eBay, H&M,
+       Uniqlo, Newegg, Amazon, AliExpress, GitLab, Stack Overflow and Facebook stay unverified
+       (bot walls or sign-in, also in a fresh Electron profile).
+3. [x] **Settings → Privacy and security**: Secure DNS (Off by default, Automatic, Cloudflare,
+       Quad9, Mullvad, AdGuard, NextDNS, Custom; live), HTTPS-Only (off by default; interstitial
+       with "Continue to the http site" for the session), third-party cookies blocked through
+       Chromium's own `ForceThirdPartyCookieBlockingEnabled` (applies after a restart), Global
+       Privacy Control (`Sec-GPC: 1` and `navigator.globalPrivacyControl`, on by default).
+4. [x] **Site permissions**: camera, microphone, location, notifications, clipboard, MIDI, local
+       network, window placement and idle detection ask through a prompt card (merged requests,
+       clickjacking guard, no focus steal), decisions in `permissions.json`, the check handler and
+       `navigator.permissions.query` agree, a list in Settings, and a site info panel from the
+       address field's lock (permissions, clear site data, site settings). Video calls and web
+       notifications work now; they were silently denied before.
+5. [ ] Not done: screen sharing (`getDisplayMedia` needs `setDisplayMediaRequestHandler` and the
+       portal picker), external protocol links (`openExternal`, still denied), USB/HID/serial
+       choosers, Storage Access API prompts (denied, so an embed that asks for its cookies under
+       third-party blocking gets none), per-site HTTPS-Only exceptions beyond the session,
+       `navigator.globalPrivacyControl` in workers, a fast fallback when port 443 hangs, and
+       a lock / site info entry while the rail is hidden.
+
 ## Phase 3 — Chrome extensions
 
 - [x] License decision: GPL-3.0 for the whole project
@@ -530,7 +617,8 @@ small foot. Done on `feat/bottom-bar`:
 - [x] History page (`app://history`), full-text search, SQLite (2026-10-15, see below)
 - [x] Downloads in the sidebar (see roadmap step 1)
 - [x] History list in the sidebar (search, remove, Show all history)
-- [ ] Permissions prompts, find in page, zoom per site, print
+- [x] Permissions prompts (wave 2, see above)
+- [ ] Find in page, zoom per site, print
 - [ ] Private windows, profiles (user circle), default-browser registration
 - [ ] Reopen-closed-tab history across restarts
 

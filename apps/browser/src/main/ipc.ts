@@ -21,7 +21,7 @@ import type { ExtensionHost } from './extensions'
 import { registerSafeIpc } from './safe/ipc'
 import type { SafeService } from './safe/service'
 import type { SyncService } from './sync/service'
-import { matchPasswords } from './passwords'
+import { registerPageInputIpc } from './page-input'
 import type { Startup } from './startup'
 import type { BookmarksStore } from './storage/bookmarks-store'
 import type { DownloadsStore } from './storage/downloads-store'
@@ -145,13 +145,8 @@ export function registerIpc(windows: WindowManager, settings: SettingsStore, dep
     return deps.extensions.state()
   })
 
-  ipcMain.handle(IPC.passwords, async (event, query: unknown) => {
-    const owner = windows.fromContents(event.sender)
-    if (owner?.layer !== 'overlay') return null
-    return matchPasswords(owner.controller.activeHost(), typeof query === 'string' ? query : '')
-  })
-
   registerSafeIpc(windows, deps.safe)
+  registerPageInputIpc(windows)
 
   ipcMain.handle(IPC.sync, async (event, run: unknown) => {
     const owner = windows.fromContents(event.sender)

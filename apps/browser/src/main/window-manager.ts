@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   clipboard,
   nativeTheme,
+  type IpcMainInvokeEvent,
   type Session,
   type WebContents,
   type WebContentsView,
@@ -21,6 +22,7 @@ import {
   FILES_PAGE_URL,
   MUSIC_PAGE_URL,
   HISTORY_URL,
+  SAD_TAB_URL,
   TOAST_MS,
   filesUrl,
   viewerUrl,
@@ -33,6 +35,7 @@ import {
   type InternalPage,
   type MenuTarget,
   type OverlayPart,
+  type PageInput,
   type DownloadEntry,
   type ExtensionInstallRequest,
   type ExtensionsState,
@@ -59,11 +62,14 @@ import {
 import type { ExtensionHost } from './extensions'
 import { OverlayController } from './overlay'
 import { PanelHost, panelBounds, panelId } from './panels'
-import { copyPassword, fillPassword, focusScript } from './passwords'
+import { FindController } from './find'
+import { PageMenus, printPage, viewSource } from './page-menu'
 import type { SafeService } from './safe/service'
 import { SafeWindow } from './safe/window'
-
-const PASSWORD_WORLD = 1009
+import { SwipeController, go } from './swipe'
+import type { PermissionStore } from './privacy/permissions'
+import type { PrivacyService } from './privacy/service'
+import { PrivacyWindow } from './privacy/window'
 import { SidebarController } from './sidebar'
 import type { BookmarksStore } from './storage/bookmarks-store'
 import type { HistoryStore } from './storage/history-store'
@@ -83,6 +89,9 @@ export interface WindowDeps {
   downloads: DownloadManager
   extensions?: ExtensionHost | undefined
   safe?: SafeService | undefined
+  privacy?: PrivacyService | undefined
+  permissions?: PermissionStore | undefined
+  siteInput?: ((input: string) => string | null) | undefined
   importChromeBookmarks(): Promise<string>
   isMusicTrack(path: string): boolean
   onSessionChange(): void
@@ -104,6 +113,7 @@ const INTERNAL_URLS: Record<InternalPage, string> = {
 }
 
 const DEFAULT_PAGE_RADIUS = 10
+const PAGE_KEY_MS = 1_000
 const PEEK_HIDE_DELAY_MS = 250
 
 const WINDOW_BACKGROUND = { dark: '#0b0a08', light: '#f4f2ee' }
@@ -136,7 +146,18 @@ export class WindowController {
   private broadcastQueued = false
   private destroyed = false
   private toastTimer: NodeJS.Timeout | null = null
+  readonly openedAt = Date.now()
+  private pendingKey: {
+    contentsId: number
+    action: ShortcutAction
+    code: string
+    at: number
+  } | null = null
   readonly safeUi: SafeWindow | null
+  readonly find: FindController
+  readonly swipe: SwipeController
+  readonly pageMenus: PageMenus
+  readonly privacyUi: PrivacyWindow | null
   private readonly deps: WindowDeps
 
   constructor(deps: WindowDeps, initial?: SessionWindow) {
@@ -214,6 +235,21 @@ export class WindowController {
       onTabActivated: (contents) => {
         if (this.win.isFocused() || this.deps.extensions?.state().tabId === null)
           deps.extensions?.selectTab(contents)
+        this.find.tabChanged(contents)
+        this.swipe.tabChanged(contents)
+        this.privacyUi?.refresh()
+      },
+      onContextMenu: (tab, params) => {
+        this.pageMenus.open(tab, params).catch(() => undefined)
+      },
+      onPageFirstKey: (tab, action, code) => {
+        this.pendingKey = { contentsId: tab.webContents.id, action, code, at: Date.now() }
+      },
+      failedLoad: (contents, url, description) => {
+        const from = deps.privacy?.https.failed(contents.id, url) ?? null
+        if (from === null) return undefined
+        const params = new URLSearchParams({ kind: 'https-only', url: from, error: description })
+        return `${SAD_TAB_URL}?${params.toString()}`
       },
     })
 
@@ -232,6 +268,53 @@ export class WindowController {
             lastMouse: () => this.lastMouse,
             toast: (message, icon) => this.toast(message, icon),
             hideOverlay: () => this.showOverlay('none'),
+          })
+
+    this.find = new FindController({
+      overlay: this.overlay,
+      activeContents: () => this.tabs.active?.webContents ?? null,
+      contentSize: () => this.contentSize(),
+    })
+    this.swipe = new SwipeController({
+      overlay: this.overlay,
+      enabled: () => deps.settings.get().gestures.swipe,
+      activeContents: () => this.tabs.active?.webContents ?? null,
+      pageRect: (contents) => this.tabs.byWebContents(contents)?.view.getBounds() ?? null,
+      contentSize: () => this.contentSize(),
+    })
+    this.pageMenus = new PageMenus({
+      tabs: this.tabs,
+      overlay: this.overlay,
+      settings: () => deps.settings.get(),
+      isBookmarked: (url) => deps.bookmarks.isBookmarked(url),
+      toggleBookmark: (tab) => this.toggleBookmark(tab),
+      openMenu: (target, at) => this.openMenu(target, at),
+      hideOverlay: () => this.showOverlay('none'),
+      openWindow: (url) =>
+        deps.openWindow({ bounds: null, tabs: [{ url, title: url }], activeIndex: 0 }),
+      downloadsDir: () => deps.downloads.directory(),
+      toast: (message, icon) => this.toast(message, icon),
+      safeReady: () => this.safeUi !== null && deps.safe?.pageState().enabled === true,
+      armGenerate: (contents, frame) => this.safeUi?.armGenerate(contents, frame),
+    })
+
+    const privacy = deps.privacy
+    const permissions = deps.permissions
+    this.privacyUi =
+      privacy === undefined || permissions === undefined
+        ? null
+        : new PrivacyWindow({
+            overlay: this.overlay,
+            permissions,
+            service: privacy,
+            activeContents: () => this.tabs.active?.webContents ?? null,
+            activeUrl: () => {
+              const tab = this.tabs.active
+              return tab === undefined ? '' : this.tabs.urlOf(tab)
+            },
+            pageBounds: () => this.tabs.getBounds(),
+            contentSize: () => this.contentSize(),
+            toast: (message, icon) => this.toast(message, icon),
           })
 
     this.win.on('resize', () => this.layout())
@@ -260,6 +343,7 @@ export class WindowController {
       if (this.toastTimer !== null) clearTimeout(this.toastTimer)
       try {
         this.safeUi?.dispose()
+        this.privacyUi?.dispose()
         this.overlay.destroy()
         this.sidebar.destroy()
         this.panels.destroy()
@@ -342,6 +426,7 @@ export class WindowController {
     if (panel === undefined) this.panels.hide()
     else this.panels.show(panel, panelBounds(sidebarBounds(inset, size, bar)))
     this.overlay.relayout(size, page, bar)
+    this.privacyUi?.place()
     this.scheduleBroadcast()
     this.deps.onSessionChange()
   }
@@ -477,9 +562,17 @@ export class WindowController {
       )
         return
       if (command.type === 'music.play' && !frameUrl.startsWith(HOME_URL)) return
+      if (
+        (command.type === 'permission.set' || command.type === 'permission.forget') &&
+        !frameUrl.startsWith(SETTINGS_URL)
+      )
+        return
+      if (command.type === 'https.allow' && !frameUrl.startsWith(SAD_TAB_URL)) return
       if ((command.type === 'tab.navigate' || command.type === 'nav.reload') && tab !== undefined)
         command = { ...command, id: tab.id }
     }
+    if (command.type === 'tab.navigate' && this.deps.siteInput !== undefined)
+      command = { ...command, input: this.deps.siteInput(command.input) ?? command.input }
     switch (command.type) {
       case 'tab.create': {
         const url = command.url ?? NEW_TAB_URL
@@ -654,7 +747,7 @@ export class WindowController {
         this.deps.history.remove(command.url)
         break
       case 'passwords.open':
-        this.openPasswords()
+        this.openSafeKey()
         break
       case 'extension.activate': {
         const origin = layer === 'overlay' ? this.overlay.view.getBounds() : { x: 0, y: 0 }
@@ -699,43 +792,6 @@ export class WindowController {
           ?.update()
           .then(() => this.toast('Extensions are up to date', 'check'))
         break
-      case 'passwords.fill': {
-        const { id, what } = command
-        this.showOverlay('none')
-        this.win.focus()
-        const contents = this.tabs.active?.webContents
-        contents?.focus()
-        const focused =
-          contents === undefined || contents.getURL().startsWith('app:')
-            ? Promise.resolve(true)
-            : contents
-                .executeJavaScriptInIsolatedWorld(PASSWORD_WORLD, [{ code: focusScript(what) }])
-                .then((ok: unknown) => ok !== false)
-                .catch(() => true)
-        void focused.then((ok) => {
-          if (!ok) {
-            this.toast('Click the login field, then try again', 'alert')
-            return
-          }
-          setTimeout(() => {
-            void fillPassword(id, what).then((error) => {
-              if (error !== null) this.toast(error, 'alert')
-            })
-          }, 120)
-        })
-        break
-      }
-      case 'passwords.copy': {
-        const { id, what } = command
-        this.showOverlay('none')
-        void copyPassword(id, what).then((error) =>
-          this.toast(
-            error ?? `${what === 'password' ? 'Password' : 'Username'} copied`,
-            error === null ? 'check' : 'alert',
-          ),
-        )
-        break
-      }
       case 'safe.choose':
       case 'safe.generate':
       case 'safe.unlock':
@@ -809,6 +865,93 @@ export class WindowController {
       case 'devtools.toggle':
         this.tabs.active?.webContents.toggleDevTools()
         break
+      case 'find.query':
+        if (layer === 'overlay') this.find.query(command.text)
+        break
+      case 'find.step':
+        if (layer === 'overlay') this.find.step(command.forward)
+        break
+      case 'find.close':
+        if (layer === 'overlay') this.find.close()
+        break
+      case 'page.menu.run':
+        if (layer === 'overlay') this.pageMenus.run(command.menuId, command.action)
+        break
+      case 'permission.decide':
+        if (layer === 'overlay') this.privacyUi?.decide(command.promptId, command.decision)
+        break
+      case 'permission.fit':
+        if (layer === 'overlay') this.privacyUi?.fit(command.promptId, command.height)
+        break
+      case 'permission.set':
+        if (layer === 'overlay' || layer === 'page')
+          this.deps.permissions?.set(command.origin, [command.kind], command.value)
+        break
+      case 'permission.forget':
+        if (layer === 'overlay' || layer === 'page') this.deps.permissions?.forget(command.origin)
+        break
+      case 'siteinfo.open': {
+        if (layer !== 'shell' && layer !== 'overlay') return
+        const origin = layer === 'overlay' ? this.overlay.view.getBounds() : { x: 0, y: 0 }
+        this.privacyUi?.openSiteInfo({ x: command.x + origin.x, y: command.y + origin.y })
+        break
+      }
+      case 'site.clearData':
+        if (layer === 'overlay') void this.privacyUi?.clearData(command.origin)
+        break
+      case 'https.allow': {
+        const tab = layer === 'page' ? this.tabs.byWebContents(sender) : undefined
+        if (tab === undefined || (this.deps.privacy?.https.allow(command.url) ?? null) === null)
+          return
+        this.tabs.navigate(tab.id, command.url)
+        break
+      }
+    }
+  }
+
+  pageInput(
+    event: IpcMainInvokeEvent,
+    layer: ApiLayer,
+    input: PageInput,
+    mainFrame: boolean,
+    frameUrl: string,
+  ): boolean {
+    const sender = event.sender
+    if (input.kind === 'button') {
+      const tab = layer === 'page' ? undefined : this.tabs.active
+      return tab === undefined ? false : go(tab.webContents, input.dir)
+    }
+    if (layer !== 'page' || this.tabs.byWebContents(sender) === undefined) return false
+    const frame = event.senderFrame
+    if (input.kind === 'key') {
+      const pending = this.pendingKey
+      if (
+        pending?.contentsId !== sender.id ||
+        pending.code !== input.code ||
+        Date.now() - pending.at > PAGE_KEY_MS
+      )
+        return false
+      this.pendingKey = null
+      this.runShortcut(pending.action)
+      return true
+    }
+    if (input.kind === 'probe') {
+      if (frame !== null && /^https?:/i.test(frameUrl)) this.pageMenus.probe(frame, input.safe)
+      return true
+    }
+    if (!mainFrame || !/^(https?|app):/i.test(frameUrl)) return false
+    switch (input.phase) {
+      case 'start':
+        return this.swipe.start(sender, input.dir, input.progress)
+      case 'move':
+        this.swipe.move(sender, input.dir, input.progress)
+        return true
+      case 'end':
+        this.swipe.end(sender, input.dir, input.progress)
+        return true
+      case 'cancel':
+        this.swipe.cancel(sender, input.dir)
+        return true
     }
   }
 
@@ -823,12 +966,15 @@ export class WindowController {
   }
 
   openMenu(menu: MenuTarget, at: Point): void {
+    if (menu.kind !== 'page') this.pageMenus.forget()
     const exists =
       menu.kind === 'tab'
         ? this.tabs.get(menu.id) !== undefined
         : menu.kind === 'extension'
           ? this.deps.extensions?.state().list.some((e) => e.id === menu.id) === true
-          : this.tabs.workspaceList().some((w) => w.id === menu.id)
+          : menu.kind === 'page'
+            ? this.pageMenus.has(menu.id)
+            : this.tabs.workspaceList().some((w) => w.id === menu.id)
     if (!exists) return
     this.overlay.show('menu', this.contentSize(), { type: 'menu.open', menu, x: at.x, y: at.y })
   }
@@ -888,22 +1034,16 @@ export class WindowController {
     }, TOAST_MS)
   }
 
-  activeHost(): string {
-    const tab = this.tabs.active
-    if (tab === undefined) return ''
-    try {
-      return new URL(this.tabs.urlOf(tab)).hostname.replace(/^www\./, '')
-    } catch {
-      return ''
+  openSafeKey(): void {
+    const contents = this.tabs.active?.webContents
+    if (contents === undefined || contents.isDestroyed()) return
+    if (this.safeUi === null) {
+      this.toast('Safe is not available', 'alert')
+      return
     }
-  }
-
-  openPasswords(): void {
-    this.overlayPinned = false
-    this.overlay.show('palette', this.contentSize(), {
-      type: 'passwords.open',
-      host: this.activeHost(),
-    })
+    if (this.overlay.part !== 'none' && this.overlay.part !== 'toast') this.showOverlay('none')
+    contents.focus()
+    this.safeUi.openForKey(contents)
   }
 
   railVisible(): boolean {
@@ -990,7 +1130,7 @@ export class WindowController {
         this.toggleRail()
         break
       case 'passwords':
-        this.openPasswords()
+        this.openSafeKey()
         break
       case 'files':
         this.dispatch({ type: 'open.internal', page: 'files' }, 'shell', this.win.webContents, '')
@@ -1045,13 +1185,91 @@ export class WindowController {
       case 'quit':
         this.deps.quit()
         break
+      case 'find':
+        void this.find.show()
+        break
+      case 'find.next':
+        this.find.step(true)
+        break
+      case 'find.prev':
+        this.find.step(false)
+        break
+      case 'workspace.new':
+        this.tabs.createWorkspace()
+        break
+      case 'workspace.rename':
+        this.dispatch(
+          { type: 'workspace.rename', id: this.tabs.activeWorkspace },
+          'shell',
+          this.win.webContents,
+          '',
+        )
+        break
+      case 'tab.workspace.next':
+      case 'tab.workspace.prev':
+        if (active !== undefined)
+          this.moveTabAlong(active.id, action.action === 'tab.workspace.next' ? 1 : -1)
+        break
+      case 'settings': {
+        const open = this.tabs.list().find((t) => t.state.url.startsWith(SETTINGS_URL))
+        if (open === undefined) this.tabs.create(SETTINGS_URL)
+        else this.tabs.activate(open.id)
+        break
+      }
+      case 'print':
+        if (active !== undefined) printPage(active.webContents)
+        break
+      case 'source':
+        if (active !== undefined) viewSource(this.tabs, active)
+        break
+      case 'tab.duplicate':
+        if (active !== undefined) this.tabs.duplicate(active.id)
+        break
+      case 'tab.pin':
+        if (active !== undefined) this.tabs.setPinned(active.id, !active.state.pinned)
+        break
+      case 'tab.mute':
+        if (active !== undefined) this.tabs.setMuted(active.id, !active.state.muted)
+        break
+      case 'url.copy':
+        if (active !== undefined && active.state.kind !== 'newtab') {
+          void clipboard.writeText(this.tabs.urlOf(active)).catch(() => undefined)
+          this.toast('Address copied', 'check')
+        }
+        break
+      case 'tab.search':
+        this.overlayPinned = false
+        this.overlay.show('palette', this.contentSize(), { type: 'palette.open', query: 't: ' })
+        break
+      case 'music':
+        this.dispatch({ type: 'open.internal', page: 'music' }, 'shell', this.win.webContents, '')
+        break
     }
+  }
+
+  moveTabAlong(id: string, delta: number): void {
+    const workspaces = this.tabs.workspaceList()
+    const tab = this.tabs.get(id)
+    if (tab === undefined || workspaces.length < 2) return
+    const index = workspaces.findIndex((w) => w.id === tab.state.workspaceId)
+    const target = workspaces[(index + delta + workspaces.length) % workspaces.length]
+    if (target !== undefined) this.tabs.moveToWorkspace(id, target.id)
   }
 
   private onPageMouse(point: Point): void {
     this.lastMouse = point
     const part = this.overlay.part
-    if (part === 'palette' || part === 'menu' || part === 'prompt' || part === 'sheet') return
+    if (
+      part === 'palette' ||
+      part === 'menu' ||
+      part === 'prompt' ||
+      part === 'sheet' ||
+      part === 'find' ||
+      part === 'swipe' ||
+      part === 'permission' ||
+      part === 'siteinfo'
+    )
+      return
     if (part === 'rail') {
       if (this.overlayPinned || Date.now() - this.overlay.shownAt < PEEK_HIDE_DELAY_MS) return
       if (point.x > RAIL_WIDTH + RAIL_PEEK_SHADOW) this.overlay.hide()
@@ -1132,6 +1350,7 @@ export class WindowController {
     contents.on('before-input-event', (event, input) => {
       const action = matchShortcut(input)
       if (action === null) return
+      if (action.action === 'find' && this.sidebar.webContents?.id === contents.id) return
       if (action.action === 'devtools' && input.alt) {
         contents.toggleDevTools()
         event.preventDefault()

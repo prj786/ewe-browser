@@ -6,51 +6,8 @@ import { isSidebarSection, storeExtensionId } from '@ewe/shared'
 import { badgeColor, localizedName, popupBounds } from '../../src/main/extension-helpers'
 import { chromeBrands, storeHeaders } from '../../src/main/identity'
 import { panelBounds, panelId, PANEL_INSET } from '../../src/main/panels'
-import { focusScript, parseItems, parseStatus } from '../../src/main/passwords'
 import { STARTUP_NAME, parseEntries, startupExec, withEntry } from '../../src/main/startup'
 import { sanitizePanels } from '../../src/main/storage/settings-store'
-
-describe('passwords broker', () => {
-  it('reads ewe-pass status and keeps errors readable', () => {
-    expect(
-      parseStatus({ ok: true, provider: '1password', label: '1Password', ready: true }),
-    ).toEqual({
-      ok: true,
-      provider: '1Password',
-      ready: true,
-      error: null,
-      hint: null,
-    })
-    expect(
-      parseStatus({ ok: false, error: 'op is locked', hint: 'Unlock 1Password' }),
-    ).toMatchObject({
-      ok: false,
-      error: 'op is locked',
-      hint: 'Unlock 1Password',
-    })
-    expect(parseStatus(null).error).toBe('ewe-pass is not installed')
-  })
-
-  it('keeps only item fields without secrets', () => {
-    const items = parseItems({
-      ok: true,
-      items: [
-        { id: 'a1', title: 'GitHub', username: 'ewe', host: 'github.com', score: 9, password: 'x' },
-        { title: 'no id' },
-        'junk',
-      ],
-    })
-    expect(items).toEqual([
-      { id: 'a1', title: 'GitHub', username: 'ewe', host: 'github.com', score: 9 },
-    ])
-    expect(parseItems({ ok: true })).toEqual([])
-  })
-
-  it('builds a focus script for the requested field', () => {
-    expect(focusScript('password')).toContain('const what = "password"')
-    expect(focusScript('login')).not.toContain('%WHAT%')
-  })
-})
 
 describe('web panels', () => {
   it('derives stable unique ids from the host', () => {

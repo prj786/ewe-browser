@@ -30,6 +30,10 @@ export class DownloadManager {
     session.on('will-download', (_event, item, source) => this.track(item, source))
   }
 
+  directory(): string {
+    return this.dir()
+  }
+
   private track(item: DownloadItem, source: WebContents | null): void {
     const path = uniquePath(
       this.dir(),

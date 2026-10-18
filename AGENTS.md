@@ -70,6 +70,13 @@ packages/shared/src/
   history.ts                      HISTORY_URL, ranges and keep options, HistoryClear + clearCovers, sites
                                   (siteOf/hostInSite), HistoryRequest + isHistoryRequest, day rows,
                                   RemoteMachine / tabs files (isRemoteTabsFile, searchRemoteTabs)
+  input.ts                        SwipeTracker (two-finger swipe state machine), PageInput / PageAction
+                                  validators, GestureSettings, the page menu model (PageMenu,
+                                  pageMenuItems, pageMenuAllows), PASSWORD_MANAGER_EXTENSIONS, shortText
+  privacy.ts                      PrivacySettings (+ sanitize, DOH_PROVIDERS, dohConfig, isDohTemplate),
+                                  permission kinds, labels and asks, PermissionPrompt, SiteInfo, origins
+  sites.ts                        SITES (the site search table), siteByName/siteByHost, domainOf,
+                                  fill/withLocale, parseSiteQuery (@site), learnSearchTemplate
 apps/browser/
   electron.vite.config.ts         main/preload/renderer builds, seven HTML inputs, devCsp plugin, @ewe/shared alias
   electron-builder.yml            dir target, castlabs runtime from node_modules/electron/dist, app.asar
@@ -79,6 +86,11 @@ apps/browser/
   src/main/overlay.ts             OverlayController: the transparent WebContentsView above the pages
   src/main/layout.ts              rect math: pageBounds, overlayBounds, hoverZone (left edge), sidebarBounds
   src/main/shortcuts.ts           matchShortcut(): keymap from settings (setShortcuts) → ShortcutAction
+  src/main/find.ts                FindController (find bar: findInPage, count, prefill), ownsFind()
+  src/main/swipe.ts               SwipeController (the swipe arrow, back/forward at the end), go()
+  src/main/page-menu.ts           PageMenus: the right-click menu on web pages (open, Safe probe, run)
+  src/main/page-menu-model.ts     buildPageMenu() from ContextMenuParams (pure), shownUrl, savePageName
+  src/main/page-input.ts          `ewe:page-input` handler → WindowController.pageInput
   src/main/ipc.ts                 ipcMain handlers, sender-frame checks, per-layer command policy
   src/main/protocol.ts            app:// scheme (prod from out/renderer with CSP, dev proxied to Vite)
   src/main/identity.ts            user agent cleanup, the reported Chrome major, Sec-CH-UA rewriting
@@ -100,6 +112,12 @@ apps/browser/
                                   local.ts (help, commands, ls, locate, places), offline.ts (stores from disk),
                                   server.ts (socket, JSON lines), host.ts (main side), index.ts (CLI entry)
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
+  src/main/privacy/               service.ts (permission request/check handlers, HTTPS-Only webRequest,
+                                  Secure DNS, GPC header, site info, clear site data), permissions.ts
+                                  (PermissionStore, kindsFor, verdict), https-only.ts, window.ts
+                                  (PrivacyWindow: the prompt and site info per window), ipc.ts, startup.ts
+  src/main/site-search/           resolve.ts (site → template order), opensearch.ts (parser + store),
+                                  locale.ts ({cc}/{lang}), service.ts (live side, OpenSearch discovery)
   src/main/history.ts             frecency scoring and ranking
   src/main/history-service.ts     HistoryService: the `ewe:history-page` ops (rows, summary, delete, deleteSite,
                                   clear browsing data, keep), retention timer, pushes to history pages;
@@ -116,9 +134,12 @@ apps/browser/
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
   src/preload/chrome-version.ts    navigator.userAgentData with the reported Chrome major (main world)
+  src/preload/page-input.ts       wheel → SwipeTracker (main frames), side buttons (shell layers),
+                                  the right-clicked element, `ewe:page-action` (media, Safe)
+  src/preload/privacy.ts          navigator.globalPrivacyControl and "prompt" for undecided permissions
   src/ui/shell/                   base layer: the tab rail (or none when collapsed), the edge strip, the page slot (card)
-  src/ui/overlay/                 floating layer: rail peek, palette, context menus (tab-menu.ts, workspace-menu.ts),
-                                  toast
+  src/ui/overlay/                 floating layer: rail peek, palette, context menus (tab-menu.ts, workspace-menu.ts,
+                                  page-menu.ts), toast, InputLayer.tsx (find bar, swipe arrow, input.css)
   src/ui/sidebar/                 right sidebar layer: section tabs, search, resize handle, footer actions
   src/ui/components/              Rail, BottomBar (workspaces + tools), Palette, Menu, Favicon, Icon (Lucide paths inline)
   src/ui/components/sidebar/      BookmarksPane (tree, drag and drop, inline forms), DownloadsPane, HistoryPane
@@ -141,6 +162,8 @@ apps/browser/
   tests/support/dav-mock.ts       a small WebDAV server (MKCOL, GET, PUT with If-Match, PROPFIND) for sync tests
   tests/e2e/smoke.spec.ts         28 end-to-end tests; hyprland.ts + global-setup/teardown place windows on workspace 2
   tests/e2e/history.spec.ts       the history page, clear browsing data, opening history, sync between two profiles
+  tests/e2e/input.spec.ts         page menus, find, the wave-2 shortcuts, swipe, side buttons, Safe only,
+                                  password-manager extensions
 docs/CLI.md                       the command line reference (contract, verbs, Companion registry, socket)
 docs/PLAN.md                      roadmap, status, open bugs
 docs/DESIGN.md                    Ewe design mapping and browser-specific tokens
@@ -156,7 +179,8 @@ docs/screenshots/                 generated, untracked
   sidebar view (created on first open, `SidebarController`), and the overlay view added last. Every
   tab attach re-raises the sidebar and then the overlay, so the order is pages < sidebar < overlay.
 - Every tab lives on `session.fromPartition('persist:default')`. The default session gets the same
-  identity and permission handlers. `will-attach-webview` is denied everywhere.
+  identity and permission handlers (`PrivacyService.install`, see Privacy and security).
+  `will-attach-webview` is denied everywhere.
 - Identity (`identity.ts`, `preload/chrome-version.ts`): pages are told the major Chrome stable is
   on today, not the engine's. Since 153 (2026-09-08) Chrome ships a major every two weeks and
   Electron's newest stable still carries Chromium 152, so Gmail, which supports the two newest
@@ -243,6 +267,14 @@ throttled to 500ms, and history pages, throttled to 400ms), `ewe:home-changed`
 (home tabs only, throttled to 400ms), `ewe:ui` (main → renderer).
 Safe adds `ewe:safe-page` and `ewe:safe-passkey` (invoke, page layer, http(s) frames only) and
 `ewe:safe-fill` / `ewe:safe-suggest` (main → one frame); see Safe under ewe integration.
+Input adds `ewe:page-input` (invoke, `isPageInput`: swipe reports from page main frames on
+http(s) and `app://`, side buttons from the shell, overlay and sidebar layers, the Safe probe
+from http(s) frames) and `ewe:page-action` (main → one frame, `isPageAction`: media toggles
+and Safe opens); see Input below. `ewe:passwords` and the ewe-pass route are gone (Safe only).
+Privacy adds `ewe:permissions` (invoke, `app://settings` only: `{op: 'list'}` → `PermissionSite[]`,
+`{op: 'status'}` → `PrivacyStatus`), `ewe:permissions-changed` (main → settings pages) and
+`ewe:privacy-frame` (a synchronous `sendSync` from the page preload of every http(s) frame:
+`{gpc, ask}`); see Privacy and security.
 
 Main validates every command at runtime (`isShellCommand`), checks the sender frame
 (`senderFrameUrl`: main frame only, `app://` for the page layer), and applies the per-layer policy
@@ -250,7 +282,8 @@ in `WindowController.dispatch`: the page layer may only send `PAGE_COMMANDS`
 (`workspace.activate`, `tab.create`, `tab.activate`, `tab.navigate`, `tab.close`, `nav.reload`,
 `settings.update`, `open.internal`, `music.play`, `shortcuts.recording`, `bookmarks.importChrome`),
 `settings.update`, `shortcuts.recording` and `bookmarks.importChrome` only from `app://settings`,
-`music.play` only from `app://home`,
+`permission.set` and `permission.forget` only from `app://settings` (and the overlay), `https.allow`
+only from `app://sad`, `music.play` only from `app://home`,
 and `tab.navigate` from a page is pinned to that page's own tab. Pages get no `bookmark.*` editing
 commands yet; a future bookmarks page adds what it needs.
 
@@ -271,7 +304,9 @@ shifted by the overlay view origin in main, so the peek can send its own client 
 nothing to rename in fullscreen, where the bar is hidden),
 `overlay.pin {pinned}`, `workspace.create {name?, color?}`, `workspace.activate {id}`,
 `workspace.update {id, name?, color?}`, `workspace.remove {id}`, `workspace.mergeInto {from, to}` (moves every tab of `from` into `to`,
-keeps `from` as an empty workspace), `settings.update {patch}`,
+keeps `from` as an empty workspace), `settings.update {patch}`, `find.query {text}`,
+`find.step {forward}`, `find.close`, `page.menu.run {menuId, action}` (the last four from the
+overlay only),
 `open.internal {page}`, `music.play {path}` (a library track: activates the one music tab and sends
 it the `music.play` UiEvent, or opens `app://music/?play=<path>`; any other file opens in the files
 viewer), `shortcuts.recording {on}`, `bookmark.toggle {tabId?}` (the active tab by
@@ -284,13 +319,22 @@ displayed before the move, `folderId` alone appends; cycles are refused),
 `sidebar.toggle {section?}`, `sidebar.close`, `sidebar.resize {width, commit?}`,
 `download {id, action: pause|resume|cancel|retry|open|show|remove}` (`remove` drops the entry,
 never the file), `downloads.clear` (finished entries only), `history.remove {url}`,
-`window.new|close|minimize|toggleMaximize`, `devtools.toggle`. `menu.open` from the sidebar layer
-is ignored (the sidebar renders its own menus).
+`window.new|close|minimize|toggleMaximize`, `devtools.toggle`, `permission.decide {promptId,
+decision: allow | block | dismiss}` and `permission.fit {promptId, height}` (overlay only),
+`permission.set {origin, kind, value: ask | allow | block}`, `permission.forget {origin}`,
+`siteinfo.open {x, y}` (shell or overlay coordinates, like `menu.open`), `site.clearData
+{origin}` (overlay), `https.allow {url}` (the interstitial). A `tab.navigate` input of the form
+`@site words` is rewritten in `dispatch` to that site's search url (`siteInput`, see Site search);
+an unknown site stays a plain search. `menu.open` from the sidebar layer is ignored (the sidebar
+renders its own menus).
 
 UiEvent types (main → a renderer): `focus-address`, `overlay.show {part}`, `overlay.hide`,
 `palette.open {query?, newTab?}` (the palette reacts to a new `query` while mounted),
 `menu.open {menu, x, y}`, `toast {message, icon?: star | download | check | alert}`,
-`sidebar.focus`, `workspace.rename {id}`, `music.play {path}` (to the music tab).
+`sidebar.focus`, `workspace.rename {id}`, `music.play {path}` (to the music tab), `find.open
+{query}`, `find.result {result: {matches, active} | null}`, `swipe {dir, progress, done?}`,
+`page.menu {menu}` (sent just before `menu.open {menu: {kind: 'page', id}}`),
+`permission.prompt {prompt}`, `siteinfo.open {info, x, y}`, `siteinfo.update {info}`.
 
 State: `WindowSnapshot { windowId, tabs: TabState[], activeTabId, workspaces, activeWorkspaceId,
 focused, maximized, fullscreen, sidebar: { section, width } | null }` is broadcast (coalesced to one per 16ms) to the shell, the
@@ -346,7 +390,28 @@ every tab.
   Ctrl+H History sidebar, Ctrl+Shift+H the history page (`history`), Ctrl+J downloads,
   Ctrl+= / Ctrl+- / Ctrl+0 zoom,
   Ctrl+[ / Ctrl+] and Alt+Left/Right back/forward, Ctrl+Shift+T reopen, Ctrl+Shift+W close window,
-  Ctrl+Shift+I / F12 devtools, F11 fullscreen, Ctrl+Shift+Q quit. Main applies changes live
+  Ctrl+Shift+I / F12 devtools, F11 fullscreen, Ctrl+Shift+Q quit. Wave 2 (2026-10-18) appended:
+  Ctrl+F find (not on `app://files|music|history` or in the sidebar, which keep their own
+  search), Ctrl+G / F3 next, Ctrl+Shift+G / Shift+F3 previous, Alt+Shift+N new workspace,
+  Alt+Shift+R rename it, Alt+Shift+Right/Left also switch workspaces, Ctrl+Alt+Shift+Right/Left
+  move the tab to the next/previous workspace (wrapping), Alt+Shift+H also home, Ctrl+, settings
+  (reuses an open settings tab), Ctrl+P print, Ctrl+U page source (`view-source:` tab),
+  Alt+Shift+D duplicate, Alt+Shift+P pin/unpin, Ctrl+M mute/unmute, Alt+Shift+C copy the
+  address (toast), Ctrl+Shift+A the palette in `t:` mode, Alt+Shift+M music. All checked
+  against Chromium's own keys and ewe's Hyprland binds (every Hyprland bind uses Super).
+  Page first (review, 2026-10-18): web apps bind several of these (Ctrl+U underline, Ctrl+F their
+  own find, Ctrl+P quick open, Ctrl+M in terminals, Alt+Shift+arrows in editors), and
+  `before-input-event` runs before the page, so `PAGE_FIRST_SHORTCUTS` (find, find.next,
+  find.prev, print, source, settings, tab.mute, tab.duplicate, tab.pin, tab.search, url.copy,
+  music, workspace.new, workspace.rename, tab.workspace.next/prev) and `PAGE_FIRST_CHORDS`
+  (Alt+Shift+Left/Right/H, the chords wave 2 added to older actions) are not taken on http(s)
+  tabs: `TabManager` leaves the key to the page and records it (`onPageFirstKey`), the page
+  preload's capture `keydown` listener (every http(s) frame; modifier and F keys only, no
+  repeats) checks `defaultPrevented` after dispatch (`setTimeout 0`) and reports
+  `ewe:page-input {kind: 'key', code}`, and main runs the recorded action only for that tab and
+  code within `PAGE_KEY_MS` 1 s. Everything else stays browser first, and so does every key on
+  `app://` pages and in the shell layers. Web panels have no browser shortcuts at all, so
+  Ctrl+F there is the panel page's. Main applies changes live
   (`setShortcuts` on the settings `change` event). While `app://settings` records a chord it sends
   `shortcuts.recording {on}`; `TabManager` skips `matchShortcut` for that webContents. Chords with
   Ctrl+Alt plus a printable character are ignored as AltGr. Alt+Tab belongs to Hyprland.
@@ -355,8 +420,10 @@ every tab.
 
 ## Overlay and hover state machine
 
-- Parts: `none | rail | palette | menu | toast | prompt | suggest | sheet` (Safe's save prompt,
-  inline list and passkey sheet; see Safe below). `OverlayController.show(part, size, extra?, at?)` sets
+- Parts: `none | rail | palette | menu | toast | prompt | suggest | sheet | find | swipe |
+permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see Safe below; the
+  find bar and the swipe arrow, see Input; the permission card and the site info panel, see
+  Privacy and security). `OverlayController.show(part, size, extra?, at?)` sets
   bounds, makes the view visible, records `shownAt`, sends `overlay.show {part}` on a part change,
   then any `extra` UiEvent. `hide()` sends `overlay.hide` (the UI adds `.leaving` for the exit
   animation), waits `HIDE_ANIMATION_MS` = 160ms, hides the view and sends `overlay.show none`.
@@ -456,6 +523,73 @@ every tab.
   element and on one inside a shadow root never arrived (a drag area inside an iframe never
   counted); after, all arrive. The e2e test checks the computed value, since `sendInputEvent`
   bypasses the window's hit test.
+
+## Input: swipe, side buttons, find, page menu (wave 2, 2026-10-18)
+
+- Two-finger swipe (`preload/page-input.ts`, `SwipeTracker` in `shared/input.ts`): a passive
+  window `wheel` listener in page main frames (http(s) and `app://`) feeds the tracker. A
+  gesture locks after `SWIPE_LOCK` 12 px: horizontal when |Σx| > 2·|Σy|, else ignored until it
+  ends; ctrl (pinch) or shift (mouse sideways scroll) ignores or cancels it; it is also ignored
+  when the event was `defaultPrevented` or any ancestor of the target (shadow hosts included,
+  `rtl` handled, the root unless its overflow is hidden) can still scroll that way. Σx < 0 is
+  back (with natural scrolling, fingers to the right), > 0 forward. Progress = travel /
+  `SWIPE_THRESHOLD` 160 css px; the gesture ends `SWIPE_END_MS` 150 after the last wheel event
+  (kinetic events keep it alive). The preload invokes `start` and only reports `move` / `end` /
+  `cancel` when main said yes; main (`SwipeController`) says yes only for the active tab, with
+  `Settings.gestures.swipe` on, history in that direction and the overlay free (none, toast or
+  swipe). It shows part `swipe` at `swipeBounds` (a `SWIPE_BOX` 96 square on the page edge,
+  centred vertically), streams `swipe {dir, progress}` to `InputLayer`, and at the end with
+  progress 1 navigates and sends `done` (hidden 220 ms later); below 1 it just hides. The arrow
+  never outlives its page: a main-frame navigation, a crash, the tab closing, a tab switch or
+  `SWIPE_IDLE_MS` 1 s without a report drops it, and a click on it closes it (the 96 px overlay
+  view would otherwise eat clicks at the page edge). Verified with `sendInputEvent` wheel events
+  and a unit test with fakes (`tests/unit/swipe.test.ts`); a real touchpad is untested.
+- Mouse side buttons: Chromium already navigates on back/forward (button 3/4) inside a page and
+  honours a page's `preventDefault` on the mouseup (checked in Electron 44), so pages are left
+  alone (an extra navigation from us went back twice). The shell, overlay and sidebar layers
+  report them (`installSideButtons`) and main moves the active tab.
+- Find (`main/find.ts`): Ctrl+F (`find`) shows part `find` (`overlayBounds`: `FIND_WIDTH` 384
+  × `FIND_HEIGHT` 72 at the page card's top right, i.e. a 360 × 48 bar inside `FIND_PAD` 12 of
+  shadow room), focuses the overlay and sends `find.open {query}`: the page selection read in
+  isolated world 1011 (200 characters at most, whitespace folded), else the tab's last query.
+  Typing sends `find.query` (`findInPage(text, {findNext: true})`), Enter / Shift+Enter, the
+  arrows, Ctrl+G / F3 and Ctrl+Shift+G / Shift+F3 send `find.step` (`findNext: false`); results
+  come back from `found-in-page` as `find.result {matches, active}` ("2/7", `danger` when 0).
+  Any other part, Esc or the close button ends it with `stopFindInPage('keepSelection')`; a tab
+  switch closes it; a main-frame navigation clears the count and the search runs again when the
+  new page stops loading. Ctrl+G with the bar closed opens
+  it. `app://files`, `app://music` and `app://history` keep their own Ctrl+F (`ownsFind`, in
+  `TabManager`), and so does the sidebar (`lockShellContents`). Page mouse moves leave `find`
+  and `swipe` alone (no peek over them), and the overlay's mouseleave does not close them.
+- Page menu (`main/page-menu.ts`, `page-menu-model.ts`, overlay `page-menu.ts`): every tab's
+  `context-menu` event (mouse, the menu key or Shift+F10) → `PageMenus.open`: only for the active
+  tab, never over the palette or a sheet; a newer right-click wins over one still waiting. For an
+  editable text-like input (`SAFE_CONTROLS`) in an http(s) frame with Safe ready it first waits
+  up to `PROBE_WAIT_MS` 150 for the preload's probe (Safe's own `classify` of the clicked input,
+  sent after dispatch only when the page did not cancel its `contextmenu`). The menu belongs to
+  the document it was opened on: a cross-document navigation of the tab or of the clicked frame,
+  a crash or the tab closing closes it, and `run` refuses when the tab's url changed. `buildPageMenu` turns the params into a `PageMenu` (link, image/video/audio with its
+  flags, the trimmed selection (1000 max) and the url it resolves to, edit flags with five
+  spelling suggestions and the Safe field kind, page back/forward/bookmark/web); the overlay gets
+  `page.menu {menu}` and then `menu.open {kind: 'page', id}` at view origin + params x/y (they
+  are view DIPs, zoom and iframes included). `pageMenuItems` (shared, pure) builds the rows;
+  the overlay maps them to `Menu` entries whose `run` sends `page.menu.run {menuId, action}`;
+  main re-checks the action with `pageMenuAllows` against its own copy of the menu, so nothing
+  from the page or the overlay chooses a url. Safe rows count only 500 ms after the menu opened
+  (`SAFE_MENU_GUARD_MS`). Actions: links (new tab in the background, a new workspace (switched
+  to), a new window, save through the download manager, copy), image/media (open http(s) srcs,
+  save http(s)/data/blob srcs, copy image at the point, copy address, play/pause, mute, loop,
+  controls through `ewe:page-action` to the clicked frame, applied by its preload to the
+  right-clicked element), selection (copy, search with the Settings engine, Go to), spelling
+  (`replaceMisspelling`, `addWordToSpellCheckerDictionary`), Safe (`safe.fill` opens Safe's list
+  for that field; `safe.generate` arms `SafeWindow.armGenerate` for that frame only and opens it,
+  and Safe's `open` from that frame with trigger `key` within 3 s then generates and fills both
+  new-password fields straight away), editing
+  (`undo` … `pasteAndMatchStyle`, `selectAll`), page (back, forward, reload, bookmark, save page
+  as `HTMLComplete` into the downloads folder under a unique name of at most 200 UTF-8 bytes
+  whose `_files` folder is free too, `print()` (the system dialog),
+  `view-source:` in a new tab, which keeps its `view-source:` address through `shownUrl`), and
+  Inspect (`inspectElement(x, y)`). Extension context-menu items are not shown yet.
 
 ## Files (`app://files`, roadmap step 3)
 
@@ -591,6 +725,20 @@ every tab.
   `extension.install`, answered by `extension.confirm {requestId, allow}`), then loads it or
   deletes the download. The rail shows `.rail-store-add` on store detail pages of extensions not
   yet added; Settings has a link field.
+- Password-manager extensions: a best-effort id list, not a capability check
+  (`PASSWORD_MANAGER_EXTENSIONS` in `shared/input.ts`, 36 ids checked on 2026-10-18 against
+  their chromewebstore.google.com detail pages, the store's own search data, or, for Avira, the
+  manifest of the CRX Google still serves; the old 1Password X id answers 204 and is kept
+  because an old profile may still carry it). A manager under another id, or a sideloaded copy
+  without the store key, is not caught. `installFromStore` refuses them before downloading and
+  `beforeInstall` denies them, both with the toast "ewe browser fills passwords with Safe".
+  `ExtensionHost` wraps `session.extensions.loadExtension` before `installChromeWebStore` scans
+  the folder: `storeIdAt(dir)` derives the id from `manifest.key` (sha256 of the key, a–p) or
+  the store folder name, and a listed id is refused before Chromium loads it, so none of its
+  scripts ever run (the library logs "Failed to load extension"); the files stay. An
+  `extension-loaded` for a listed id (anything that slips past) is unloaded at once. Either way
+  the focused window toasts "<name> is off: Safe fills passwords" once per run (`onBlocked`,
+  retried until a window has been open 1.5 s).
 - Commands: `extension.activate {id, x, y, width, height}`, `extension.options {id}`,
   `extension.remove {id}`, `extensions.update`, `extension.install {source}`,
   `extension.confirm`; `menu.open {kind: 'extension', id}` builds `extension-menu.ts`.
@@ -641,17 +789,18 @@ machine, savedAt, windows: [{ workspaces: [{ name, color, tabs: [{ url, title, p
 
 ## ewe integration (roadmap step 5)
 
-- Passwords (`main/passwords.ts`): the tool is `$EWE_PASS`, else `ewe-pass` in the ewe bin dir,
-  else the copy inside `~/.config/ewe/plugins/ewe.passwords`. `ewe:passwords` (invoke, overlay
-  layer only) runs `status` then `match --class ewe-browser --title <active host> [--query q]`
-  and returns `{ status, items }` (ids, titles, usernames, hosts; never secrets). Command
-  `passwords.open` (also shortcut `passwords`, Ctrl+Shift+L, and `.rail-key`) shows part
-  `palette` and sends UiEvent `passwords.open {host}`; the overlay renders `Passwords` instead of
-  `Palette`. `passwords.fill {id, what}` hides the overlay, focuses the window and page, runs
-  `focusScript(what)` in isolated world 1009 (keeps a focused text field, else the username field
-  before the first visible password field, else the password field) and then
-  `ewe-pass fill <id> --pid <main pid> --what <what>`, which types through wtype.
-  `passwords.copy {id, what}` runs `ewe-pass copy`. Errors come back as toasts.
+- Passwords are Safe only (wave 2, 2026-10-18; the owner's call). The ewe-pass route
+  (`main/passwords.ts`, `ewe:passwords`, the overlay `Passwords` picker, `passwords.fill/copy`)
+  is gone. Command `passwords.open` (the `.rail-key`), shortcut `passwords` (Ctrl+Shift+L) and
+  the page menu all go through Safe's own path: `WindowController.openSafeKey` focuses the page
+  and calls `SafeWindow.openForKey`, which sends `ewe:page-action {op: 'safe.key'}` to the
+  focused frame (`contents.focusedFrame`, else the main frame). The preload's `openSafeAt` takes
+  the focused field (through open shadow roots) or, with nothing focused, the first visible login
+  field (else any Safe field) of that document, focuses it and sends Safe's ordinary
+  `open {trigger: 'key'}`, so the inline list, its clickjacking guard and the fill are Safe's.
+  No `open` from that tab within `SAFE_KEY_WAIT_MS` 600 → toast "No sign-in field on this page";
+  Safe off or not running → a toast saying so. Password-manager extensions are blocked, see
+  Extensions.
 - Safe (`main/safe/`, `preload/safe/`, `ui/overlay/Safe*.tsx`, `PasskeySheet.tsx`, `safe-menu.ts`,
   `safe.css`, `components/SafePrompt.tsx`; ewe-safe RFC-008, its `docs/PROTOCOL.md` v1 and
   `docs/TRIO.md` §B1/§S1):
@@ -760,6 +909,115 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
 '<app> --background' }`; `ewe:startup` (invoke, `app://settings` only, optional boolean)
   returns `{ available, on }`.
 
+## Privacy and security (wave 2, 2026-10-18)
+
+Settings → Privacy and security (`pages/settings/privacy.tsx`) holds `Settings.privacy`
+(`PrivacySettings`, `sanitizePrivacySettings`; not synced, DNS is per machine): `secureDns: off |
+automatic | secure` with `dnsProvider` (cloudflare, quad9, mullvad, adguard, nextdns + `nextdnsId`,
+custom + `dnsTemplate`), `httpsOnly` (default off), `blockThirdPartyCookies` (default on), `gpc`
+(default on). `PrivacyService` (`main/privacy/service.ts`) is created in `main()` after the
+settings load and installed on both sessions.
+
+- **Secure DNS**: `dohConfig()` → `app.configureHostResolver` (`off` → `secureDnsMode: 'off'`, the
+  system resolver; `automatic` → Chromium's upgrade when the system's DNS provider offers DoH;
+  a provider → `secure` with that one template, no fallback). Applied at start and on every
+  settings change; an invalid NextDNS id or custom template keeps the configuration applied
+  before it (only at start, with nothing applied yet, does it fall back to `off`) and reports
+  `dnsError` (`PrivacyStatus`, shown in Settings). Electron throws "not a valid DoH template" for
+  bad templates, so `isDohTemplate` checks https, no credentials and at most `{?dns}` first.
+  Verified: all five providers resolve live with `secure`, a template pointing at a closed local
+  port makes `session.resolveHost` fail, `off` resolves again (e2e).
+- **HTTPS-Only** (`https-only.ts`): `webRequest.onBeforeRequest` (`http://*/*`, types `mainFrame`
+  and `subFrame`; the only onBeforeRequest listener) redirects to https when the url has the
+  default port and the host is not local (`isLocalHost`: localhost, `.localhost`, `.local`,
+  `.home.arpa`, `.internal`, `.lan`, `.test`, single-label names, loopback, private, link-local and
+  CGNAT IPv4, IPv6 loopback/ULA/link-local) and not allowed for this run. Main-frame upgrades are
+  remembered per webContents; when that load fails (`TabManagerHost.failedLoad` hook in
+  `did-fail-load`), the tab goes to `app://sad/?kind=https-only&url=<http url>&error=…`, the sad
+  page's interstitial: Go back, or Continue to the http site (`https.allow {url}`, page command
+  from `app://sad` only), which allows that host until quit and navigates the tab. Any committed
+  navigation (`did-navigate`) forgets the upgrade. Not handled: a site whose port 443 hangs waits
+  for Chromium's own timeout before the interstitial.
+- **Third-party cookies**: Chromium's own blocking, the `ForceThirdPartyCookieBlockingEnabled`
+  feature (`net::features::kForceThirdPartyCookieBlocking`, present in the Electron 44 binary),
+  appended to `--enable-features` in `bootstrap()` from `settings.json` read synchronously
+  (`privacyAtStartup`). Electron has no live switch (no cookie-settings API), so a change applies
+  after a restart; Settings says so (`PrivacyStatus.thirdPartyBlocked` is the state at start).
+  Verified with a cross-site iframe on two local origins (127.0.0.1 embedding localhost): with
+  the feature neither the frame's `Set-Cookie` (`SameSite=None; Secure`) nor its
+  `document.cookie` is stored, a top-level visit to localhost still stores its first-party
+  cookie, without the feature both are stored (e2e). `test-third-party-cookie-phaseout` works too
+  but turns on more of the phase-out; no header stripping is used.
+- **Global Privacy Control**: `Sec-GPC: 1` on every http(s) request (`applyIdentity` takes an
+  `extraHeaders` hook; its `onBeforeSendHeaders` now matches `http://*/*` too, and only the https
+  side rewrites client hints) and `navigator.globalPrivacyControl === true` defined on
+  `Navigator.prototype` in the main world (`preload/privacy.ts`), both following the setting live
+  (new documents). Chromium's own `GlobalPrivacyControl` blink feature exposes the property but
+  reads a renderer preference Electron cannot set, so it stays off. Workers do not get the property.
+- **Site permissions** (`permissions.ts`, `<userData>/permissions.json` `{version: 1, sites:
+[{origin, permissions: {kind: allow | block}, updated}]}`, 1000 origins): kinds `camera,
+microphone, location, notifications, clipboard, midi, local-network, windows, idle`
+  (`kindsFor` maps Chromium's `media` + mediaTypes, `geolocation`, `notifications`,
+  `clipboard-read`, `midi`/`midiSysex`, `local-network-access`/`local-network`/`loopback-network`,
+  `window-management`, `idle-detection`). Fullscreen, pointer and keyboard lock, sanitized
+  clipboard writes, `mediaKeySystem` and `screen-wake-lock` are allowed silently (`SILENT_ALLOW`);
+  everything else (USB, HID, serial, external protocols, storage access, file system writes, …)
+  is denied as before. Decisions are per top-level origin (Chromium's permission delegation
+  checks the iframe `allow` attribute first). `verdict`: every kind allowed → allow, any blocked →
+  block, else ask. The check handler answers the same verdict (so `navigator.permissions.query`
+  says granted only for allowed kinds); because Electron reports "denied" for anything not
+  granted, the page preload patches `Permissions.prototype.query` and `Notification.permission`
+  in the main world to say `prompt` / `default` for undecided kinds of that origin (the `ask` list
+  of `ewe:privacy-frame`, asked by the top frame only, so a page with many iframes pays one sync
+  IPC; iframes and workers get the `Sec-GPC` header but not the property, and a document keeps the
+  values it started with until it reloads), so sites still ask. The request and the check
+  handler both key on the top-level origin (the tab's url, then the embedding origin). Requests from views that are not tabs (popups,
+  panels) are denied. Location: Electron on Linux has no location provider (it needs a Google API
+  key), so an allowed site gets no position; the prompt, site info and Settings say so.
+- **The prompt** (`privacy/window.ts` `PrivacyWindow`, one per window, `WindowController.privacyUi`):
+  one pending prompt per tab; a second request from the same tab and origin merges its kinds
+  (Meet's camera + microphone are one card), a different origin denies the old one; navigation or
+  closing denies. Only the active tab's prompt shows, as part `permission` at an explicit rect at
+  the page's top left (`permissionRect`: 384px wide incl. the `--suggest-pad` shadow room, the
+  height reported by the card through `permission.fit`), without focus; `onPageMouse` ignores it
+  and the overlay keeps it on mouseleave. Another part (palette, menu, peek) replaces it and it
+  comes back when the overlay is `none` again (`overlay.watch`) or its tab is activated. Allow /
+  Block store the decision for all its kinds; × (Not now) denies once, and after two Not now for
+  an origin it is denied silently for 10 minutes (`Dismissals`, this run only; an Allow / Block
+  resets it). A pending prompt holds at most 16 requests; more are denied. Clickjacking: the card
+  (`components/PermissionPrompt.tsx`) counts Allow/Block only 500ms after it appeared or changed
+  and after a pointer move over it, and main ignores them within 500ms of showing.
+- **Site info**: the address field's lock (or open lock for http, `.rail-site`) sends
+  `siteinfo.open` with the button's corner; part `siteinfo` (whole window, focused, like a menu)
+  renders `components/SiteInfo.tsx`: connection state, the four common permissions plus any
+  decided one as Ask / Allow / Block segments (`permission.set`; the panel updates from
+  `siteinfo.update` on every store change), Clear site data (`site.clearData`:
+  `clearStorageData({origin})` plus the cookies of that host and its parents, then a reload and a
+  toast) and Site settings (`app://settings/#privacy`). The settings list shows every decided site
+  with its kinds (select Allow / Block / Ask) and Forget, live through `ewe:permissions-changed`.
+
+## Site search (wave 2)
+
+`search --site`, `site` and `@site words` in the palette and address field resolve a site in
+`main/site-search/resolve.ts` (order and rules in docs/CLI.md, "Site search"): the built-in table
+`SITES` (66 sites, every template checked with a real request on 2026-10-18), a domain, or a
+visited host by its first label; then the newest history url with a search term, an OpenSearch
+template, the table template (`{cc}` from the time zone via zone1970.tab, `{lang}` from `LANG`) or
+a `site:` search. `SiteSearchService` (main) feeds it live stores and discovers OpenSearch links:
+on every tab's `did-finish-load` for a host it has not checked this run and has no fresh entry
+for, it reads `link[rel~=search][type=application/opensearchdescription+xml]` in isolated world
+1011, fetches the descriptor through the tab's session (`session.fetch`, credentials omitted,
+`redirect: 'error'`, 64 KiB, 8 s) only when `acceptDescriptor` passes (https, default port, no
+credentials, not a local name or private address, the page's registrable domain with private
+suffixes on), parses it (`parseOpenSearch`: the `text/html` GET `Url`, `{searchTerms}` → `{q}`,
+optional parameters dropped, the usual fixed ones filled, unknown required ones refused, https
+only, 2 KiB) and keeps it only when `acceptTemplate` passes (the page's own host or its `www.`)
+(`site-search.json`, 500 hosts; entries that fail the check are dropped on load; Clear browsing
+data removes the ones learned in the cleared range through `HistoryService.onHistoryCleared`).
+History-learned templates count only https urls on a site with 2+ visits. The
+CLI resolves offline from disk (`offlineSite`) and refuses an unknown site before starting the
+browser. The palette shows "Search Zara" for `@zara …` (`parseSiteQuery` + `siteByName`).
+
 ## Viewers and music (roadmap step 4)
 
 - The files viewer (`viewer.tsx`) shows images, video, audio, text, code, Markdown and PDF and
@@ -791,7 +1049,8 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
 
 - `settings.json`: `Settings { rail: 'expanded'|'collapsed', searchEngine: google|duckduckgo|bing|
 kagi|brave, theme: 'system'|'dark'|'light', restoreSession, sidebarWidth, background, sync, historyDays,
-panels, shortcuts }` with `DEFAULT_SETTINGS`.
+panels, shortcuts, safe, gestures: { swipe }, privacy }` with `DEFAULT_SETTINGS` (`gestures.swipe`
+  on; local, not synced: it depends on the machine's touchpad).
   Changes broadcast to every renderer and sync `nativeTheme.themeSource`.
 - `session.json`: windows with `bounds`, `tabs [{ url, title, workspace, pinned }]`, `activeIndex`,
   `workspaces [{ id, name, color }]`, `activeWorkspace`. The exact validator is `isSessionFile` in
@@ -852,6 +1111,10 @@ received, total, speed, status, started, ended`, times in epoch ms), newest firs
   window and sidebar background follow ewe `surface-base` in system mode.
 - Account: `~/.config/ewe/cloud.json`, identity fields only (display name / login / user, email,
   server). Shown as the avatar initial; no sync yet.
+- `permissions.json`: per-origin site permission decisions (see Privacy and security), writes
+  debounced 500ms, flushed on quit. `site-search.json`: `{ version: 1, hosts: { host: { template,
+descriptor, checked } } }`, learned OpenSearch templates, 500 hosts, writes debounced 1s.
+  `Settings.privacy` lives in `settings.json`.
 
 ## Renderer conventions
 
@@ -950,6 +1213,13 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   in isolated world 1010 with a 3s timeout and returns `untrusted: true`. It reads
   `document.body.innerText` only, so Safe's key (on `<html>`, in a closed shadow root) and its
   overlay parts never reach it.
+- Wave 2 tools: `site`, `workspaces`, `workspace_activate|next|prev|create|rename|remove`,
+  `back`, `forward`, `download_open|show`, `search.site`, `open.workspace` (docs/CLI.md).
+  Groups in `argv.ts` map each action to its own positional (`workspace rename <ws> <new name…>`
+  is a `pair`). Workspaces match by id, name (any case), 1-based number or a 4+ character id
+  prefix (`matchWorkspace`). The live side picks the focused window, else the last focused one
+  (`browser-window-focus`), else the first. `workspace next` round trip: ~42 ms from Node, ~49 ms
+  from Electron's Node mode (median of 30, 2026-10-18).
 - Tested by unit tests and the e2e "the command line answers in JSON…" (offline status,
   bookmark write and locate, then a launched browser: open a folder, tabs, pin by id prefix,
   close with undo, a local page read through `page --text`, reopen, find, quit → offline).
@@ -967,8 +1237,14 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   xbel parser, snippets, the recent store and the recents service over a temp tree, stale temp
   files in json-file, and the CLI: argv, paths, schema checks, every tool reachable, the socket
   server and a real socket, ls and locate on a temp tree, read tools over fake sources, bookmark
-  writes, and an import walk proving the CLI bundle never reaches `electron`). 373 tests
-  (104 shared, 269 browser; 2 skip without ewe-safe binaries). Nothing reads
+  writes, and an import walk proving the CLI bundle never reaches `electron`), and the wave-2
+  input logic (`shared/input.test.ts`: the swipe tracker, page input and action validators,
+  the page menu rows and what main may run, the verified extension ids, every new default
+  shortcut; `tests/unit/page-input.test.ts`: `buildPageMenu` from params, find prefill and
+  `ownsFind`, the find and swipe rects, gesture settings, `shownUrl`, store ids from
+  `manifest.key`, page-first keys, byte-capped save names; `tests/unit/swipe.test.ts`: the arrow
+  dropped on navigation, crash, destroy, tab switch and idle). 420 tests (131 shared, 289
+  browser; 2 skip without ewe-safe binaries). Nothing reads
   the owner's real Chrome profile: paths are injected, and the e2e run sets
   `EWE_CHROME_BOOKMARKS` to the fixture.
 - Safe: unit tests for site matching (`safe-site`), the save decision (`safe-decide`), form
@@ -995,6 +1271,19 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   cross-origin frame, generate + save, update, no prompt for a known login, and locked → Unlock
   Safe (`EWE_SAFE_ASK_CMD`). Both run inside a nested Hyprland (`WAYLAND_DISPLAY` /
   `HYPRLAND_INSTANCE_SIGNATURE` of the nest), never the live session.
+- Wave 2 (B) tests: unit `packages/shared/src/sites.test.ts` (table sanity, aliases, hosts,
+  templates, `@site`, learning from history), `packages/shared/src/privacy.test.ts` (settings,
+  `dohConfig`, templates, origins, command validators), `tests/unit/site-search.test.ts` (zone
+  tables, locale fallbacks, OpenSearch fixtures, `site-search.json`, the resolution order),
+  `tests/unit/privacy.test.ts` (kinds, verdicts, the permission store, local hosts, upgrades,
+  startup feature, the main-world script on stubs, the prompt rect) and the new cases in
+  `cli.test.ts`. E2E `tests/e2e/privacy.spec.ts` (5: prompt merge/guard/allow/block/dismiss/tab
+  switch with fake media devices, site info + clear data + the settings list, the settings
+  section and Secure DNS against `resolveHost`, the HTTPS-Only interstitial through
+  `--host-resolver-rules=MAP flock.example 127.0.0.1:<port>`, third-party cookies and GPC on two
+  local origins in two launches) and `tests/e2e/cli-browser.spec.ts` (every new verb against a
+  launched browser, history-learned and OpenSearch templates, `@site`, download show/open with
+  `shell.openPath` stubbed, offline `workspaces`/`site`). Helpers in `tests/e2e/wave2-support.ts`.
 - History tests: `history-store.test.ts` (migration, a broken database, the read-only snapshot
   for the CLI, rows by day and paging, FTS and short words, site filters, range and page clears, remote clears, retention, the merge
   diff, the page cap), `history-sync.test.ts` (clear filtering, compaction, tab files, PROPFIND
@@ -1010,6 +1299,25 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   runs in sibling worktrees do not switch each other's rule off. Keep `TMPDIR` short (for
   example `/tmp/x`): Chromium aborts with "Socket path too long" for its singleton socket under
   a long temp path.
+- E2E `tests/e2e/input.spec.ts` (7 tests; also: a page that handles Ctrl+U / Ctrl+F / Ctrl+P
+  keeps them while a plain page gets the find bar and the source, Ctrl+M does not minimize, a
+  page menu closes when its tab navigates; a local server, `EWE_SAFE_SOCKET` pointed at nothing
+  unless the fake daemon is used, `clipboard.writeText` and `webContents.print` stubbed in main
+  so the owner's clipboard and printer are never touched): the page menu on a link (Copy link,
+  new tab in the background, the menu at the pointer), an image, a selection (search label,
+  Go to), a field (Select all, no Safe row without Safe), a video (Show controls), the page
+  (View page source) and Shift+F10; find (Ctrl+F, 1/3 → 2/3 with Enter, F3, Ctrl+Shift+G and
+  the buttons, 0/0 in `danger`, Esc keeps the match selected, the selection prefill, Ctrl+G
+  reopens, `app://files` keeps its own Ctrl+F); every new shortcut; swipe (the arrow at the
+  page edge filling to ready, back and forward, a short swipe and vertical scrolling do nothing,
+  a scrollable strip keeps the gesture, the setting off), side buttons through CDP
+  `Input.dispatchMouseEvent` (`button: 'back'`) in the page (Chromium's own) and on the shell
+  (ours); Safe only against `tests/fake-safed.ts` (Ctrl+Shift+L on the focused field, ↓ ↓
+  Enter fills; the rail key with nothing focused anchors to the first login field; the page
+  menu's Fill from Safe after the guard; Use a strong password fills both new-password fields;
+  no field → the toast); password-manager extensions (a fixture with Bitwarden's real public
+  key in `manifest.key` is turned off with its toast and stays on disk; installing 1Password
+  is refused before any download).
 - E2E (`smoke.spec.ts`, 28 tests): launches `out/main/index.js` with a temp `EWE_USER_DATA`,
   drives the app through `window.ewe` on the shell page, reads `getState()`, sends keys and mouse
   events through `app.evaluate` + `sendInputEvent`, waits for `loading === false` before sending
@@ -1079,9 +1387,14 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   photos with thumbnails and a video frame, the viewer on an image, the next image and the video,
   the archive dialog, the Compress submenu,
   multi-select, list, entry menu, rename, background menu, path field, the rail's files tab),
-  settings, light (rail, tab menu, sidebar, files, peek), dark and the sad page. The script
-  launches with `EWE_CHROME_BOOKMARKS` pointing at the fixture and `EWE_DOWNLOADS` at a temp
-  directory.
+  settings, light (rail, tab menu, sidebar, files, peek), dark and the sad page; since wave 2
+  also Safe's list from Ctrl+Shift+L and the page menu's Fill from Safe (against
+  `tests/fake-safed.ts`, imported with Node's type stripping), the page menu on a link, an image,
+  a selection and the page, the find bar (and no match), the swipe arrow (back, ready, forward;
+  held open by alternating ±1 px wheel events from the main process), the swipe and Safe-only
+  settings rows, the new shortcuts and the refused-extension toast. The script launches with
+  `EWE_CHROME_BOOKMARKS` pointing at the fixture and `EWE_DOWNLOADS` at a temp directory, and
+  names its Hyprland rule after `EWE_TEST_RULE` like the e2e setup.
 - Real-pointer checks (hover and click routing between the shell, page and overlay views,
   which `sendInputEvent` bypasses): run a nested Hyprland (aquamarine window pinned to
   workspace 2 by a temporary host rule, then a headless `SHOT` output so it renders while

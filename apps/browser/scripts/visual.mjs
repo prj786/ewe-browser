@@ -1,7 +1,14 @@
 import { _electron as electron } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -25,7 +32,10 @@ const pickWorkspace = (preferred) => {
   return preferred
 }
 const targetWorkspace = pickWorkspace(process.env.EWE_VISUAL_WORKSPACE ?? '2')
-const ruleVar = `__ewe_test_rule_${targetWorkspace}`
+const ruleBase = /^[A-Za-z_][A-Za-z0-9_]*$/.test(process.env.EWE_TEST_RULE ?? '')
+  ? process.env.EWE_TEST_RULE
+  : '__ewe_test_rule'
+const ruleVar = `${ruleBase}_${targetWorkspace}`
 mkdirSync(out, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const userData = mkdtempSync(join(tmpdir(), 'ewe-visual-'))
@@ -144,32 +154,23 @@ writeFileSync(
     '',
   ].join('\n'),
 )
-const passDir = mkdtempSync(join(tmpdir(), 'ewe-visual-pass-'))
-const passTool = join(passDir, 'ewe-pass')
-const passItems = [
-  { id: 'a', title: 'Flock Co-op', username: 'shepherd@flock.coop', host: '127.0.0.1', score: 9 },
-  { id: 'b', title: 'Flock Co-op (admin)', username: 'admin', host: '127.0.0.1', score: 7 },
-  { id: 'c', title: 'GitHub', username: 'ewe-dev', host: 'github.com', score: 1 },
-  { id: 'd', title: 'Wool Market', username: 'shepherd', host: 'wool.market', score: 1 },
-]
-writeFileSync(
-  passTool,
-  [
-    '#!/bin/sh',
-    'case "$1" in',
-    `  status) echo '{"ok": true, "provider": "1password", "label": "1Password", "ready": true}' ;;`,
-    `  match) echo '${JSON.stringify({ ok: true, items: passItems })}' ;;`,
-    `  *) echo '{"ok": true}' ;;`,
-    'esac',
-    '',
-  ].join('\n'),
-  { mode: 0o755 },
-)
+const { startFakeSafe } = await import(resolve('tests/fake-safed.ts'))
+const safeDir = mkdtempSync(join(tmpdir(), 'ewe-visual-safe-'))
+const fakeSafe = await startFakeSafe(join(safeDir, 's.sock'))
+process.on('exit', () => void fakeSafe.close())
 const LOGIN_PAGE = `<!doctype html><meta charset="utf-8"><title>Flock Co-op · Sign in</title>
 <style>body{font:15px system-ui;background:#f3efe6;display:grid;place-items:center;height:100vh;margin:0}
 form{background:#fff;padding:32px;border-radius:14px;box-shadow:0 8px 30px #0002;display:grid;gap:12px;width:300px}
 input{padding:10px;border:1px solid #ccc;border-radius:8px}button{padding:10px;border:0;border-radius:8px;background:#3b6e4a;color:#fff}</style>
-<form><h2>Flock Co-op</h2><input name="email" placeholder="Email"><input type="password" placeholder="Password"><button>Sign in</button></form>`
+<form onsubmit="return false"><h2>Flock Co-op</h2><input name="email" autocomplete="username" placeholder="Email"><input type="password" autocomplete="current-password" placeholder="Password"><button>Sign in</button></form>`
+const ARTICLE_PAGE = `<!doctype html><meta charset="utf-8"><title>Shearing day</title>
+<style>body{font:16px/1.6 Georgia,serif;margin:48px auto;max-width:640px;color:#2a2620;background:#fbf8f1}h1{font:600 30px system-ui}a{color:#3b6e4a}img{border-radius:10px;display:block;margin:16px 0}</style>
+<h1>Shearing day on the north pasture</h1><p id="lede">Every spring the flock gathers by the stone wall. The sheep wait in the shade while the shearers sharpen their blades, and the sheep dogs keep watch.</p>
+<p>Read the <a id="guide" href="/page.html">shearing guide</a> before you start, and count the sheep twice.</p>
+<img id="photo" src="/photo.png" width="320" height="180" alt="The flock">
+<p id="tail">Wool is rolled, tied and stacked in the barn. The sheep go back to the pasture lighter and happier.</p>`
+const SWIPE_PAGE = (title, tone) => `<!doctype html><meta charset="utf-8"><title>${title}</title>
+<style>body{font:16px system-ui;margin:0;display:grid;place-items:center;height:100vh;background:${tone};color:#2a2620}</style><h1>${title}</h1>`
 const CHAT_PAGE = `<!doctype html><meta charset="utf-8"><title>Flock chat</title>
 <style>body{font:14px system-ui;margin:0;background:#17181c;color:#e8e6e3}header{padding:12px 16px;border-bottom:1px solid #2a2c31;font-weight:600}
 .m{padding:10px 16px}.m b{display:block;color:#8ab4f8;font-size:12px}</style>
@@ -181,6 +182,22 @@ const server = createServer((req, res) => {
   if (req.url === '/login.html' || req.url === '/chat.html') {
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end(req.url === '/login.html' ? LOGIN_PAGE : CHAT_PAGE)
+    return
+  }
+  if (req.url === '/article.html' || req.url === '/meadow.html' || req.url === '/barn.html') {
+    res.writeHead(200, { 'content-type': 'text/html' })
+    res.end(
+      req.url === '/article.html'
+        ? ARTICLE_PAGE
+        : req.url === '/meadow.html'
+          ? SWIPE_PAGE('The meadow', '#e8efd9')
+          : SWIPE_PAGE('The barn', '#efe2d2'),
+    )
+    return
+  }
+  if (req.url === '/photo.png') {
+    res.writeHead(200, { 'content-type': 'image/png' })
+    res.end(readFileSync(join(mockups, 'A1.png')))
     return
   }
   if (req.url === '/page.html') {
@@ -210,6 +227,8 @@ const server = createServer((req, res) => {
 })
 await new Promise((r) => server.listen(0, '127.0.0.1', r))
 const origin = `http://127.0.0.1:${server.address().port}`
+fakeSafe.addLogin('Flock Co-op', 'shepherd@flock.coop', origin, 'pw-1')
+fakeSafe.addLogin('Flock Co-op (admin)', 'admin', origin, 'pw-2')
 process.on('exit', () => server.close())
 const lua = (code) => execFileSync('hyprctl', ['repl', code], { encoding: 'utf8' }).trim()
 console.log(
@@ -233,7 +252,7 @@ const dropRule = () => {
 }
 process.on('exit', dropRule)
 const app = await electron.launch({
-  args: [resolve('out/main/index.js')],
+  args: [resolve('out/main/index.js'), '--use-fake-device-for-media-stream'],
   env: {
     ...process.env,
     EWE_USER_DATA: userData,
@@ -242,7 +261,8 @@ const app = await electron.launch({
     XDG_CACHE_HOME: cacheDir,
     XDG_DATA_HOME: dataHome,
     EWE_MUSIC_DIR: musicDir,
-    EWE_PASS: passTool,
+    EWE_SAFE_SOCKET: fakeSafe.path,
+    EWE_SAFE_APP: '/nonexistent',
   },
 })
 
@@ -591,15 +611,136 @@ await railShot('06c-ctrl-l', 140)
 await shell.keyboard.press('Escape')
 await sleep(300)
 
+const pageWindow = (part) => find(part)
+const pagePoint = async (page, selector, dx = 0.5, dy = 0.5) => {
+  const box = await page.locator(selector).boundingBox()
+  return { x: Math.round(box.x + box.width * dx), y: Math.round(box.y + box.height * dy) }
+}
+const rightClickPage = (at) =>
+  app.evaluate(({ BrowserWindow, WebContentsView }, p) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const view = win.contentView.children
+      .filter((v) => v instanceof WebContentsView)
+      .find((v) => v.getVisible() && !v.webContents.getURL().includes('/ui/'))
+    const wc = view?.webContents
+    if (!wc) return
+    wc.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y })
+    wc.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'right', clickCount: 1 })
+    wc.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'right', clickCount: 1 })
+  }, at)
+const closeMenu = async () => {
+  await overlay.keyboard.press('Escape')
+  await sleep(400)
+}
+
 await send({ type: 'tab.create', url: `${origin}/login.html` })
 await sleep(1200)
-await send({ type: 'passwords.open' })
+await key('l', ['control', 'shift'])
+await sleep(1200)
+await shot('11-safe-key')
+const loginPage = await pageWindow('/login.html')
+await loginPage.keyboard.press('ArrowDown')
+await sleep(300)
+await shot('11a-safe-key-row')
+await loginPage.keyboard.press('Escape')
+await sleep(300)
+await rightClickPage(await pagePoint(loginPage, 'input[type=password]', 0.3))
+await sleep(500)
+await shot('11c-page-menu-safe')
+await closeMenu()
+
+await send({ type: 'tab.navigate', input: `${origin}/article.html` })
+await settle(800)
+const article = await pageWindow('/article.html')
+await rightClickPage(await pagePoint(article, '#guide'))
+await sleep(500)
+await shot('13-page-menu-link')
+await closeMenu()
+await rightClickPage(await pagePoint(article, '#photo', 0.4, 0.4))
+await sleep(500)
+await shot('13a-page-menu-image')
+await closeMenu()
+await article.evaluate(() => {
+  const range = document.createRange()
+  const text = document.getElementById('lede').firstChild
+  range.setStart(text, 6)
+  range.setEnd(text, 48)
+  getSelection().removeAllRanges()
+  getSelection().addRange(range)
+})
+await rightClickPage(await pagePoint(article, '#lede', 0.25, 0.2))
+await sleep(500)
+await shot('13b-page-menu-selection')
+await closeMenu()
+await article.evaluate(() => getSelection().removeAllRanges())
+await rightClickPage(await pagePoint(article, '#tail', 0.5, 1.8))
+await sleep(500)
+await shot('13c-page-menu-page')
+await closeMenu()
+
+await key('f', ['control'])
+await sleep(500)
+await overlay.keyboard.type('sheep')
+await sleep(500)
+await shot('14-find-bar')
+await rightShot('14a-find-bar-detail', 460)
+await overlay.keyboard.press('Enter')
+await overlay.keyboard.type('x')
+await sleep(400)
+await rightShot('14b-find-none', 460)
+await overlay.keyboard.press('Escape')
+await sleep(400)
+
+await send({ type: 'tab.navigate', input: `${origin}/meadow.html` })
+await settle(600)
+await send({ type: 'tab.navigate', input: `${origin}/barn.html` })
+await settle(600)
+const holdSwipe = (dx, count) =>
+  app.evaluate(
+    async ({ BrowserWindow, WebContentsView }, p) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      const view = win.contentView.children
+        .filter((v) => v instanceof WebContentsView)
+        .find((v) => v.getVisible() && !v.webContents.getURL().includes('/ui/'))
+      const wc = view.webContents
+      const wheel = (deltaX) =>
+        wc.sendInputEvent({
+          type: 'mouseWheel',
+          x: 400,
+          y: 300,
+          deltaX,
+          deltaY: 0,
+          hasPreciseScrollingDeltas: true,
+          canScroll: true,
+        })
+      for (let i = 0; i < p.count; i++) {
+        wheel(p.dx)
+        await new Promise((r) => setTimeout(r, 16))
+      }
+      let flip = 1
+      globalThis.__holdSwipe = setInterval(() => {
+        flip = -flip
+        wheel(flip)
+      }, 40)
+    },
+    { dx, count },
+  )
+const releaseSwipe = () => app.evaluate(() => clearInterval(globalThis.__holdSwipe))
+await holdSwipe(18, 5)
+await sleep(300)
+await shot('15-swipe-back')
+await releaseSwipe()
+await sleep(600)
+await holdSwipe(20, 9)
+await sleep(300)
+await shot('15a-swipe-back-ready')
+await releaseSwipe()
 await sleep(900)
-await shot('11-passwords')
-await overlay.keyboard.press('ArrowDown')
-await sleep(200)
-await shot('11a-passwords-row')
-await closeOverlay()
+await holdSwipe(-18, 6)
+await sleep(300)
+await shot('15b-swipe-forward')
+await releaseSwipe()
+await sleep(600)
 await send({ type: 'tab.create', url: `${origin}/chat.html` })
 await sleep(1000)
 await send({ type: 'sidebar.toggle', section: 'bookmarks' })
@@ -703,7 +844,11 @@ await filesPage.keyboard.press('F2')
 await sleep(300)
 await shot('07f-files-rename')
 await filesPage.keyboard.press('Escape')
-await filesPage.locator('.fm-content').click({ button: 'right', position: { x: 600, y: 420 } })
+const contentBox = await filesPage.locator('.fm-content').boundingBox()
+await filesPage.locator('.fm-content').click({
+  button: 'right',
+  position: { x: Math.min(600, contentBox.width - 60), y: Math.min(420, contentBox.height - 60) },
+})
 await sleep(450)
 await shot('07g-files-background-menu')
 await filesPage.keyboard.press('Escape')
@@ -765,6 +910,22 @@ await shot('08a-settings-ewe')
 await settingsPage.locator('.settings-ext-store').scrollIntoViewIfNeeded()
 await sleep(400)
 await shot('08b-settings-extensions-sync')
+await settingsPage.locator('.settings-swipe').scrollIntoViewIfNeeded()
+await sleep(400)
+await shot('08c-settings-swipe')
+await settingsPage.locator('.settings-safe-only').scrollIntoViewIfNeeded()
+await sleep(400)
+await shot('08d-settings-safe-only')
+await settingsPage.locator('.shortcut').last().scrollIntoViewIfNeeded()
+await sleep(400)
+await shot('08e-settings-new-shortcuts')
+await send({
+  type: 'extension.install',
+  source: 'https://chromewebstore.google.com/detail/bitwarden/nngceckbapebfimnlniiiahkandclblb',
+})
+await sleep(500)
+await bottomShot('08f-extension-refused')
+await sleep(1800)
 await send({ type: 'settings.update', patch: { theme: 'light' } })
 await sleep(800)
 await shot('09-light')
@@ -806,5 +967,86 @@ await send({
 })
 await sleep(1000)
 await shot('10-sad')
+
+const inPage = (code) =>
+  app.evaluate(({ BrowserWindow, WebContentsView }, c) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const view = win.contentView.children
+      .filter((v) => v instanceof WebContentsView)
+      .find((v) => v.getVisible() && !v.webContents.getURL().includes('/ui/'))
+    return view?.webContents.executeJavaScript(c, true)
+  }, code)
+const topLeft = async (name, w = 760, h = 420) => save(name, { x: 0, y: 0, width: w, height: h })
+await send({ type: 'tab.navigate', input: `${origin}/chat.html` })
+await settle(800)
+await inPage(
+  'navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(s => s.getTracks().forEach(t => t.stop()), () => 0); 1',
+)
+await sleep(900)
+await shot('13a-permission-prompt')
+await topLeft('13a-permission-prompt-crop')
+await sleep(300)
+await overlay.locator('.perm-allow').click()
+await sleep(500)
+await inPage('navigator.geolocation.getCurrentPosition(() => 0, () => 0); 1')
+await sleep(900)
+await topLeft('13b-permission-location', 760, 360)
+await overlay.locator('.perm-block').hover()
+await sleep(600)
+await overlay.locator('.perm-block').click()
+await sleep(500)
+await shell.locator('.rail-site').click()
+await sleep(700)
+await topLeft('13c-site-info', 760, 520)
+await overlay.keyboard.press('Escape')
+await sleep(400)
+await send({ type: 'tab.navigate', input: 'https://example.com/' })
+await settle(800)
+await shell.locator('.rail-site').click()
+await sleep(700)
+await topLeft('13d-site-info-secure', 760, 520)
+await overlay.keyboard.press('Escape')
+await sleep(400)
+await send({
+  type: 'tab.navigate',
+  input:
+    'app://sad/?kind=https-only&url=http%3A%2F%2Fflock.example%2Fshearing.html&error=ERR_SSL_PROTOCOL_ERROR',
+})
+await sleep(1200)
+await shot('13e-https-only')
+await send({ type: 'open.internal', page: 'settings' })
+await sleep(1200)
+const privacySettings = (await app.windows())
+  .filter((w) => w.url().startsWith('app://settings'))
+  .at(-1)
+await privacySettings?.locator('#privacy').scrollIntoViewIfNeeded()
+await privacySettings?.evaluate(() => document.getElementById('privacy')?.scrollIntoView())
+await sleep(500)
+await shot('13f-settings-privacy')
+await privacySettings?.locator('.settings-secure-dns').selectOption('nextdns')
+await sleep(500)
+await shot('13g-settings-privacy-nextdns')
+await privacySettings?.locator('.settings-secure-dns').selectOption('off')
+await privacySettings?.locator('.settings-permissions').scrollIntoViewIfNeeded()
+await sleep(500)
+await shot('13h-settings-permissions')
+await send({ type: 'overlay.request', part: 'palette' })
+await sleep(500)
+await overlay.locator('.palette input').fill("@zara men's shoes")
+await sleep(600)
+await shot('13i-palette-site')
+await closeOverlay()
+await send({ type: 'settings.update', patch: { theme: 'light' } })
+await send({ type: 'tab.navigate', input: `${origin}/chat.html` })
+await settle(800)
+await shell.locator('.rail-site').click()
+await sleep(700)
+await topLeft('13j-light-site-info', 760, 520)
+await overlay.keyboard.press('Escape')
+await sleep(400)
+await inPage('Notification.requestPermission(); 1')
+await sleep(900)
+await topLeft('13k-light-permission-prompt', 760, 360)
+await send({ type: 'settings.update', patch: { theme: 'dark' } })
 await Promise.race([app.close(), sleep(5000)])
 process.exit(0)

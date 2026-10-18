@@ -1,13 +1,5 @@
 import { basename, dirname, join, resolve } from 'node:path'
-import {
-  app,
-  components,
-  nativeTheme,
-  session,
-  webContents,
-  type Session,
-  type WebContents,
-} from 'electron'
+import { app, components, nativeTheme, session, webContents, type WebContents } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { HOME_URL, IPC, MUSIC_PAGE_URL, NEW_TAB_URL, type SessionWindow } from '@ewe/shared'
 import { chromeBookmarkPaths, readChromeBookmarks } from './chrome-bookmarks'
@@ -28,6 +20,12 @@ import { readEweTheme, watchEweTheme } from './ewe-theme'
 import { applyIdentity, applyIdentityToContents } from './identity'
 import { registerIpc } from './ipc'
 import { SafeService } from './safe/service'
+import { PermissionStore } from './privacy/permissions'
+import { registerPrivacyIpc } from './privacy/ipc'
+import { PrivacyService } from './privacy/service'
+import { THIRD_PARTY_COOKIE_FEATURE, featureSwitch, privacyAtStartup } from './privacy/startup'
+import { SiteSearchStore } from './site-search/opensearch'
+import { SiteSearchService } from './site-search/service'
 import { installAppProtocol, registerAppScheme } from './protocol'
 import { BookmarksStore } from './storage/bookmarks-store'
 import { DownloadsStore } from './storage/downloads-store'
@@ -46,27 +44,10 @@ import {
   type WindowController,
 } from './window-manager'
 
-const WEB_PERMISSIONS = new Set([
-  'fullscreen',
-  'pointerLock',
-  'keyboardLock',
-  'clipboard-sanitized-write',
-])
-const INTERNAL_PERMISSIONS = new Set([...WEB_PERMISSIONS, 'window-management'])
+const BLOCKED_TOAST_DELAY_MS = 1500
+const BLOCKED_TOAST_TRIES = 20
 
-function permissionAllowed(permission: string, requestingUrl: string | undefined): boolean {
-  const internal = requestingUrl?.startsWith('app://') ?? false
-  return internal ? INTERNAL_PERMISSIONS.has(permission) : WEB_PERMISSIONS.has(permission)
-}
-
-function installPermissionHandlers(ses: Session): void {
-  ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    callback(permissionAllowed(permission, details.requestingUrl))
-  })
-  ses.setPermissionCheckHandler((_wc, permission, _origin, details) =>
-    permissionAllowed(permission, details.requestingUrl),
-  )
-}
+let thirdPartyBlocked = false
 
 async function importChromeBookmarks(bookmarks: BookmarksStore): Promise<string> {
   const result = await readChromeBookmarks(chromeBookmarkPaths())
@@ -95,10 +76,10 @@ async function main(): Promise<void> {
   await Promise.race([widevine, new Promise((resolve) => setTimeout(resolve, 2500))])
 
   const persistent = session.fromPartition('persist:default')
-  applyIdentity(persistent)
-  applyIdentity(session.defaultSession)
-  installPermissionHandlers(persistent)
-  installPermissionHandlers(session.defaultSession)
+  let privacy: PrivacyService | null = null
+  const privacyHeaders = () => privacy?.extraHeaders() ?? {}
+  applyIdentity(persistent, privacyHeaders)
+  applyIdentity(session.defaultSession, privacyHeaders)
 
   const userData = app.getPath('userData')
   const recentStore = new RecentStore(userData)
@@ -140,10 +121,37 @@ async function main(): Promise<void> {
   }
   syncNativeTheme()
   const restored = settings.get().restoreSession ? await sessions.load() : []
+  const permissions = new PermissionStore(userData)
+  await permissions.load()
+  const privacyService = new PrivacyService({
+    settings,
+    permissions,
+    thirdPartyBlocked,
+    ask: (contents, origin, kinds, callback) => {
+      const owner = windows.fromContents(contents)
+      const ui = owner?.layer === 'page' ? owner.controller.privacyUi : null
+      return ui?.ask(contents, origin, kinds, callback) ?? false
+    },
+  })
+  privacy = privacyService
+  privacyService.install(persistent)
+  privacyService.install(session.defaultSession)
+  privacyService.applyDns()
+  const siteSearchStore = new SiteSearchStore(userData)
+  await siteSearchStore.load()
+  const siteSearch = new SiteSearchService({
+    store: siteSearchStore,
+    history: () => history.all(),
+    bookmarks: () => bookmarks.root(),
+    engine: () => settings.get().searchEngine,
+  })
 
   const onContentsCreated = (contents: WebContents): void => {
     applyIdentityToContents(contents)
     contents.on('will-attach-webview', (event) => event.preventDefault())
+    contents.on('did-navigate', () => privacyService.https.forget(contents.id))
+    contents.once('destroyed', () => privacyService.https.forget(contents.id))
+    siteSearch.watch(contents)
   }
 
   let saveTimer: NodeJS.Timeout | null = null
@@ -171,6 +179,14 @@ async function main(): Promise<void> {
     },
   )
   let extensionTimer: NodeJS.Timeout | null = null
+  const notifyBlocked = (message: string, tries = BLOCKED_TOAST_TRIES): void => {
+    const target = windows.focused()
+    if (target !== undefined && Date.now() - target.openedAt > BLOCKED_TOAST_DELAY_MS) {
+      target.toast(message, 'alert')
+      return
+    }
+    if (tries > 0) setTimeout(() => notifyBlocked(message, tries - 1), BLOCKED_TOAST_DELAY_MS)
+  }
   const extensions: ExtensionHost = new ExtensionHost({
     session: persistent,
     preload: preloadPath(),
@@ -205,6 +221,7 @@ async function main(): Promise<void> {
         windows.broadcastExtensions(extensions.state())
       }, 50)
     },
+    onBlocked: (message) => notifyBlocked(message),
   })
   const sync = new SyncService({ userData, settings, bookmarks, history })
   sync.on('status', (status) => {
@@ -219,6 +236,9 @@ async function main(): Promise<void> {
   const windows: WindowManager = new WindowManager({
     extensions,
     safe,
+    privacy: privacyService,
+    permissions,
+    siteInput: (input) => siteSearch.rewrite(input),
     session: persistent,
     settings,
     preload: preloadPath(),
@@ -293,10 +313,12 @@ async function main(): Promise<void> {
     sync,
     sessions: () => [persistent, session.defaultSession],
     extensionOrigins: () => extensions.state().list.map((e) => `chrome-extension://${e.id}`),
+    onHistoryCleared: (from, to) => siteSearchStore.clearRange(from, to),
   })
   sync.setTabsSource(() => windows.toSession())
   history.setClock(() => sync.now())
   registerHistoryIpc(windows, historyService, sync)
+  registerPrivacyIpc(windows, privacyService, permissions)
   historyService.start()
   app.on('will-quit', () => {
     unwatchTheme()
@@ -383,6 +405,8 @@ async function main(): Promise<void> {
   app.on('activate', () => {
     if (windows.all().length === 0) windows.open()
   })
+  let lastFocused: number | null = null
+  app.on('browser-window-focus', (_event, win) => (lastFocused = win.id))
   const cliSocket = socketPath(userData)
   let cli: CliServer | null = null
   listenCli(
@@ -395,7 +419,10 @@ async function main(): Promise<void> {
       recents,
       music,
       settings,
+      siteSearch,
+      downloadAction: (id, action) => downloads.run(id, action),
       reopen,
+      lastFocused: () => lastFocused,
       version: app.getVersion(),
       userData,
       socket: cliSocket,
@@ -412,6 +439,8 @@ async function main(): Promise<void> {
     void bookmarks.flush()
     void downloadsStore.flush()
     void recentStore.flush()
+    void permissions.flush()
+    void siteSearchStore.flush()
     music.flush()
   })
   app.on('window-all-closed', () => {
@@ -429,6 +458,13 @@ function bootstrap(): void {
     app.exit(0)
     return
   }
+
+  thirdPartyBlocked = privacyAtStartup(app.getPath('userData')).blockThirdPartyCookies
+  if (thirdPartyBlocked)
+    app.commandLine.appendSwitch(
+      'enable-features',
+      featureSwitch(app.commandLine.getSwitchValue('enable-features'), THIRD_PARTY_COOKIE_FEATURE),
+    )
 
   app.enableSandbox()
   registerAppScheme()

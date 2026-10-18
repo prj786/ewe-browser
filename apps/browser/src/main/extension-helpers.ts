@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { Rect } from '@ewe/shared'
 
 export interface ActionDetails {
@@ -79,4 +80,24 @@ export async function localizedName(
     if (typeof message === 'string') return message
   }
   return name
+}
+
+const EXTENSION_ID = /^[a-p]{32}$/
+
+export function extensionIdFromKey(key: string): string | null {
+  const der = Buffer.from(key, 'base64')
+  if (der.length === 0) return null
+  const hex = createHash('sha256').update(der).digest('hex').slice(0, 32)
+  return Array.from(hex, (c) => String.fromCharCode(97 + Number.parseInt(c, 16))).join('')
+}
+
+export async function storeIdAt(dir: string): Promise<string | null> {
+  const manifest = await readJson(join(dir, 'manifest.json'))
+  const key = manifest?.key
+  if (typeof key === 'string') {
+    const id = extensionIdFromKey(key)
+    if (id !== null) return id
+  }
+  const parent = basename(dirname(dir))
+  return EXTENSION_ID.test(parent) ? parent : null
 }

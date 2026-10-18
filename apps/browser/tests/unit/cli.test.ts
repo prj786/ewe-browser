@@ -13,7 +13,13 @@ import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { BookmarkFolder, HistoryVisit, RecentItem, Track } from '@ewe/shared'
 import { absolutePaths, parseArgv, VERBS } from '../../src/main/cli/argv'
-import { bookmarkWrite, readTool, type Sources } from '../../src/main/cli/data'
+import {
+  bookmarkWrite,
+  matchWorkspace,
+  readTool,
+  siteReply,
+  type Sources,
+} from '../../src/main/cli/data'
 import { commandsReply, helpReply, listFolder, locate } from '../../src/main/cli/local'
 import { answer, listenCli } from '../../src/main/cli/server'
 import { PROTOCOL_VERSION, socketPath, userDataDir } from '../../src/main/cli/socket'
@@ -92,6 +98,7 @@ describe('command line arguments', () => {
       search: ['x'],
       play: ['x'],
       reveal: ['/x'],
+      site: ['x'],
     }
     for (const tool of TOOLS) {
       const [group, action] = tool.name.split('_')
@@ -175,7 +182,7 @@ describe('tool arguments', () => {
     const untrusted = reply.tools.filter((t) => t.untrusted).map((t) => t.name)
     for (const name of ['status', 'tabs', 'page', 'ls', 'music', 'play', 'tab_close'])
       expect(untrusted).toContain(name)
-    for (const name of ['version', 'open', 'search', 'focus']) expect(untrusted).not.toContain(name)
+    for (const name of ['version', 'open', 'focus']) expect(untrusted).not.toContain(name)
     expect(helpReply('1', 'tab')).toMatchObject({ ok: true, verb: 'tab' })
     expect(helpReply('1', 'fly')).toMatchObject({ ok: false, error: 'unknown-verb' })
   })
@@ -464,12 +471,166 @@ describe('the command line bundle', () => {
       seen.add(file)
       const source = readFileSync(file, 'utf8')
       expect(source, file).not.toMatch(/from 'electron'|require\('electron'\)/)
-      for (const m of source.matchAll(/from '(\.[^']+)'/g)) {
+      for (const m of source.matchAll(/(?:from |import\()'(\.[^']+)'/g)) {
         const target = resolve(dirname(file), m[1] ?? '')
         visit(target.endsWith('.ts') ? target : `${target}.ts`)
       }
     }
     visit(resolve(__dirname, '../../src/main/cli/index.ts'))
     expect(seen.size).toBeGreaterThan(10)
+  })
+})
+
+describe('workspaces, navigation, downloads and site search on the command line', () => {
+  it('parses the new verbs', () => {
+    expect(parsed(['workspaces'])).toEqual({ tool: 'workspaces', args: {} })
+    expect(parsed(['workspace', 'next'])).toEqual({ tool: 'workspace_next', args: {} })
+    expect(parsed(['workspace', 'prev'])).toEqual({ tool: 'workspace_prev', args: {} })
+    expect(parsed(['workspace', 'activate', 'Deep', 'work'])).toEqual({
+      tool: 'workspace_activate',
+      args: { workspace: 'Deep work' },
+    })
+    expect(parsed(['workspace', 'activate', '2'])).toEqual({
+      tool: 'workspace_activate',
+      args: { workspace: '2' },
+    })
+    expect(parsed(['workspace', 'create', 'Wool', 'shop', '--color', 'sky'])).toEqual({
+      tool: 'workspace_create',
+      args: { name: 'Wool shop', color: 'sky' },
+    })
+    expect(parsed(['workspace', 'create'])).toEqual({ tool: 'workspace_create', args: {} })
+    expect(parsed(['workspace', 'rename', 'Work', 'Deep', 'work'])).toEqual({
+      tool: 'workspace_rename',
+      args: { workspace: 'Work', name: 'Deep work' },
+    })
+    expect(parsed(['workspace', 'rename', 'Work', '--name', 'x'])).toEqual({ error: 'usage' })
+    expect(parsed(['workspace', 'remove', 'Work'])).toEqual({
+      tool: 'workspace_remove',
+      args: { workspace: 'Work' },
+    })
+    expect(parsed(['workspace', 'next', 'now'])).toEqual({ error: 'usage' })
+    expect(parsed(['workspace', 'fly'])).toEqual({ error: 'usage' })
+    expect(parsed(['back'])).toEqual({ tool: 'back', args: {} })
+    expect(parsed(['forward'])).toEqual({ tool: 'forward', args: {} })
+    expect(parsed(['download', 'open', 'abcd'])).toEqual({
+      tool: 'download_open',
+      args: { id: 'abcd' },
+    })
+    expect(parsed(['download', 'show', 'abcd'])).toEqual({
+      tool: 'download_show',
+      args: { id: 'abcd' },
+    })
+    expect(parsed(['site', 'h&m'])).toEqual({ tool: 'site', args: { site: 'h&m' } })
+    expect(parsed(['site', 'youtube', 'music'])).toEqual({
+      tool: 'site',
+      args: { site: 'youtube music' },
+    })
+    expect(parsed(['search', "men's", 'shoes', '--site', 'zara'])).toEqual({
+      tool: 'search',
+      args: { query: "men's shoes", site: 'zara' },
+    })
+    expect(parsed(['open', 'github.com', '--workspace', 'Work'])).toEqual({
+      tool: 'open',
+      args: { targets: ['github.com'], workspace: 'Work' },
+    })
+    expect(VERBS).toEqual(
+      expect.arrayContaining(['workspace', 'workspaces', 'download', 'back', 'site']),
+    )
+  })
+
+  it('checks the new arguments', () => {
+    const spec = (name: string) => {
+      const found = toolNamed(name)
+      if (found === undefined) throw new Error(name)
+      return found
+    }
+    expect(checkArgs(spec('workspace_create'), { color: 'sky' }).ok).toBe(true)
+    expect(checkArgs(spec('workspace_create'), { color: 'teal' }).ok).toBe(false)
+    expect(checkArgs(spec('workspace_rename'), { workspace: 'Work' }).ok).toBe(false)
+    expect(checkArgs(spec('workspace_rename'), { workspace: 'Work', name: ' ' }).ok).toBe(false)
+    expect(checkArgs(spec('site'), {}).ok).toBe(false)
+    expect(checkArgs(spec('search'), { query: 'x', site: 'zara' }).ok).toBe(true)
+    expect(spec('workspace_next')).toMatchObject({ tier: 1, where: 'live' })
+    expect(spec('workspace_remove')).toMatchObject({ tier: 2, where: 'live' })
+    expect(spec('workspace_create')).toMatchObject({ tier: 1, where: 'app' })
+    expect(spec('workspaces')).toMatchObject({ tier: 0, where: 'read' })
+    expect(spec('site')).toMatchObject({ tier: 0, where: 'read' })
+    const tools = commandsReply('1').tools as { name: string; untrusted: boolean }[]
+    expect(tools.find((t) => t.name === 'workspace_next')?.untrusted).toBe(false)
+    expect(tools.find((t) => t.name === 'site')?.untrusted).toBe(true)
+    expect(tools.find((t) => t.name === 'search')?.untrusted).toBe(true)
+    expect(tools.find((t) => t.name === 'back')?.untrusted).toBe(true)
+  })
+
+  it('matches workspaces by id, name, number and id prefix', () => {
+    const list = [
+      { id: 'aaaa1111-x', name: 'Home' },
+      { id: 'bbbb2222-y', name: 'Deep work' },
+      { id: 'bbbb3333-z', name: '2' },
+    ]
+    expect(matchWorkspace(list, 'bbbb2222-y')).toBe(1)
+    expect(matchWorkspace(list, 'deep WORK')).toBe(1)
+    expect(matchWorkspace(list, '2')).toBe(2)
+    expect(matchWorkspace(list, '1')).toBe(0)
+    expect(matchWorkspace(list, 'aaaa')).toBe(0)
+    expect(matchWorkspace(list, 'bbbb')).toMatchObject({ ok: false, error: 'ambiguous-id' })
+    expect(matchWorkspace(list, '9')).toMatchObject({ ok: false, error: 'not-found' })
+    expect(matchWorkspace(list, 'Play')).toMatchObject({ ok: false, error: 'not-found' })
+    expect(
+      matchWorkspace(
+        [
+          { id: 'a', name: 'Work' },
+          { id: 'b', name: 'work' },
+        ],
+        'WORK',
+      ),
+    ).toMatchObject({ ok: false, error: 'ambiguous-id' })
+  })
+
+  it('lists the workspaces of one window in bar order with 1-based numbers', async () => {
+    const src: Sources = {
+      running: true,
+      windows: () => [],
+      tabs: () => [],
+      workspaces: () => [
+        { window: 1, id: 'w1', name: 'Home', color: 'ewellow', active: false, tabs: 2 },
+        { window: 2, id: 'w9', name: 'Other', color: 'rose', active: true, tabs: 1 },
+        { window: 1, id: 'w2', name: 'Work', color: 'sky', active: true, tabs: 3 },
+      ],
+      currentWindow: () => 1,
+      history: () => [],
+      bookmarks: () => ({ id: 'root', kind: 'folder', title: '', added: 0, children: [] }),
+      downloads: () => [],
+      recents: () => Promise.resolve([]),
+      tracks: () => [],
+    }
+    expect(await readTool('workspaces', {}, src)).toEqual({
+      ok: true,
+      running: true,
+      window: 1,
+      workspaces: [
+        { id: 'w1', name: 'Home', color: 'ewellow', index: 1, tabs: 2, active: false },
+        { id: 'w2', name: 'Work', color: 'sky', index: 2, tabs: 3, active: true },
+      ],
+    })
+  })
+
+  it('answers site lookups and unknown sites in the contract shape', () => {
+    expect(
+      siteReply(
+        { ok: true, name: 'Zara', host: 'zara.com', template: 'https://z/{q}', via: 'table' },
+        false,
+      ),
+    ).toEqual({
+      ok: true,
+      running: false,
+      name: 'Zara',
+      host: 'zara.com',
+      template: 'https://z/{q}',
+      via: 'table',
+    })
+    expect(
+      siteReply({ ok: false, error: 'unknown-site', message: 'no site called "x" is known' }, true),
+    ).toMatchObject({ ok: false, error: 'unknown-site', message: 'no site called "x" is known' })
   })
 })

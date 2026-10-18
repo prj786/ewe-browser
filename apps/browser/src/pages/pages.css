@@ -283,3 +283,15 @@
 .row-tile--alert {
   color: var(--danger);
 }
+
+.empty-icon--warning {
+  background: var(--warning-subtle);
+  color: var(--warning);
+}
+
+.empty-text {
+  max-width: var(--panel-md);
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: var(--line-height-md);
+}

@@ -92,6 +92,8 @@ const SAFE_PROMPT_FALLBACK_MS = 2_500
 const SAFE_PROMPT_RETRY_MS = 1_000
 const SAFE_PROMPT_RETRIES = 10
 const SAFE_PROMPT_SHOW_MS = 60_000
+export const SAFE_KEY_WAIT_MS = 600
+const GENERATE_ARM_MS = 3_000
 
 const CLOSED: SafeSuggestState = { open: false, visible: false, selected: false }
 
@@ -140,6 +142,9 @@ export class SafeWindow {
   private readonly promptPending = new Set<string>()
   private promptId: string | null = null
   private promptTimer: NodeJS.Timeout | null = null
+  private readonly keyedAt = new Map<number, number>()
+  private keyTimer: NodeJS.Timeout | null = null
+  private generateFor: { contentsId: number; frame: string; at: number } | null = null
 
   constructor(host: SafeWindowHost) {
     this.host = host
@@ -160,6 +165,7 @@ export class SafeWindow {
     this.closeSuggest()
     if (this.sheet !== null) this.finish(this.sheet, aborted())
     if (this.promptTimer !== null) clearTimeout(this.promptTimer)
+    if (this.keyTimer !== null) clearTimeout(this.keyTimer)
   }
 
   private onPart(part: OverlayPart): void {
@@ -205,6 +211,7 @@ export class SafeWindow {
   }
 
   private dropContents(contents: WebContents): void {
+    this.keyedAt.delete(contents.id)
     this.safe.passkeys.dropContents(contents.id, aborted())
     if (this.sheet?.contents === contents) this.finish(this.sheet, aborted())
     if (this.suggest?.contents === contents) this.closeSuggest()
@@ -232,6 +239,7 @@ export class SafeWindow {
     const same = s !== null && s.contents === contents && frameKey(s.ref) === frameKey(frame)
     switch (request.op) {
       case 'open':
+        if (request.trigger === 'key') this.keyedAt.set(contents.id, Date.now())
         void this.open(contents, frame, request)
         return
       case 'move':
@@ -304,7 +312,63 @@ export class SafeWindow {
     if (this.host.activeContents() !== contents || this.frameOf(ref) === null) return
     const now = this.host.overlay.part
     if (now === 'palette' || now === 'menu' || now === 'sheet') return
+    if (this.takeGenerate(contents, ref, menu, request.trigger)) return
     this.show(contents, ref, menu, request.rect, anchor)
+  }
+
+  armGenerate(contents: WebContents, frame: { processId: number; routingId: number }): void {
+    this.generateFor = { contentsId: contents.id, frame: frameKey(frame), at: Date.now() }
+  }
+
+  private takeGenerate(
+    contents: WebContents,
+    ref: FrameRef,
+    menu: SafeMenu,
+    trigger: SafeTrigger,
+  ): boolean {
+    const armed = this.generateFor
+    if (armed?.contentsId !== contents.id || armed.frame !== frameKey(ref)) return false
+    if (trigger !== 'key') return false
+    this.generateFor = null
+    if (Date.now() - armed.at > GENERATE_ARM_MS) return false
+    if (menu.kind !== 'new-password' || menu.state !== 'ready') return false
+    void this.safe.generate(menu.requestId).then((out) => {
+      if (out !== null) this.host.toast(out.message, out.ok ? 'check' : 'alert')
+    })
+    return true
+  }
+
+  openForKey(contents: WebContents): void {
+    const state = this.safe.pageState()
+    if (!state.enabled) {
+      this.host.toast(
+        this.safe.settings().fill ? 'Safe is not running' : 'Fill from Safe is off in Settings',
+        'alert',
+      )
+      return
+    }
+    if (!/^https?:/i.test(contents.getURL())) {
+      this.host.toast('Safe fills sign-in fields on websites', 'alert')
+      return
+    }
+    const focused = contents.focusedFrame
+    const frame =
+      focused !== null && !focused.isDestroyed() && /^https?:/i.test(focused.url)
+        ? focused
+        : contents.mainFrame
+    const started = Date.now()
+    this.wire(contents)
+    try {
+      frame.send(IPC.pageAction, { op: 'safe.key' })
+    } catch {
+      return
+    }
+    if (this.keyTimer !== null) clearTimeout(this.keyTimer)
+    this.keyTimer = setTimeout(() => {
+      this.keyTimer = null
+      if (contents.isDestroyed() || (this.keyedAt.get(contents.id) ?? 0) >= started) return
+      this.host.toast('No sign-in field on this page', 'alert')
+    }, SAFE_KEY_WAIT_MS)
   }
 
   private show(

@@ -9,10 +9,8 @@ import {
   type HomeRequest,
   type MusicLibrary,
   type MusicRequest,
-  type PasswordItem,
   type ExtensionsState,
   type SyncStatus,
-  type PasswordStatus,
   type FsResult,
   type HistoryRequest,
   type HistoryVisit,
@@ -24,6 +22,7 @@ import {
   type ThemeTokens,
   type UiEvent,
   type WindowSnapshot,
+  type PermissionsRequest,
 } from '@ewe/shared'
 
 function subscribe(channel: string, listener: (payload: unknown) => void): () => void {
@@ -64,11 +63,6 @@ export function createApi(layer: ApiLayer): BrowserApi {
     onHomeChanged: (listener) => subscribe(IPC.homeChanged, () => listener()),
     getExtensions: () => ipcRenderer.invoke(IPC.getExtensions) as Promise<ExtensionsState>,
     onExtensions: (listener) => subscribe(IPC.extensions, (p) => listener(p as ExtensionsState)),
-    passwords: (query) =>
-      ipcRenderer.invoke(IPC.passwords, query) as Promise<{
-        status: PasswordStatus
-        items: PasswordItem[]
-      }>,
     sync: (run) => ipcRenderer.invoke(IPC.sync, run) as Promise<SyncStatus | null>,
     onSync: (listener) => subscribe(IPC.syncStatus, (p) => listener(p as SyncStatus)),
     startup: (on) =>
@@ -80,6 +74,9 @@ export function createApi(layer: ApiLayer): BrowserApi {
     onTheme: (listener) => subscribe(IPC.theme, (p) => listener(p as ThemeTokens | null)),
     onBookmarks: (listener) => subscribe(IPC.bookmarks, (p) => listener(p as BookmarkFolder)),
     onUi: (listener) => subscribe(IPC.ui, (p) => listener(p as UiEvent)),
+    permissions: <T>(request: PermissionsRequest) =>
+      ipcRenderer.invoke(IPC.permissions, request) as Promise<T | null>,
+    onPermissions: (listener) => subscribe(IPC.permissionsChanged, () => listener()),
   }
 }
 

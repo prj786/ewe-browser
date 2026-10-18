@@ -73,6 +73,7 @@ async function setup() {
       return Promise.resolve()
     },
   }
+  const cleared: [number, number][] = []
   const service = new HistoryService({
     history,
     settings,
@@ -80,18 +81,19 @@ async function setup() {
     sync,
     sessions: () => [fakeSession as unknown as Electron.Session],
     extensionOrigins: () => ['chrome-extension://abc'],
+    onHistoryCleared: (from, to) => cleared.push([from, to]),
   })
   cleanups.push(() => {
     service.dispose()
     sync.dispose()
     history.close()
   })
-  return { settings, history, downloads, service, calls }
+  return { settings, history, downloads, service, calls, cleared }
 }
 
 describe('HistoryService', () => {
   it('clears a time range of history and downloads, never cookies or cache for a range', async () => {
-    const { history, downloads, service, calls } = await setup()
+    const { history, downloads, service, calls, cleared } = await setup()
     history.record('https://old.test/', 'Old', now - 3 * DAY)
     history.record('https://new.test/', 'New', now - 10 * 60_000)
     downloads.add(download('old', now - 3 * DAY, 'completed'))
@@ -110,6 +112,8 @@ describe('HistoryService', () => {
       value: { history: 1, downloads: 1, cookies: false, cache: false },
     })
     expect(history.all().map((e) => e.url)).toEqual(['https://old.test/'])
+    expect(cleared).toHaveLength(1)
+    expect((cleared[0]?.[1] ?? 0) - (cleared[0]?.[0] ?? 0)).toBe(60 * 60_000)
     expect(
       downloads
         .list()

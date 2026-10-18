@@ -13,10 +13,16 @@ const TRUSTED = new Set([
   'commands',
   'version',
   'open',
-  'search',
   'reveal',
   'home',
   'focus',
+  'workspaces',
+  'workspace_activate',
+  'workspace_next',
+  'workspace_prev',
+  'workspace_create',
+  'workspace_rename',
+  'workspace_remove',
 ])
 const TIERS = { 0: 'read', 1: 'desktop', 2: 'change' } as const
 

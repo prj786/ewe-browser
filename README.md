@@ -11,7 +11,9 @@ toasts) and a right sidebar.
 
 - **Browser**: a tab rail with workspaces, pinned tabs and drag to reorder; a command palette
   (`t:` tabs, `b:` bookmarks, `w:` web search); bookmarks, downloads and history in the
-  sidebar; Chrome bookmark import; session restore with lazy tabs; remappable shortcuts.
+  sidebar; Chrome bookmark import; session restore with lazy tabs; remappable shortcuts;
+  right-click menus on web pages (links, images, video, selected text, fields, the page);
+  find in page; two-finger touchpad swipes and the mouse side buttons for back and forward.
 - **Files** (`app://files`): a file manager that can replace Nemo, with places, Nextcloud and
   Google Drive through ewe's brokers, GVFS and removable drives, thumbnails, copy, move, trash,
   drag and drop, compress and extract, and "open folders with ewe browser".
@@ -20,12 +22,19 @@ toasts) and a right sidebar.
 - **Music** (`app://music`): a library from your Music folder with albums, artists, songs,
   search, a queue, shuffle and repeat, and MPRIS, so ewe's media controls and media keys work.
 - **ewe integration**: the look follows ewe's theme tokens live (colours, radius, fonts,
-  motion); passwords fill through ewe Passwords (1Password, Bitwarden or pass); web panels in
-  the sidebar; an optional resident process and "start with ewe" for instant windows.
+  motion); passwords fill only from Safe, ewe's password manager (known password-manager
+  extensions, a best-effort list of store ids, are refused and turned off); web panels in the
+  sidebar; an optional resident process and
+  "start with ewe" for instant windows.
 
 - **Extensions, DRM, sync**: Chrome Web Store extensions (an "Add to ewe browser" button on
   store pages), Widevine DRM through castlabs Electron, and sync of bookmarks, history and
   settings with your ewe Nextcloud account.
+- **Privacy and security**: Secure DNS (Cloudflare, Quad9, Mullvad, AdGuard, NextDNS or your
+  own), HTTPS-Only, third-party cookies blocked, Global Privacy Control, and site permissions
+  that ask first (camera, microphone, notifications, …) with a site info panel behind the lock.
+- **Site search**: `@zara men's shoes` in the palette opens Zara's own results; sites you search
+  on, sites with an OpenSearch description and 66 well-known sites are understood.
 
 ## Command line
 
@@ -35,6 +44,8 @@ Companion. `ewe-browser help` lists the verbs; the reference is [docs/CLI.md](do
 ```
 ewe-browser open ~/Documents         # a folder in the file manager, a url, a file or a search
 ewe-browser search sheep breeds      # web search with the engine from Settings
+ewe-browser search "men's shoes" --site zara   # the site's own search results
+ewe-browser workspace next           # what the 4-finger swipe runs
 ewe-browser find invoice             # tabs, bookmarks, history, recent files and music at once
 ewe-browser locate report --in ~/Documents
 ewe-browser tabs | jq '.tabs[].title'
@@ -54,7 +65,15 @@ Read verbs answer from the profile on disk while the browser is closed; acting v
 | Ctrl+D                               | bookmark or unbookmark the page |
 | Ctrl+Shift+B / Ctrl+J / Ctrl+H       | bookmarks, downloads, history   |
 | Ctrl+Shift+E                         | files                           |
-| Ctrl+Shift+L                         | fill a password                 |
+| Ctrl+Shift+L                         | fill from Safe                  |
+| Ctrl+F / Ctrl+G / Ctrl+Shift+G       | find in page, next, previous    |
+| Ctrl+P / Ctrl+U / Ctrl+,             | print, page source, settings    |
+| Ctrl+M / Ctrl+Shift+A                | mute the tab, search open tabs  |
+| Alt+Shift+N / Alt+Shift+R            | new workspace, rename it        |
+| Alt+Shift+Left / Alt+Shift+Right     | previous, next workspace        |
+| Ctrl+Alt+Shift+Left / Right          | move the tab to that workspace  |
+| Alt+Shift+D / P / C                  | duplicate, pin, copy address    |
+| Alt+Shift+H / Alt+Shift+M            | home, music                     |
 | Ctrl+Shift+S                         | collapse or expand the rail     |
 | Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1-9 | switch tabs                     |
 | Alt+Shift+1-9                        | switch workspaces               |

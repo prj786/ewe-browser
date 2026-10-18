@@ -6,7 +6,10 @@ export type Parsed =
   | { ok: true; tool: string; args: Record<string, unknown>; pretty: boolean }
   | { ok: false; error: 'usage' | 'unknown-verb'; message: string; pretty: boolean }
 
-type Positional = { key: string; mode: 'join' | 'list' | 'one' } | null
+type Positional =
+  | { key: string; mode: 'join' | 'list' | 'one' }
+  | { key: string; mode: 'pair'; rest: string }
+  | null
 
 const POSITIONAL: Record<string, Positional> = {
   help: { key: 'verb', mode: 'one' },
@@ -30,17 +33,41 @@ const POSITIONAL: Record<string, Positional> = {
   reveal: { key: 'path', mode: 'one' },
   home: null,
   focus: null,
+  site: { key: 'site', mode: 'join' },
+  workspaces: null,
+  back: null,
+  forward: null,
 }
 
-const GROUPS: Record<string, { actions: string[]; positional: Positional }> = {
+const tabId: Positional = { key: 'id', mode: 'one' }
+const url: Positional = { key: 'url', mode: 'one' }
+const workspace: Positional = { key: 'workspace', mode: 'join' }
+const downloadId: Positional = { key: 'id', mode: 'one' }
+
+const GROUPS: Record<string, Record<string, Positional>> = {
   tab: {
-    actions: ['activate', 'close', 'reload', 'mute', 'unmute', 'pin', 'unpin', 'reopen'],
-    positional: { key: 'id', mode: 'one' },
+    activate: tabId,
+    close: tabId,
+    reload: tabId,
+    mute: tabId,
+    unmute: tabId,
+    pin: tabId,
+    unpin: tabId,
+    reopen: null,
   },
-  bookmark: { actions: ['add', 'remove'], positional: { key: 'url', mode: 'one' } },
+  bookmark: { add: url, remove: url },
+  workspace: {
+    activate: workspace,
+    next: null,
+    prev: null,
+    create: { key: 'name', mode: 'join' },
+    rename: { key: 'workspace', mode: 'pair', rest: 'name' },
+    remove: workspace,
+  },
+  download: { open: downloadId, show: downloadId },
 }
 
-export const VERBS = [...Object.keys(POSITIONAL), 'tab', 'bookmark', 'call']
+export const VERBS = [...Object.keys(POSITIONAL), ...Object.keys(GROUPS), 'call']
 
 const kebab = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 
@@ -80,10 +107,10 @@ export function parseArgv(argv: readonly string[]): Parsed {
   const group = Object.hasOwn(GROUPS, first) ? GROUPS[first] : undefined
   if (group !== undefined) {
     const action = rest[1]
-    if (action === undefined || !group.actions.includes(action))
-      return fail('usage', `${first} needs one of: ${group.actions.join(', ')}`)
+    if (action === undefined || !Object.hasOwn(group, action))
+      return fail('usage', `${first} needs one of: ${Object.keys(group).join(', ')}`)
     tool = `${first}_${action}`
-    positional = action === 'reopen' ? null : group.positional
+    positional = group[action] ?? null
     words = rest.slice(2)
   } else if (Object.hasOwn(POSITIONAL, first)) {
     tool = first
@@ -97,7 +124,8 @@ export function parseArgv(argv: readonly string[]): Parsed {
 
   const byOption = new Map<string, [string, PropSchema]>()
   for (const [key, prop] of Object.entries(spec.schema.properties))
-    if (positional?.key !== key) byOption.set(kebab(key), [key, prop])
+    if (positional?.key !== key && (positional?.mode !== 'pair' || positional.rest !== key))
+      byOption.set(kebab(key), [key, prop])
 
   const args: Record<string, unknown> = {}
   const free: string[] = []
@@ -132,6 +160,9 @@ export function parseArgv(argv: readonly string[]): Parsed {
 
   if (positional === null) {
     if (free.length > 0) return fail('usage', `${spec.usage} (unexpected "${free[0] ?? ''}")`)
+  } else if (positional.mode === 'pair') {
+    if (free.length > 0) args[positional.key] = free[0]
+    if (free.length > 1) args[positional.rest] = free.slice(1).join(' ')
   } else if (free.length > 0) {
     if (positional.mode === 'one' && free.length > 1)
       return fail('usage', `${spec.usage} (one ${positional.key}; quote it if it has spaces)`)

@@ -15,6 +15,7 @@ import {
   captureFrom,
   classify,
   fillOtp,
+  inputsIn,
   loginFields,
   newPasswordFields,
   otpFields,
@@ -342,6 +343,39 @@ function onFill(_event: Electron.IpcRendererEvent, value: unknown): void {
   if (value.kind === 'otp' && value.otp !== undefined) {
     fillOtp(otpFields(target.el, visible), value.otp)
   }
+}
+
+function inputIn(target: Element | null): HTMLInputElement | null {
+  if (target instanceof HTMLInputElement) return target
+  const inner = target?.shadowRoot?.activeElement ?? null
+  return inner instanceof HTMLInputElement ? inner : null
+}
+
+function firstField(): { el: HTMLInputElement; kind: SafeFieldKind } | null {
+  let found: { el: HTMLInputElement; kind: SafeFieldKind } | null = null
+  for (const el of inputsIn(document, visible)) {
+    const kind = classify(el, visible)
+    if (kind === null) continue
+    if (kind === 'login') return { el, kind }
+    found ??= { el, kind }
+  }
+  return found
+}
+
+export function safeKindOf(el: HTMLInputElement): SafeFieldKind | null {
+  return classify(el, visible)
+}
+
+export function openSafeAt(target: Element | null, op: 'fill' | 'generate' | 'key'): void {
+  void (async () => {
+    if (!(await pageState()).enabled) return
+    const el = inputIn(target)
+    const kind = el === null ? null : classify(el, visible)
+    const field = el !== null && kind !== null ? { el, kind } : op === 'key' ? firstField() : null
+    if (field === null) return
+    if (document.activeElement !== field.el) field.el.focus({ preventScroll: false })
+    open(field.el, field.kind, 'key')
+  })()
 }
 
 export function installSafe(): void {

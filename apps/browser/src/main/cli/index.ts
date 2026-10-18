@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { absolutePaths, parseArgv } from './argv'
 import { appVersion, runLocal } from './local'
-import { offlineBookmark, offlineRead } from './offline'
+import { offlineBookmark, offlineRead, offlineSite } from './offline'
 import {
   failure,
   foreignOwner,
@@ -157,6 +157,10 @@ async function run(argv: readonly string[]): Promise<{ reply: CliReply; pretty: 
         pretty,
       }
     default: {
+      if (spec.name === 'search' && typeof args.site === 'string' && args.site.trim() !== '') {
+        const found = await offlineSite(args.site, userData)
+        if (!found.ok) return { reply: found, pretty }
+      }
       if (first.offline === 'stale') rmSync(socket, { force: true })
       const problem = await launch(socket)
       if (problem !== null) return { reply: problem, pretty }
