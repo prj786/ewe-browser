@@ -7,6 +7,7 @@ import {
   isSafePageState,
   isSafePasskeyRequest,
   isSafeSuggestState,
+  isSafeWalletFill,
   sanitizeSafeSettings,
   siteHostOf,
 } from './safe'
@@ -82,12 +83,81 @@ describe('isSafePageRequest', () => {
   })
 })
 
+describe('sign-up and wallet page requests', () => {
+  it('accepts the new shapes', () => {
+    for (const kind of ['login', 'signup', 'change'])
+      expect(isSafePageRequest({ op: 'submit', kind, username: '', password: 'p' })).toBe(true)
+    expect(
+      isSafePageRequest({ op: 'submit', kind: 'new-password', username: '', password: 'p' }),
+    ).toBe(false)
+    expect(isSafePageRequest({ op: 'wallet', kind: 'card', rect: null, trigger: 'focus' })).toBe(
+      true,
+    )
+    expect(isSafePageRequest({ op: 'wallet', kind: 'address', rect: null, trigger: 'key' })).toBe(
+      true,
+    )
+    expect(isSafePageRequest({ op: 'wallet', kind: 'login', rect: null, trigger: 'key' })).toBe(
+      false,
+    )
+    expect(isSafePageRequest({ op: 'username', username: 'sam@example.com' })).toBe(true)
+    expect(isSafePageRequest({ op: 'username', username: '  ' })).toBe(false)
+    expect(isSafePageRequest({ op: 'draft', username: 'sam', keep: true })).toBe(true)
+    expect(isSafePageRequest({ op: 'draft', username: 'sam' })).toBe(false)
+  })
+
+  it('validates wallet fills', () => {
+    const card = {
+      holder: 'Sam Moe',
+      number: '4242424242424242',
+      expiryMonth: '08',
+      expiryYear: '2029',
+      securityCode: '123',
+      brand: 'visa',
+    }
+    expect(isSafeWalletFill({ kind: 'card', card })).toBe(true)
+    expect(isSafeWalletFill({ kind: 'card', card: { ...card, number: 4 } })).toBe(false)
+    expect(isSafeWalletFill({ kind: 'address', card })).toBe(false)
+    const address = {
+      fullName: 'Sam Moe',
+      givenName: 'Sam',
+      familyName: 'Moe',
+      organization: '',
+      line1: '12 Main St',
+      line2: '',
+      city: 'Tbilisi',
+      region: '',
+      postalCode: '0100',
+      country: 'GE',
+      phone: '',
+      email: '',
+    }
+    expect(isSafeWalletFill({ kind: 'address', address })).toBe(true)
+    expect(isSafeWalletFill({ kind: 'address', address: { ...address, city: undefined } })).toBe(
+      false,
+    )
+    expect(isSafeWalletFill({ kind: 'login' })).toBe(false)
+  })
+
+  it('accepts Unlock and save on the prompt', () => {
+    expect(isShellCommand({ type: 'safe.prompt', promptId: 'p', action: 'unlock' })).toBe(true)
+  })
+})
+
 describe('isSafeFill and isSafePageState', () => {
   it('validates the shapes', () => {
     expect(isSafeFill({ kind: 'login', username: 'sam', password: 'p' })).toBe(true)
     expect(isSafeFill({ kind: 'otp', otp: '123456' })).toBe(true)
     expect(isSafeFill({ kind: 'login', password: 7 })).toBe(false)
-    expect(isSafePageState({ enabled: true, suggest: true, capture: false })).toBe(true)
+    expect(
+      isSafePageState({
+        enabled: true,
+        suggest: true,
+        capture: false,
+        cards: true,
+        addresses: false,
+      }),
+    ).toBe(true)
+    expect(isSafePageState({ enabled: true, suggest: true, capture: false })).toBe(false)
     expect(isSafePageState({ enabled: true, capture: false })).toBe(false)
     expect(isSafeSuggestState({ open: true, visible: false, selected: false })).toBe(true)
     expect(isSafeSuggestState({ open: true })).toBe(false)
@@ -120,8 +190,13 @@ describe('sanitizeSafeSettings', () => {
       suggest: true,
       passkeys: true,
       offerSave: false,
+      fillCards: true,
+      fillAddresses: true,
       neverSave: ['bank.com', 'shop.example.com'],
     })
+    expect(
+      sanitizeSafeSettings({ fillCards: false, fillAddresses: 'no' }, DEFAULT_SAFE_SETTINGS),
+    ).toEqual({ ...DEFAULT_SAFE_SETTINGS, fillCards: false })
     expect(
       sanitizeSafeSettings({ suggest: false, passkeys: false }, DEFAULT_SAFE_SETTINGS),
     ).toEqual({ ...DEFAULT_SAFE_SETTINGS, suggest: false, passkeys: false })

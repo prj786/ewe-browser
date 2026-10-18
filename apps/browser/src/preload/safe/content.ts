@@ -4,12 +4,15 @@ import {
   isSafeFill,
   isSafePageState,
   isSafeSuggestState,
+  isSafeWalletFill,
   type Rect,
   type SafeField,
   type SafeFieldKind,
+  type SafeListKind,
   type SafePageState,
   type SafeSuggestState,
   type SafeTrigger,
+  type SafeWalletKind,
 } from '@ewe/shared'
 import {
   captureFrom,
@@ -24,6 +27,9 @@ import {
   setFieldValue,
 } from './forms'
 import { installPasskeys } from './passkeys'
+import { stepUsername, type Captured } from './forms'
+import { TypedWatch } from './typed'
+import { fillAddress, fillCard, walletKindOf } from './wallet'
 
 const STATE_TTL_MS = 2_000
 const ARMED_TTL_MS = 120_000
@@ -39,12 +45,18 @@ const KEY_SVG =
 
 const ICON_CSS = `:host{all:initial;position:fixed;z-index:2147483647;width:${String(ICON_SIZE)}px;height:${String(ICON_SIZE)}px}button{all:initial;display:grid;place-items:center;width:100%;height:100%;border-radius:6px;cursor:pointer;color:#8a857c;background:transparent}button:hover{color:#1a1814;background:#f2c94c}`
 
-const OFF: SafePageState = { enabled: false, suggest: false, capture: false }
+const OFF: SafePageState = {
+  enabled: false,
+  suggest: false,
+  capture: false,
+  cards: false,
+  addresses: false,
+}
 const CLOSED: SafeSuggestState = { open: false, visible: false, selected: false }
 
 interface Armed {
   el: HTMLInputElement
-  kind: SafeFieldKind
+  kind: SafeListKind
   at: number
 }
 
@@ -56,7 +68,7 @@ interface Intent {
 
 let state: SafePageState | null = null
 let stateAt = 0
-let focused: { el: HTMLInputElement; kind: SafeFieldKind } | null = null
+let focused: { el: HTMLInputElement; kind: SafeListKind } | null = null
 let armed: Armed | null = null
 let iconHost: HTMLElement | null = null
 let hideTimer = 0
@@ -128,6 +140,53 @@ function open(el: HTMLInputElement, kind: SafeFieldKind, trigger: SafeTrigger): 
   send({ op: 'open', kind, field: fieldKind(el, kind), rect: topRect(el), trigger })
 }
 
+const isWallet = (kind: SafeListKind): kind is SafeWalletKind =>
+  kind === 'card' || kind === 'address'
+
+function listKind(el: HTMLInputElement): SafeListKind | null {
+  const wallet = walletKindOf(el, visible)
+  if (wallet === 'card') return 'card'
+  const kind = classify(el, visible)
+  if (wallet === null) return kind
+  if (kind === null) return wallet
+  if (kind === 'login' && passwordsIn(scopeOf(el), visible).length === 0) return wallet
+  return kind
+}
+
+function enabledFor(s: SafePageState, kind: SafeListKind): boolean {
+  if (kind === 'card') return s.cards
+  if (kind === 'address') return s.addresses
+  return s.enabled
+}
+
+function openList(el: HTMLInputElement, kind: SafeListKind, trigger: SafeTrigger): void {
+  if (!isWallet(kind)) {
+    open(el, kind, trigger)
+    return
+  }
+  armed = { el, kind, at: Date.now() }
+  menuField = el
+  send({ op: 'wallet', kind, rect: topRect(el), trigger })
+}
+
+function secureFrame(): boolean {
+  const host = location.hostname.toLowerCase()
+  if (location.protocol === 'https:') return true
+  return location.protocol === 'http:' && (host === 'localhost' || host.endsWith('.localhost'))
+}
+
+function onWalletFill(_event: Electron.IpcRendererEvent, value: unknown): void {
+  const target = armed
+  armed = null
+  menu = CLOSED
+  if (target === null || !isSafeWalletFill(value) || Date.now() - target.at > ARMED_TTL_MS) return
+  if (!target.el.isConnected || value.kind !== target.kind) return
+  if (value.kind === 'card') {
+    if (secureFrame()) fillCard(target.el, value.card, visible)
+  } else fillAddress(target.el, value.address, visible)
+  target.el.focus()
+}
+
 function placeIcon(): void {
   if (iconHost === null || focused === null) return
   const r = focused.el.getBoundingClientRect()
@@ -159,7 +218,7 @@ function ensureIcon(): HTMLElement {
     event.preventDefault()
     event.stopPropagation()
     if (!event.isTrusted || focused === null) return
-    open(focused.el, focused.kind, 'icon')
+    openList(focused.el, focused.kind, 'icon')
   })
   root.append(style, button)
   document.documentElement.append(host)
@@ -194,16 +253,16 @@ async function onFocusIn(event: FocusEvent): Promise<void> {
   const el = inputOf(event.target)
   if (el === null) return
   if (menuOn(el)) send({ op: 'focus' })
-  const kind = classify(el, visible)
+  const kind = listKind(el)
   if (kind === null) return
   const user = fromUser(el)
   const s = await pageState()
-  if (!s.enabled || document.activeElement !== el) return
+  if (!enabledFor(s, kind) || document.activeElement !== el) return
   window.clearTimeout(hideTimer)
   focused = { el, kind }
   ensureIcon()
   placeIcon()
-  if (user && s.suggest && !menuOn(el)) open(el, kind, 'focus')
+  if (user && s.suggest && !menuOn(el)) openList(el, kind, 'focus')
 }
 
 function onFocusOut(event: FocusEvent): void {
@@ -217,8 +276,8 @@ function onPointerDown(event: PointerEvent): void {
   const el = inputOf(event.target)
   if (el === null || document.activeElement !== el || menuOn(el)) return
   if (state?.suggest !== true) return
-  const kind = classify(el, visible)
-  if (kind !== null) open(el, kind, 'click')
+  const kind = listKind(el)
+  if (kind !== null && enabledFor(state, kind)) openList(el, kind, 'click')
 }
 
 function onKeyDown(event: KeyboardEvent): void {
@@ -248,22 +307,24 @@ function onKeyDown(event: KeyboardEvent): void {
     if (key === 'Enter') send({ op: 'close' })
   }
   if (event.key === 'ArrowDown' && plain && el.value === '' && !menuOn(el)) {
-    const kind = classify(el, visible)
-    if (kind !== null && state?.enabled === true) {
+    const kind = listKind(el)
+    if (kind !== null && state !== null && enabledFor(state, kind)) {
       event.preventDefault()
-      open(el, kind, 'key')
+      openList(el, kind, 'key')
     }
     return
   }
-  if (event.key === 'Enter' && passwordsIn(scopeOf(el), visible).length > 0)
-    void capture(scopeOf(el))
+  if (event.key === 'Enter') submitted(scopeOf(el))
 }
 
 function onInput(event: Event): void {
   if (!event.isTrusted) return
   const el = inputOf(event.target)
-  if (el === null || !menuOn(el)) return
-  if (el.type === 'password' || armed?.kind === 'otp') send({ op: 'close' })
+  if (el === null) return
+  typed.input(el)
+  if (!menuOn(el)) return
+  if (el.type === 'password' || armed?.kind === 'otp' || armed?.kind === 'card')
+    send({ op: 'close' })
   else send({ op: 'filter', text: el.value.slice(0, FILTER_MAX) })
 }
 
@@ -281,9 +342,13 @@ function onViewport(event: Event): void {
 }
 
 const SUBMIT_TEXT =
-  /log ?in|sign ?in|sign ?up|continue|next|submit|save|create|register|join|verify|update|change/i
+  /log ?in|sign ?in|sign ?up|continue|next|submit|save|create|register|join|verify|update|change|get ?started|confirm|finish/i
 
 function isSubmitButton(el: Element): boolean {
+  if (el instanceof HTMLAnchorElement) {
+    const href = el.getAttribute('href') ?? ''
+    if (href !== '' && !href.startsWith('#') && !/^javascript:/i.test(href)) return false
+  }
   if (el instanceof HTMLInputElement) return el.type === 'submit' || el.type === 'image'
   if (el instanceof HTMLButtonElement) {
     if (el.type === 'submit' && el.form !== null) return true
@@ -296,26 +361,48 @@ function isSubmitButton(el: Element): boolean {
 function onClick(event: MouseEvent): void {
   if (!event.isTrusted) return
   const target = event.target instanceof Element ? event.target : null
-  const button = target?.closest('button, input[type=submit], input[type=image], [role=button]')
+  const button = target?.closest('button, input[type=submit], input[type=image], [role=button], a')
   if (button === null || button === undefined || !isSubmitButton(button)) return
   const form = button.closest('form')
   const scope: ParentNode = form ?? document
-  if (passwordsIn(scope, visible).some((el) => el.value !== '')) void capture(scope)
+  submitted(scope)
 }
 
 function onSubmit(event: Event): void {
-  if (event.isTrusted && event.target instanceof HTMLFormElement) void capture(event.target)
+  if (event.isTrusted && event.target instanceof HTMLFormElement) submitted(event.target)
 }
 
-async function capture(scope: ParentNode): Promise<void> {
-  const found = captureFrom(scope, visible)
-  if (found === null) return
+function captureOff(): boolean {
+  return state !== null && Date.now() - stateAt < STATE_TTL_MS && !state.capture
+}
+
+function submitted(scope: ParentNode): void {
+  if (capture(scope)) return
+  const username = stepUsername(scope, visible)
+  if (username !== null && !captureOff()) send({ op: 'username', username })
+}
+
+function sendCapture(found: Captured): void {
   const key = `${found.kind}\u0000${found.username}\u0000${found.password}`
   if (key === lastCapture) return
   lastCapture = key
-  if (!(await pageState()).capture) return
+  if (captureOff()) return
   send({ op: 'submit', ...found })
 }
+
+function capture(scope: ParentNode): boolean {
+  const found = captureFrom(scope, visible)
+  if (found === null) return false
+  typed.clear()
+  sendCapture(found)
+  return true
+}
+
+const typed = new TypedWatch({
+  visible,
+  capture: sendCapture,
+  draft: (username, keep) => send({ op: 'draft', username: username.slice(0, FILTER_MAX), keep }),
+})
 
 function onSuggest(_event: Electron.IpcRendererEvent, value: unknown): void {
   if (isSafeSuggestState(value)) menu = value
@@ -338,6 +425,7 @@ function onFill(_event: Electron.IpcRendererEvent, value: unknown): void {
   if (value.kind === 'new-password' && value.password !== undefined) {
     for (const el of newPasswordFields(target.el, visible)) setFieldValue(el, value.password)
     target.el.focus()
+    typed.generated(target.el, value.password)
     return
   }
   if (value.kind === 'otp' && value.otp !== undefined) {
@@ -391,4 +479,6 @@ export function installSafe(): void {
   window.addEventListener('resize', onViewport)
   ipcRenderer.on(IPC.safeFill, onFill)
   ipcRenderer.on(IPC.safeSuggest, onSuggest)
+  ipcRenderer.on(IPC.safeWalletFill, onWalletFill)
+  typed.install()
 }

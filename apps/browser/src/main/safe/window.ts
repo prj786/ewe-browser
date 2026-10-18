@@ -7,14 +7,18 @@ import {
   type Rect,
   type SafeField,
   type SafeFieldKind,
+  type SafeListKind,
   type SafeMenu,
   type SafePageRequest,
   type SafePasskeyReply,
   type SafePasskeyRequest,
+  type SafePrompt,
+  type SafePromptAction,
   type SafeSheet,
   type SafeSheetAction,
   type SafeSuggestState,
   type SafeTrigger,
+  type SafeWalletKind,
   type ShellCommand,
   type Size,
   type ToastIcon,
@@ -22,7 +26,7 @@ import {
 import type { OverlayController } from '../overlay'
 import { sameUser } from './decide'
 import { frameKey, frameRef, type FrameRef } from './passkeys'
-import type { SafeOutcome, SafeService } from './service'
+import type { CaptureInput, SafeOutcome, SafeService } from './service'
 import { siteOf } from './site'
 import {
   checkRpId,
@@ -52,7 +56,7 @@ interface Suggest {
   requestId: string
   contents: WebContents
   ref: FrameRef
-  kind: SafeFieldKind
+  kind: SafeListKind
   field: SafeField
   rect: Rect | null
   anchor: Point
@@ -119,7 +123,8 @@ export function shouldSuggest(menu: SafeMenu, trigger: SafeTrigger): boolean {
   if (menu.state === 'locked') return true
   if (menu.state !== 'ready') return false
   if (menu.kind === 'new-password') return true
-  return menu.items.length > 0 || menu.passkeys.length > 0
+  const wallet = (menu.cards?.length ?? 0) + (menu.addresses?.length ?? 0)
+  return menu.items.length > 0 || menu.passkeys.length > 0 || wallet > 0
 }
 
 export function crossOrigin(frame: WebFrameMain): boolean {
@@ -194,6 +199,7 @@ export class SafeWindow {
       },
     )
     contents.once('destroyed', () => this.dropContents(contents))
+    this.watchDrafts(contents)
   }
 
   private dropFrame(contents: WebContents, processId: number, routingId: number): void {
@@ -284,9 +290,18 @@ export class SafeWindow {
         if (same) this.closeSuggest()
         return
       case 'submit':
-        this.capture(contents, frame, request.username, request.password)
+        this.capture(contents, frame.origin, request)
         return
       case 'state':
+        return
+      case 'wallet':
+        void this.openWallet(contents, frame, request.kind, request.rect, request.trigger)
+        return
+      case 'username':
+        this.safe.rememberUsername(contents.id, frame.origin, request.username)
+        return
+      case 'draft':
+        this.safe.draft(frameRef(contents, frame), request.username, request.keep)
         return
     }
   }
@@ -526,13 +541,37 @@ export class SafeWindow {
       }
       if (session === null || target === null) return
       const ref = frameRef(target.contents, target.frame)
-      void this.safe
-        .menu(target.contents, target.frame, session.kind, session.field)
-        .then((menu) => {
-          if (this.host.activeContents() !== target.contents || this.frameOf(ref) === null) return
-          this.show(target.contents, ref, menu, session.rect, session.anchor)
-        })
+      const kind = session.kind
+      const next =
+        kind === 'card' || kind === 'address'
+          ? this.safe.wallet.menu(ref, kind)
+          : this.safe.menu(target.contents, target.frame, kind, session.field)
+      void next.then((menu) => {
+        if (this.host.activeContents() !== target.contents || this.frameOf(ref) === null) return
+        this.show(target.contents, ref, menu, session.rect, session.anchor)
+      })
     })
+  }
+
+  private async openWallet(
+    contents: WebContents,
+    frame: WebFrameMain,
+    kind: SafeWalletKind,
+    rect: Rect | null,
+    trigger: SafeTrigger,
+  ): Promise<void> {
+    if (this.host.activeContents() !== contents) return
+    const part = this.host.overlay.part
+    if (part === 'palette' || part === 'menu' || part === 'sheet') return
+    const token = ++this.opening
+    const anchor = this.anchorFor(contents)
+    const ref = frameRef(contents, frame)
+    const menu = await this.safe.wallet.menu(ref, kind)
+    if (token !== this.opening || !shouldSuggest(menu, trigger)) return
+    if (this.host.activeContents() !== contents || this.frameOf(ref) === null) return
+    const now = this.host.overlay.part
+    if (now === 'palette' || now === 'menu' || now === 'sheet') return
+    this.show(contents, ref, menu, rect, anchor)
   }
 
   async passkey(
@@ -780,10 +819,18 @@ export class SafeWindow {
     this.safe.passkeys.take(ref, id)?.resolve(aborted())
   }
 
-  capture(contents: WebContents, frame: WebFrameMain, username: string, password: string): void {
-    const promptId = this.safe.capture(contents, frame, username, password)
+  capture(contents: WebContents, origin: string, input: CaptureInput): void {
+    const promptId = this.safe.capture(contents.id, origin, input)
+    this.awaitPrompt(promptId, contents)
+  }
+
+  private awaitPrompt(promptId: string | null, contents: WebContents | null): void {
     if (promptId === null || this.promptPending.has(promptId)) return
     this.promptPending.add(promptId)
+    if (contents === null || contents.isDestroyed()) {
+      setTimeout(() => void this.showPrompt(promptId, 0), SAFE_PROMPT_SETTLE_MS)
+      return
+    }
     let fired = false
     const fire = () => {
       if (fired) return
@@ -799,6 +846,23 @@ export class SafeWindow {
     contents.on('did-navigate', onNavigate)
     contents.on('did-navigate-in-page', onNavigate)
     const fallback = setTimeout(fire, SAFE_PROMPT_FALLBACK_MS)
+  }
+
+  private watchDrafts(contents: WebContents): void {
+    const id = contents.id
+    contents.on('did-frame-navigate', (_event, _url, _code, _status, isMainFrame, pid, rid) => {
+      const frame = this.safe.signup.draftFrame(id)
+      if (frame === null) return
+      if (!isMainFrame && frameKey(frame) !== frameKey({ processId: pid, routingId: rid })) return
+      this.flushDraft(id, contents)
+    })
+    contents.once('destroyed', () => this.flushDraft(id, null))
+  }
+
+  private flushDraft(contentsId: number, contents: WebContents | null): void {
+    const draft = this.safe.signup.take(contentsId)
+    if (draft === null) return
+    this.awaitPrompt(this.safe.captureDraft(draft), contents)
   }
 
   private async showPrompt(promptId: string, attempt: number): Promise<void> {
@@ -821,22 +885,13 @@ export class SafeWindow {
       this.safe.drop(promptId)
       return
     }
-    if (this.promptId !== null) this.safe.drop(this.promptId)
-    this.promptId = promptId
-    this.host.overlay.show('prompt', this.host.contentSize(), { type: 'safe.prompt', prompt })
-    if (this.promptTimer !== null) clearTimeout(this.promptTimer)
-    this.promptTimer = setTimeout(() => {
-      this.promptTimer = null
-      if (this.promptId !== promptId) return
-      this.promptId = null
-      this.safe.drop(promptId)
-      if (this.host.overlay.part === 'prompt') this.host.overlay.hide()
-    }, SAFE_PROMPT_SHOW_MS)
+    if (this.promptId !== null && this.promptId !== promptId) this.safe.drop(this.promptId)
+    this.showReady(prompt)
   }
 
   private settlePrompt(
     promptId: string,
-    action: 'save' | 'update' | 'never' | 'dismiss',
+    action: SafePromptAction,
     report: (out: SafeOutcome | null) => void,
   ): void {
     if (this.promptId === promptId) {
@@ -845,6 +900,32 @@ export class SafeWindow {
       this.promptTimer = null
       if (this.host.overlay.part === 'prompt') this.host.overlay.hide()
     }
+    if (action === 'unlock') {
+      void this.safe.unlockAndSave(promptId).then((next) => {
+        if (next.kind === 'done') report(next.outcome)
+        else this.showReady(next.prompt)
+      })
+      return
+    }
     void this.safe.settle(promptId, action).then(report)
+  }
+
+  private showReady(prompt: SafePrompt): void {
+    if (this.host.window.isDestroyed()) return
+    const part = this.host.overlay.part
+    if (part !== 'none' && part !== 'toast') {
+      this.safe.drop(prompt.promptId)
+      return
+    }
+    this.promptId = prompt.promptId
+    this.host.overlay.show('prompt', this.host.contentSize(), { type: 'safe.prompt', prompt })
+    if (this.promptTimer !== null) clearTimeout(this.promptTimer)
+    this.promptTimer = setTimeout(() => {
+      this.promptTimer = null
+      if (this.promptId !== prompt.promptId) return
+      this.promptId = null
+      this.safe.drop(prompt.promptId)
+      if (this.host.overlay.part === 'prompt') this.host.overlay.hide()
+    }, SAFE_PROMPT_SHOW_MS)
   }
 }

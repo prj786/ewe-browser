@@ -398,6 +398,37 @@ built, verified and handed to the owner for testing before the next starts.
      password-only second step of a two-step sign-in is saved without its username; no identities
      or cards; the one-time-code fill is unit-tested only (`ewe-safe add` cannot store a code
      yet).
+3. [x] **Sign-ups always ask; cards and addresses** (built 2026-10-18 on
+       `feat/safe-signup-cards`, ewe-safe `docs/SYSTEM.md` §5, released in 0.5.0-beta with Safe
+       0.3.0-beta). The owner: "When I register somewhere it should ask me
+       if I want to save the data as a new login."
+   - Why it often did not ask: a locked Safe dropped the captured login without a word; a
+     sign-up whose username was not seen was treated as "update the only login of this site" (or
+     nothing, when that password was saved for another account), even counting logins of other
+     subdomains; a username typed on an earlier step was lost; app-style sign-ups (no `<form>`, a
+     clickable `<div>`) were never seen; a strong password from Safe was never offered without a
+     seen submit; and a fast form navigation could beat the capture.
+   - Now: "Save this login to Safe?" with the username and the site, Save / Not now / Never for
+     this site. A sign-up saves a **new** login unless this site already has a login with that
+     username (then "Update the password in Safe?"). Locked: the same prompt says "Safe is
+     locked. Unlock it to save." and _Unlock and save_ unlocks first. The username comes from
+     the form (username, then email, then the field before the password), else from an earlier
+     step in the same tab (5 minutes, kept in the browser's main process). Sign-ups are seen
+     through Enter, a button-like click, the password field leaving the page, or an in-page
+     navigation within 10 s after typing. A strong password from Safe is offered on the tab's
+     next page or when the tab closes, even without a submit.
+   - Cards and addresses: card and address fields get the Safe list (cards: brand, •••• last 4,
+     expiry; addresses: name and street). A pick fills that form section in that frame only
+     (payment frames such as Stripe fill their own field). Cards ask for the password again
+     first (`ewe-safe confirm --ask`, once per 5 minutes in Safe), and fill only on https pages
+     (or `localhost`). Settings → ewe: _Fill addresses_, _Fill cards_ (on).
+   - Tested: unit (form detection, decisions, fills, the service and wallet against the fake
+     Safe), e2e against the fake Safe (12 tests), and the real daemon from stream C
+     (`.wt/safe-cards`, cards and addresses with `confirm_cards` off, plus the existing 7).
+   - Not verified: the confirm window itself (`ewe-safe confirm --ask` belongs to stream L, not
+     built with cards yet), real sites (Google's and Microsoft's two-step sign-ups, Stripe,
+     Adyen), inputs inside shadow roots (not seen), and `127.0.0.1` pages, which never get
+     cards although browsers call them secure.
 
 ## History and real sync (2026-10-15, branch `feat/history`, approved and merged 2026-10-15)
 

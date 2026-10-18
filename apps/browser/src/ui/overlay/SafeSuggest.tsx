@@ -25,7 +25,9 @@ const iconOf = (row: SafeRow): IconName | null =>
   row.kind === 'action' || row.kind === 'note' ? row.icon : null
 
 const subOf = (row: SafeRow): string =>
-  row.kind === 'login' || row.kind === 'passkey' ? row.sub : ''
+  row.kind === 'login' || row.kind === 'passkey' || row.kind === 'card' || row.kind === 'address'
+    ? row.sub
+    : ''
 
 export function SafeSuggest(props: { menu: SafeMenu; leaving: boolean }): JSX.Element {
   const requestId = untrack(() => props.menu.requestId)
@@ -44,6 +46,12 @@ export function SafeSuggest(props: { menu: SafeMenu; leaving: boolean }): JSX.El
         return
       case 'passkey':
         send({ type: 'safe.passkey', requestId, credentialId: row.passkey.credentialId })
+        return
+      case 'card':
+        send({ type: 'safe.choose', requestId, id: row.card.id })
+        return
+      case 'address':
+        send({ type: 'safe.choose', requestId, id: row.address.id })
         return
       case 'action':
         if (row.action === 'generate') send({ type: 'safe.generate', requestId })
@@ -154,6 +162,12 @@ export function SafeSuggest(props: { menu: SafeMenu; leaving: boolean }): JSX.El
                     </Match>
                     <Match when={row.kind === 'passkey'}>
                       <Icon name="fingerprint" />
+                    </Match>
+                    <Match when={row.kind === 'card'}>
+                      <Icon name="credit-card" />
+                    </Match>
+                    <Match when={row.kind === 'address'}>
+                      <Icon name="map-pin" />
                     </Match>
                     <Match when={iconOf(row)}>{(name) => <Icon name={name()} />}</Match>
                   </Switch>

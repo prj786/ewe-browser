@@ -888,12 +888,79 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
   - Save: `SafeWindow.capture` waits for the tab's next navigation (or 2.5s), `SafeService.prompt`
     reveals the saved passwords of the same username to compare (`decide.ts`), and part `prompt`
     (`PROMPT_WIDTH` 380 × `PROMPT_HEIGHT` 168 at the page's top right, `PROMPT_MARGIN` 12; no
-    focus, ignored by the page mouse hooks and the overlay's mouseleave) shows `SafePromptCard`;
-    `safe.prompt {promptId, action: save | update | never | dismiss}` settles it, any other part
-    dismisses it, 60s hides it.
-  - `Settings.safe { fill, suggest, passkeys, offerSave, neverSave }` (`sanitizeSafeSettings`, 500
-    hosts). Unlock runs `ewe-safe unlock --ask` (`$EWE_SAFE_BIN` or `PATH`); Open Safe runs
-    `ewe-safe-app` (`$EWE_SAFE_APP` or `PATH`). Nothing logs titles, usernames or values.
+    focus, ignored by the page mouse hooks and the overlay's mouseleave) shows `SafePromptCard`
+    ("Save this login to Safe?", the username · host, Save / Not now / Never for this site;
+    "Update the password in Safe?" for an update);
+    `safe.prompt {promptId, action: save | update | never | dismiss | unlock}` settles it, any
+    other part dismisses it, 60s hides it.
+  - Sign-up save (ewe-safe `docs/SYSTEM.md` §5, D6, 2026-10-18). Why sign-ups often got no prompt
+    before: a locked (or briefly unreachable) Safe made `prompt` drop the capture silently; a
+    sign-up with no username seen was decided as "update the only login of the site" (or
+    nothing when that password was saved for another account), counting logins of other hosts
+    of the same registrable domain; a username typed on an earlier step was lost; only `<form>`
+    submits, Enter and button-like clicks counted, so app-style sign-ups were never seen; a
+    password from _Use a strong password_ was never offered without a seen submit; and
+    `capture` waited for a fresh `state` round trip before sending, which a fast form
+    navigation could outrun. Now: `forms.ts` `captureTargets` sorts a capture into `login`,
+    `signup` (new-password fields, no current password, and a username field or sign-up words
+    on the page) or `change` (a current password, or new passwords with neither: a reset);
+    the username is `autocomplete=username`, then `email`, then a `type=email` field, then a
+    hinted or the last text field before the first password, then a hidden or read-only
+    `autocomplete=username|email` field with a value. Password fields that are card codes
+    (`cc-csc`, CVC/CVV hints) are never passwords. `decideSave(username, candidates, kind)`:
+    a sign-up saves a new login unless a login of the same host (`match: 'exact'`) has that
+    username (then update, or nothing when the password is the same); an unknown username on
+    a sign-up always saves new. A locked Safe gives a prompt with `locked: true` ("Safe is
+    locked. Unlock it to save.", button _Unlock and save_): `SafeService.unlockAndSave` runs
+    `ewe-safe unlock --ask`, decides, then saves (or shows the update prompt, or says it is
+    already in Safe); a cancelled unlock saves nothing. Not set up / not running still drops
+    it. Submits that are not `<form>` submits: Enter, button-like clicks (now also `<a>`
+    without a real `href`, "Get started", "Confirm", "Finish"), and `typed.ts` (`TypedWatch`):
+    after a trusted input in a password field it keeps the field references for 10 s and sends
+    the capture when the password field leaves the page or is hidden (a `MutationObserver`,
+    only while armed), on an in-page navigation (`navigation` `currententrychange`, `popstate`,
+    `hashchange`) or on `pagehide`. Usernames of username-only steps (`stepUsername`: a form
+    with no password and at most three filled text fields) go to main as `{op: 'username'}`
+    and are kept per tab and registrable domain for 5 min (`signup.ts` `SignupMemory`), used
+    only when a later capture has no username, never sent to a page. A password Safe generated
+    is a draft in main (`SignupMemory.generated`, from `SafeService.generate`); the page sends
+    the username next to it as `{op: 'draft', username, keep}` (keep false once the user
+    changed the password); the tab's next cross-document navigation (`did-frame-navigate` of
+    the main frame or of the draft's frame) or the tab closing turns it into a sign-up capture,
+    unless the page's own capture came first (any capture from that tab and origin drops the
+    draft).
+  - `Settings.safe { fill, suggest, passkeys, offerSave, fillCards, fillAddresses, neverSave }`
+    (`sanitizeSafeSettings`, 500 hosts). Unlock runs `ewe-safe unlock --ask` (`$EWE_SAFE_BIN`
+    or `PATH`); Open Safe runs `ewe-safe-app` (`$EWE_SAFE_APP` or `PATH`). Nothing logs titles,
+    usernames or values.
+  - Cards and addresses (ewe-safe `docs/SYSTEM.md` §4–§5): `preload/safe/wallet.ts` reads
+    `cc-*` and address `autocomplete` tokens (`section-*`, `shipping`, `billing` kept as the
+    section), else conservative name/label patterns (camelCase and `_` split first). The card
+    list opens on a card field that has a token, is a number field, or sits next to one (a
+    payment frame with only `cc-number` counts); the address list only when the section has
+    three address parts with one core part (street, line 1, city, region, postal code,
+    country), or two tagged ones. A card field wins over a login or code field; an address
+    field wins over a login field only when the form has no password. Request
+    `{op: 'wallet', kind: card | address, rect, trigger}`; `SafeWallet` (`main/safe/wallet.ts`)
+    lists `list {kind}` into `SafeMenu.cards` (brand, last 4, expiry, holder; never the number)
+    or `addresses` (title, name, line 1); rows "Visa •••• 4242" / "08/29 · Sam Moe" and
+    "Home" / "Sam Moe · 12 Main St"; typing in a card field closes the list, in an address field
+    it filters. A pick (`safe.choose`, routed by `SafeService.choose`) calls
+    `fields {item_id}`; on `confirm-needed` it runs
+    `ewe-safe confirm --ask --reason "Fill <card title> on <host>"` (one at a time) and tries
+    once more; a refused confirm fills nothing.
+    Cards only for `https:` frames or `localhost` / `*.localhost` (`cardOriginOk`; `127.0.0.1`
+    does not count): other frames get a note row "Safe fills cards only on secure (https)
+    pages" and no `list` call. The frame is re-checked (still that origin) before
+    `ewe:safe-wallet-fill` (`SafeWalletFill`, main → that frame only) goes out; the preload
+    checks its own protocol again. The fill (`fillCard` / `fillAddress`) fills the related
+    fields of that form section in that frame only: empty inputs and the picked field, selects
+    always; `maxlength` respected; expiry as the field wants it (`MM/YY`, `MM / YY`, `MM/YYYY`,
+    `MMYY`, `type=month`, month and year selects by number or name, two-digit year fields);
+    split number boxes; brand selects; country selects by code or name (`Intl.DisplayNames` in
+    the page language and English); region selects; a `street-address` textarea gets two
+    lines. The PIN is never asked for. Card values never reach a log, a toast, the CLI or
+    another frame.
 - Web panels (`main/panels.ts`): `Settings.panels: WebPanel[] { id, url, title }` (12 at most,
   `sanitizePanels`). Sidebar sections may be `panel:<id>`. `PanelHost` keeps one
   `WebContentsView` per opened panel (page preload, the default session, popups become tabs,
@@ -1257,6 +1324,26 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   errors, `AbortSignal`, fallbacks), and the shared validators
   (`packages/shared/src/safe.test.ts`). `safe-passkeys-daemon` runs the broker against a real
   sandboxed `ewe-safed` (skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` are set).
+  Sign-ups, cards and addresses: `safe-signup-forms` (sign-up kinds, username order, hidden
+  usernames, card codes in password fields, element references after the field left the page,
+  `stepUsername`), `safe-wallet-forms` (tokens, patterns, when each list opens, expiry formats,
+  selects, split numbers, a payment frame, maxlength, only empty fields), `safe-typed`
+  (`TypedWatch` on happy-dom), `safe-decide` (sign-up decisions) and `safe-save`
+  (`SafeService` and `SafeWallet` against the fake daemon: save, update, locked → Unlock and
+  save, a cancelled unlock, step usernames, drafts, confirm-needed → `confirm --ask`, a refused
+  confirm, no card on http, a changed frame, settings). `tests/fake-safed.ts` has card and
+  address items, `list --kind`, `fields`, `confirm-needed` and `confirm`; `writeFakeCli` writes
+  a fake `ewe-safe` (unlock / confirm `--ask` over the socket, its argv logged to
+  `$EWE_FAKE_CLI_LOG`, a refusal while `$EWE_FAKE_CLI_REFUSE` exists).
+  `tests/e2e/safe-signup.spec.ts` (12 tests, always on, servers on two `localhost` ports and
+  `127.0.0.1`): sign-up with a confirm field → Save → `add` with host and username, locked →
+  Unlock and save, a multi-step sign-up, an app-style sign-up without a form, a generated
+  password offered on the next navigation and when its tab closes, an address fill, locked →
+  Unlock Safe on an address field, a card
+  fill through confirm, a payment frame from another origin, a refused confirm, no card on
+  `http://127.0.0.1`. `tests/e2e/safe-shots.spec.ts` (skipped unless `EWE_SAFE_SHOTS=<dir>`)
+  saves the prompt (save, locked), the card and address lists and the https note in dark and
+  light, composited like `scripts/visual.mjs`.
   E2E `tests/e2e/safe-inline.spec.ts` (13 tests, always on) runs the app against the in-process
   fake daemon and a local relying party on `http://localhost:<port>` that verifies every
   attestation and signature in Node: the script is in place before the page's first script,
@@ -1264,12 +1351,15 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   abort, Use a security key instead, locked → Unlock → Save, a cross-origin frame, the inline list
   under the field with the focus kept in it (typing filters, ↓ Enter fills, Esc, no match hides),
   Tab opens / script focus and page load do not, and conditional mediation through the list.
-  `tests/e2e/safe.spec.ts` (7 tests, skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` point at
+  `tests/e2e/safe.spec.ts` (10 tests, skipped unless `EWE_SAFED_BIN` and `EWE_SAFE_BIN` point at
   built ewe-safe binaries) starts a sandboxed daemon (its own runtime, state, data and config
   dirs, a fake `ewe-conf`, `EWE_SAFE_NO_LOGIND`, `EWE_SAFE_KDF_ITERATIONS=2`), two local servers
   on `127.0.0.1` and `localhost` (two origins), and covers: no fill on load, click-to-fill, the
-  cross-origin frame, generate + save, update, no prompt for a known login, and locked → Unlock
-  Safe (`EWE_SAFE_ASK_CMD`). Both run inside a nested Hyprland (`WAYLAND_DISPLAY` /
+  cross-origin frame, generate + save, update, no prompt for a known login, locked → Unlock
+  Safe (`EWE_SAFE_ASK_CMD`), locked → Unlock and save, and, when the daemon stores cards and
+  addresses (probed with `add --kind address|card`), an address fill and a card fill on
+  `localhost` with the note on `127.0.0.1` (its fake `ewe-conf get safe` turns
+  `confirm_cards` off). Both run inside a nested Hyprland (`WAYLAND_DISPLAY` /
   `HYPRLAND_INSTANCE_SIGNATURE` of the nest), never the live session.
 - Wave 2 (B) tests: unit `packages/shared/src/sites.test.ts` (table sanity, aliases, hosts,
   templates, `@site`, learning from history), `packages/shared/src/privacy.test.ts` (settings,

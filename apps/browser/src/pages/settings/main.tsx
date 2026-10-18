@@ -592,6 +592,46 @@ function Ewe(props: {
         </SettingRow>
         <div class="list-divider" />
         <SettingRow
+          icon="map-pin"
+          title="Fill addresses"
+          description="Address fields list your Safe addresses. Picking one fills the form."
+        >
+          <select
+            aria-label="Fill addresses"
+            class="settings-safe-addresses"
+            value={props.settings().safe.fillAddresses ? 'on' : 'off'}
+            onChange={(e) =>
+              props.update({
+                safe: { ...props.settings().safe, fillAddresses: e.currentTarget.value === 'on' },
+              })
+            }
+          >
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </SettingRow>
+        <div class="list-divider" />
+        <SettingRow
+          icon="credit-card"
+          title="Fill cards"
+          description="Card fields list your Safe cards. Safe asks for your password before it fills one. Only on secure (https) pages."
+        >
+          <select
+            aria-label="Fill cards"
+            class="settings-safe-cards"
+            value={props.settings().safe.fillCards ? 'on' : 'off'}
+            onChange={(e) =>
+              props.update({
+                safe: { ...props.settings().safe, fillCards: e.currentTarget.value === 'on' },
+              })
+            }
+          >
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </SettingRow>
+        <div class="list-divider" />
+        <SettingRow
           icon="lock"
           title="Offer to save logins"
           description="After you sign in, Safe asks to save a new login or update a changed password."

@@ -278,6 +278,10 @@ const ICONS = {
     { circle: { cx: 9, cy: 9, r: 2 } },
     { path: 'm21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21' },
   ],
+  'credit-card': [
+    { rect: { x: 2, y: 5, width: 20, height: 14, rx: 2 } },
+    { line: { x1: 2, x2: 22, y1: 10, y2: 10 } },
+  ],
   music: [
     { path: 'M9 18V5l12-2v13' },
     { circle: { cx: 6, cy: 18, r: 3 } },

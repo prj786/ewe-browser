@@ -1,4 +1,4 @@
-import type { SafeFieldKind } from '@ewe/shared'
+import type { SafeCaptureKind, SafeFieldKind } from '@ewe/shared'
 
 export type Visible = (el: HTMLElement) => boolean
 
@@ -9,6 +9,10 @@ const OTP_HINT =
   /one.?time|\botp\b|totp|2fa|mfa|two.?factor|verification.?code|verify.?code|auth.?code|security.?code|passcode|\bpin\b|token/i
 const NEW_HINT = /new.?pass|confirm|repeat|retype|register|sign.?up|signup|create.?account|join/i
 const SEARCH_HINT = /search|query|\bq\b/i
+const SIGNUP_HINT =
+  /register|registration|sign.?up|signup|create.?(an?.?|your.?)?account|join|get.?started|new.?account/i
+const CARD_CODE_HINT = /\bcvc|\bcvv|\bcsc\b|\bcvn\b|security.?code|card.?verification|card.?code/i
+const CARD_CODE_WORD = /\b(cvc|cvv|csc|cvn|cvc2|cvv2)\b/i
 
 const hints = (el: HTMLInputElement): string =>
   [el.name, el.id, el.autocomplete, el.placeholder, el.getAttribute('aria-label') ?? ''].join(' ')
@@ -24,11 +28,24 @@ export function inputsIn(scope: ParentNode, visible: Visible): HTMLInputElement[
 }
 
 export function passwordsIn(scope: ParentNode, visible: Visible): HTMLInputElement[] {
-  return inputsIn(scope, visible).filter((el) => el.type === 'password')
+  return inputsIn(scope, visible).filter((el) => el.type === 'password' && !isCardCodeField(el))
 }
 
 function autocompleteHas(el: HTMLInputElement, token: string): boolean {
   return el.autocomplete.split(/\s+/).includes(token)
+}
+
+function tokensOf(el: Element): string[] {
+  return (el.getAttribute('autocomplete') ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+}
+
+export function isCardCodeField(el: HTMLInputElement): boolean {
+  const tokens = tokensOf(el)
+  if (tokens.includes('cc-csc') || tokens.includes('cc-number')) return true
+  if (tokens.includes('current-password') || tokens.includes('new-password')) return false
+  const text = hints(el)
+  if (!CARD_CODE_HINT.test(text)) return false
+  return CARD_CODE_WORD.test(text) || (el.maxLength > 0 && el.maxLength <= 4)
 }
 
 export function isOtpField(el: HTMLInputElement): boolean {
@@ -87,11 +104,14 @@ export function usernameFor(password: HTMLInputElement, visible: Visible): HTMLI
       !isOtpField(el) &&
       Boolean(el.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING),
   )
-  const hinted = before.filter(
-    (el) =>
-      autocompleteHas(el, 'username') || autocompleteHas(el, 'email') || USER_HINT.test(hints(el)),
+  return (
+    before.filter((el) => autocompleteHas(el, 'username')).at(-1) ??
+    before.filter((el) => autocompleteHas(el, 'email')).at(-1) ??
+    before.filter((el) => el.type === 'email').at(-1) ??
+    before.filter((el) => USER_HINT.test(hints(el))).at(-1) ??
+    before.at(-1) ??
+    null
   )
-  return hinted.at(-1) ?? before.at(-1) ?? null
 }
 
 export interface LoginFields {
@@ -148,24 +168,87 @@ export function fillOtp(fields: HTMLInputElement[], code: string): void {
 }
 
 export interface Captured {
-  kind: 'login' | 'new-password'
+  kind: SafeCaptureKind
   username: string
   password: string
 }
 
-export function captureFrom(scope: ParentNode, visible: Visible): Captured | null {
-  const passwords = passwordsIn(scope, visible).filter((el) => el.value !== '')
+export interface CaptureTargets {
+  kind: SafeCaptureKind
+  username: HTMLInputElement | null
+  password: HTMLInputElement
+}
+
+function hiddenUsername(scope: ParentNode): HTMLInputElement | null {
+  for (const el of Array.from(scope.querySelectorAll('input'))) {
+    const tokens = tokensOf(el)
+    if ((tokens.includes('username') || tokens.includes('email')) && el.value.trim() !== '')
+      return el
+  }
+  return null
+}
+
+function scopeText(scope: ParentNode): string {
+  const parts: string[] = []
+  if (scope instanceof Element && scope.tagName === 'FORM') {
+    parts.push(scope.id, scope.getAttribute('name') ?? '', scope.getAttribute('action') ?? '')
+  } else {
+    const doc = scope as Document
+    parts.push(doc.title)
+    for (const h of Array.from(scope.querySelectorAll('h1, h2')).slice(0, 4))
+      parts.push(h.textContent ?? '')
+  }
+  for (const b of Array.from(
+    scope.querySelectorAll('button, input[type=submit], [role=button]'),
+  ).slice(0, 20))
+    parts.push(b instanceof HTMLInputElement ? b.value : (b.textContent ?? ''))
+  return parts.join(' ')
+}
+
+export function captureTargets(scope: ParentNode, visible: Visible): CaptureTargets | null {
+  const all = passwordsIn(scope, visible)
+  const passwords = all.filter((el) => el.value !== '')
   if (passwords.length === 0) return null
   const kinds = passwords.map((el) => passwordKind(el, visible))
   const newIndex = kinds.indexOf('new-password')
   const chosen = newIndex >= 0 ? passwords[newIndex] : passwords[0]
   if (chosen === undefined) return null
-  const loginPassword = passwords.find((el) => passwordKind(el, visible) === 'login')
-  const anchor = loginPassword ?? chosen
-  const user = usernameFor(anchor, visible)
-  return {
-    kind: newIndex >= 0 ? 'new-password' : 'login',
-    username: user?.value.trim() ?? '',
-    password: chosen.value,
+  const current = passwords.find((_el, i) => kinds[i] === 'login')
+  const anchor = current ?? all[0] ?? chosen
+  const username = usernameFor(anchor, visible) ?? hiddenUsername(scope)
+  let kind: SafeCaptureKind = 'login'
+  if (newIndex >= 0) {
+    if (current !== undefined) kind = 'change'
+    else if (username !== null || SIGNUP_HINT.test(scopeText(scope))) kind = 'signup'
+    else kind = 'change'
   }
+  return { kind, username, password: chosen }
+}
+
+export function readCapture(targets: CaptureTargets): Captured | null {
+  const password = targets.password.value
+  if (password === '') return null
+  return { kind: targets.kind, username: targets.username?.value.trim() ?? '', password }
+}
+
+export function captureFrom(scope: ParentNode, visible: Visible): Captured | null {
+  const targets = captureTargets(scope, visible)
+  return targets === null ? null : readCapture(targets)
+}
+
+export function stepUsername(scope: ParentNode, visible: Visible): string | null {
+  if (passwordsIn(scope, visible).length > 0) return null
+  const fields = inputsIn(scope, visible).filter(
+    (el) =>
+      TEXT_TYPES.has(el.type) &&
+      !isOtpField(el) &&
+      !SEARCH_HINT.test(`${el.name} ${el.id}`) &&
+      el.value.trim() !== '',
+  )
+  if (fields.length === 0 || fields.length > 3) return null
+  const pick =
+    fields.find((el) => autocompleteHas(el, 'username')) ??
+    fields.find((el) => autocompleteHas(el, 'email') || el.type === 'email') ??
+    fields.find((el) => USER_HINT.test(hints(el)))
+  return pick?.value.trim() ?? null
 }
