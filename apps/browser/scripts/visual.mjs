@@ -233,7 +233,7 @@ const dropRule = () => {
 }
 process.on('exit', dropRule)
 const app = await electron.launch({
-  args: [resolve('out/main/index.js')],
+  args: [resolve('out/main/index.js'), '--use-fake-device-for-media-stream'],
   env: {
     ...process.env,
     EWE_USER_DATA: userData,
@@ -806,5 +806,86 @@ await send({
 })
 await sleep(1000)
 await shot('10-sad')
+
+const inPage = (code) =>
+  app.evaluate(({ BrowserWindow, WebContentsView }, c) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const view = win.contentView.children
+      .filter((v) => v instanceof WebContentsView)
+      .find((v) => v.getVisible() && !v.webContents.getURL().includes('/ui/'))
+    return view?.webContents.executeJavaScript(c, true)
+  }, code)
+const topLeft = async (name, w = 760, h = 420) => save(name, { x: 0, y: 0, width: w, height: h })
+await send({ type: 'tab.navigate', input: `${origin}/chat.html` })
+await settle(800)
+await inPage(
+  'navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(s => s.getTracks().forEach(t => t.stop()), () => 0); 1',
+)
+await sleep(900)
+await shot('13a-permission-prompt')
+await topLeft('13a-permission-prompt-crop')
+await sleep(300)
+await overlay.locator('.perm-allow').click()
+await sleep(500)
+await inPage('navigator.geolocation.getCurrentPosition(() => 0, () => 0); 1')
+await sleep(900)
+await topLeft('13b-permission-location', 760, 360)
+await overlay.locator('.perm-block').hover()
+await sleep(600)
+await overlay.locator('.perm-block').click()
+await sleep(500)
+await shell.locator('.rail-site').click()
+await sleep(700)
+await topLeft('13c-site-info', 760, 520)
+await overlay.keyboard.press('Escape')
+await sleep(400)
+await send({ type: 'tab.navigate', input: 'https://example.com/' })
+await settle(800)
+await shell.locator('.rail-site').click()
+await sleep(700)
+await topLeft('13d-site-info-secure', 760, 520)
+await overlay.keyboard.press('Escape')
+await sleep(400)
+await send({
+  type: 'tab.navigate',
+  input:
+    'app://sad/?kind=https-only&url=http%3A%2F%2Fflock.example%2Fshearing.html&error=ERR_SSL_PROTOCOL_ERROR',
+})
+await sleep(1200)
+await shot('13e-https-only')
+await send({ type: 'open.internal', page: 'settings' })
+await sleep(1200)
+const privacySettings = (await app.windows())
+  .filter((w) => w.url().startsWith('app://settings'))
+  .at(-1)
+await privacySettings?.locator('#privacy').scrollIntoViewIfNeeded()
+await privacySettings?.evaluate(() => document.getElementById('privacy')?.scrollIntoView())
+await sleep(500)
+await shot('13f-settings-privacy')
+await privacySettings?.locator('.settings-secure-dns').selectOption('nextdns')
+await sleep(500)
+await shot('13g-settings-privacy-nextdns')
+await privacySettings?.locator('.settings-secure-dns').selectOption('off')
+await privacySettings?.locator('.settings-permissions').scrollIntoViewIfNeeded()
+await sleep(500)
+await shot('13h-settings-permissions')
+await send({ type: 'overlay.request', part: 'palette' })
+await sleep(500)
+await overlay.locator('.palette input').fill("@zara men's shoes")
+await sleep(600)
+await shot('13i-palette-site')
+await closeOverlay()
+await send({ type: 'settings.update', patch: { theme: 'light' } })
+await send({ type: 'tab.navigate', input: `${origin}/chat.html` })
+await settle(800)
+await shell.locator('.rail-site').click()
+await sleep(700)
+await topLeft('13j-light-site-info', 760, 520)
+await overlay.keyboard.press('Escape')
+await sleep(400)
+await inPage('Notification.requestPermission(); 1')
+await sleep(900)
+await topLeft('13k-light-permission-prompt', 760, 360)
+await send({ type: 'settings.update', patch: { theme: 'dark' } })
 await Promise.race([app.close(), sleep(5000)])
 process.exit(0)

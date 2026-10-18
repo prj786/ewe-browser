@@ -10,9 +10,10 @@ import {
   type HistoryVisit,
   type RecentFilter,
   type RecentItem,
+  type SiteResolution,
   type Track,
 } from '@ewe/shared'
-import { failure, iso, type CliReply } from './socket'
+import { failure, iso, type CliError, type CliReply } from './socket'
 import type { Args } from './tools'
 
 export interface CliTab {
@@ -50,6 +51,7 @@ export interface Sources {
   windows(): CliWindow[]
   tabs(): CliTab[]
   workspaces(): CliWorkspace[]
+  currentWindow?(): number | null
   history(query: string, limit: number): HistoryVisit[]
   bookmarks(): BookmarkFolder
   downloads(): DownloadEntry[]
@@ -195,6 +197,25 @@ export async function readTool(tool: string, args: Args, src: Sources): Promise<
         tracks: found.slice(0, limit).map(trackOut),
       }
     }
+    case 'workspaces': {
+      const all = src.workspaces()
+      const window = src.currentWindow?.() ?? all[0]?.window ?? null
+      return {
+        ok: true,
+        running,
+        window,
+        workspaces: all
+          .filter((w) => w.window === window)
+          .map((w, i) => ({
+            id: w.id,
+            name: w.name,
+            color: w.color,
+            index: i + 1,
+            tabs: w.tabs,
+            active: w.active,
+          })),
+      }
+    }
     case 'find': {
       const query = text(args, 'query')
       const limit = num(args, 'limit', 8)
@@ -223,6 +244,58 @@ export async function readTool(tool: string, args: Args, src: Sources): Promise<
     }
     default:
       return failure('unknown-verb', `unknown tool: ${tool}`)
+  }
+}
+
+export function matchWorkspace(
+  list: readonly { id: string | null; name: string }[],
+  key: string,
+): number | CliError {
+  const wanted = key.trim()
+  const lower = wanted.toLowerCase()
+  const notFound = failure(
+    'not-found',
+    `no workspace is called or numbered "${wanted}"`,
+    'ewe-browser workspaces',
+  )
+  if (wanted === '') return notFound
+  const byId = list.findIndex((w) => w.id === wanted)
+  if (byId >= 0) return byId
+  const named = list.flatMap((w, i) => (w.name.toLowerCase() === lower ? [i] : []))
+  if (named.length > 1)
+    return failure(
+      'ambiguous-id',
+      `${named.length} workspaces are called "${wanted}"`,
+      'use its id',
+    )
+  if (named[0] !== undefined) return named[0]
+  if (/^\d+$/.test(wanted)) {
+    const n = Number(wanted)
+    return n >= 1 && n <= list.length ? n - 1 : notFound
+  }
+  if (wanted.length >= 4) {
+    const prefixed = list.flatMap((w, i) => (w.id?.startsWith(wanted) === true ? [i] : []))
+    if (prefixed.length > 1)
+      return failure('ambiguous-id', `${wanted} matches ${prefixed.length} workspaces`)
+    if (prefixed[0] !== undefined) return prefixed[0]
+  }
+  return notFound
+}
+
+export function siteReply(found: SiteResolution, running: boolean): CliReply {
+  if (!found.ok)
+    return failure(
+      found.error,
+      found.message,
+      'give its domain (zara.com), or search without --site',
+    )
+  return {
+    ok: true,
+    running,
+    name: found.name,
+    host: found.host,
+    template: found.template,
+    via: found.via,
   }
 }
 

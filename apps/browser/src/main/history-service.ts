@@ -39,6 +39,7 @@ export interface HistoryServiceDeps {
   sync: SyncService
   sessions(): Session[]
   extensionOrigins(): string[]
+  onHistoryCleared?: ((from: number, to: number) => void) | undefined
 }
 
 export class HistoryService {
@@ -153,7 +154,10 @@ export class HistoryService {
     const all = request.range === 'all'
     const from = rangeStart(request.range, now)
     const result: ClearDataResult = { history: 0, downloads: 0, cookies: false, cache: false }
-    if (request.history) result.history = this.deps.history.clear({ from, to: now }, now)
+    if (request.history) {
+      result.history = this.deps.history.clear({ from, to: now }, now)
+      this.deps.onHistoryCleared?.(from, now)
+    }
     if (request.downloads) result.downloads = this.deps.downloads.clearRange(from, now)
     if (request.cookies && all) {
       const excluded = this.deps.extensionOrigins()

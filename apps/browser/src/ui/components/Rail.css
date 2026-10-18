@@ -86,6 +86,36 @@
   height: var(--icon-sm);
 }
 
+.rail-site {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  margin-left: calc(-1 * var(--space-xs));
+  margin-right: calc(-1 * var(--space-xxs));
+  padding: 0;
+  border: 0;
+  border-radius: var(--secondary);
+  background: transparent;
+  color: inherit;
+  cursor: default;
+}
+
+.rail-site:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.rail-site.insecure {
+  color: var(--warning);
+}
+
+.rail-site .icon {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
 .rail-address-text {
   flex: 1;
   min-width: 0;

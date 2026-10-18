@@ -24,6 +24,7 @@ import {
   type ThemeTokens,
   type UiEvent,
   type WindowSnapshot,
+  type PermissionsRequest,
 } from '@ewe/shared'
 
 function subscribe(channel: string, listener: (payload: unknown) => void): () => void {
@@ -80,6 +81,9 @@ export function createApi(layer: ApiLayer): BrowserApi {
     onTheme: (listener) => subscribe(IPC.theme, (p) => listener(p as ThemeTokens | null)),
     onBookmarks: (listener) => subscribe(IPC.bookmarks, (p) => listener(p as BookmarkFolder)),
     onUi: (listener) => subscribe(IPC.ui, (p) => listener(p as UiEvent)),
+    permissions: <T>(request: PermissionsRequest) =>
+      ipcRenderer.invoke(IPC.permissions, request) as Promise<T | null>,
+    onPermissions: (listener) => subscribe(IPC.permissionsChanged, () => listener()),
   }
 }
 

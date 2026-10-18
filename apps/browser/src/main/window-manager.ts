@@ -21,6 +21,7 @@ import {
   FILES_PAGE_URL,
   MUSIC_PAGE_URL,
   HISTORY_URL,
+  SAD_TAB_URL,
   TOAST_MS,
   filesUrl,
   viewerUrl,
@@ -62,6 +63,9 @@ import { PanelHost, panelBounds, panelId } from './panels'
 import { copyPassword, fillPassword, focusScript } from './passwords'
 import type { SafeService } from './safe/service'
 import { SafeWindow } from './safe/window'
+import type { PermissionStore } from './privacy/permissions'
+import type { PrivacyService } from './privacy/service'
+import { PrivacyWindow } from './privacy/window'
 
 const PASSWORD_WORLD = 1009
 import { SidebarController } from './sidebar'
@@ -83,6 +87,9 @@ export interface WindowDeps {
   downloads: DownloadManager
   extensions?: ExtensionHost | undefined
   safe?: SafeService | undefined
+  privacy?: PrivacyService | undefined
+  permissions?: PermissionStore | undefined
+  siteInput?: ((input: string) => string | null) | undefined
   importChromeBookmarks(): Promise<string>
   isMusicTrack(path: string): boolean
   onSessionChange(): void
@@ -137,6 +144,7 @@ export class WindowController {
   private destroyed = false
   private toastTimer: NodeJS.Timeout | null = null
   readonly safeUi: SafeWindow | null
+  readonly privacyUi: PrivacyWindow | null
   private readonly deps: WindowDeps
 
   constructor(deps: WindowDeps, initial?: SessionWindow) {
@@ -214,6 +222,13 @@ export class WindowController {
       onTabActivated: (contents) => {
         if (this.win.isFocused() || this.deps.extensions?.state().tabId === null)
           deps.extensions?.selectTab(contents)
+        this.privacyUi?.refresh()
+      },
+      failedLoad: (contents, url, description) => {
+        const from = deps.privacy?.https.failed(contents.id, url) ?? null
+        if (from === null) return undefined
+        const params = new URLSearchParams({ kind: 'https-only', url: from, error: description })
+        return `${SAD_TAB_URL}?${params.toString()}`
       },
     })
 
@@ -232,6 +247,25 @@ export class WindowController {
             lastMouse: () => this.lastMouse,
             toast: (message, icon) => this.toast(message, icon),
             hideOverlay: () => this.showOverlay('none'),
+          })
+
+    const privacy = deps.privacy
+    const permissions = deps.permissions
+    this.privacyUi =
+      privacy === undefined || permissions === undefined
+        ? null
+        : new PrivacyWindow({
+            overlay: this.overlay,
+            permissions,
+            service: privacy,
+            activeContents: () => this.tabs.active?.webContents ?? null,
+            activeUrl: () => {
+              const tab = this.tabs.active
+              return tab === undefined ? '' : this.tabs.urlOf(tab)
+            },
+            pageBounds: () => this.tabs.getBounds(),
+            contentSize: () => this.contentSize(),
+            toast: (message, icon) => this.toast(message, icon),
           })
 
     this.win.on('resize', () => this.layout())
@@ -260,6 +294,7 @@ export class WindowController {
       if (this.toastTimer !== null) clearTimeout(this.toastTimer)
       try {
         this.safeUi?.dispose()
+        this.privacyUi?.dispose()
         this.overlay.destroy()
         this.sidebar.destroy()
         this.panels.destroy()
@@ -342,6 +377,7 @@ export class WindowController {
     if (panel === undefined) this.panels.hide()
     else this.panels.show(panel, panelBounds(sidebarBounds(inset, size, bar)))
     this.overlay.relayout(size, page, bar)
+    this.privacyUi?.place()
     this.scheduleBroadcast()
     this.deps.onSessionChange()
   }
@@ -477,9 +513,17 @@ export class WindowController {
       )
         return
       if (command.type === 'music.play' && !frameUrl.startsWith(HOME_URL)) return
+      if (
+        (command.type === 'permission.set' || command.type === 'permission.forget') &&
+        !frameUrl.startsWith(SETTINGS_URL)
+      )
+        return
+      if (command.type === 'https.allow' && !frameUrl.startsWith(SAD_TAB_URL)) return
       if ((command.type === 'tab.navigate' || command.type === 'nav.reload') && tab !== undefined)
         command = { ...command, id: tab.id }
     }
+    if (command.type === 'tab.navigate' && this.deps.siteInput !== undefined)
+      command = { ...command, input: this.deps.siteInput(command.input) ?? command.input }
     switch (command.type) {
       case 'tab.create': {
         const url = command.url ?? NEW_TAB_URL
@@ -809,6 +853,35 @@ export class WindowController {
       case 'devtools.toggle':
         this.tabs.active?.webContents.toggleDevTools()
         break
+      case 'permission.decide':
+        if (layer === 'overlay') this.privacyUi?.decide(command.promptId, command.decision)
+        break
+      case 'permission.fit':
+        if (layer === 'overlay') this.privacyUi?.fit(command.promptId, command.height)
+        break
+      case 'permission.set':
+        if (layer === 'overlay' || layer === 'page')
+          this.deps.permissions?.set(command.origin, [command.kind], command.value)
+        break
+      case 'permission.forget':
+        if (layer === 'overlay' || layer === 'page') this.deps.permissions?.forget(command.origin)
+        break
+      case 'siteinfo.open': {
+        if (layer !== 'shell' && layer !== 'overlay') return
+        const origin = layer === 'overlay' ? this.overlay.view.getBounds() : { x: 0, y: 0 }
+        this.privacyUi?.openSiteInfo({ x: command.x + origin.x, y: command.y + origin.y })
+        break
+      }
+      case 'site.clearData':
+        if (layer === 'overlay') void this.privacyUi?.clearData(command.origin)
+        break
+      case 'https.allow': {
+        const tab = layer === 'page' ? this.tabs.byWebContents(sender) : undefined
+        if (tab === undefined || (this.deps.privacy?.https.allow(command.url) ?? null) === null)
+          return
+        this.tabs.navigate(tab.id, command.url)
+        break
+      }
     }
   }
 
@@ -1051,7 +1124,15 @@ export class WindowController {
   private onPageMouse(point: Point): void {
     this.lastMouse = point
     const part = this.overlay.part
-    if (part === 'palette' || part === 'menu' || part === 'prompt' || part === 'sheet') return
+    if (
+      part === 'palette' ||
+      part === 'menu' ||
+      part === 'prompt' ||
+      part === 'sheet' ||
+      part === 'permission' ||
+      part === 'siteinfo'
+    )
+      return
     if (part === 'rail') {
       if (this.overlayPinned || Date.now() - this.overlay.shownAt < PEEK_HIDE_DELAY_MS) return
       if (point.x > RAIL_WIDTH + RAIL_PEEK_SHADOW) this.overlay.hide()

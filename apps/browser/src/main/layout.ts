@@ -63,6 +63,7 @@ export function overlayBounds(part: OverlayPart, full: Size, area?: Rect, bottom
     case 'palette':
     case 'menu':
     case 'sheet':
+    case 'siteinfo':
       return { x: 0, y: 0, width: full.width, height: full.height }
     case 'toast': {
       const width = Math.min(TOAST_WIDTH, page.width)
@@ -89,6 +90,7 @@ export function overlayBounds(part: OverlayPart, full: Size, area?: Rect, bottom
       )
     }
     case 'suggest':
+    case 'permission':
     case 'none':
       return null
   }

@@ -52,6 +52,27 @@ const tabId = schema(
   ['id'],
 )
 
+const workspaceKey = (verb: string) =>
+  str(`Workspace to ${verb}: its id, its name (any case) or its number in the bar (1 = first)`)
+
+const downloadId = schema(
+  {
+    id: str('Download id from `downloads` (a unique prefix of at least 4 characters is enough)'),
+  },
+  ['id'],
+)
+
+export const WORKSPACE_COLOR_NAMES = [
+  'ewellow',
+  'amber',
+  'coral',
+  'rose',
+  'violet',
+  'sky',
+  'mint',
+  'slate',
+]
+
 export const TOOLS: readonly ToolSpec[] = [
   {
     name: 'help',
@@ -226,7 +247,8 @@ export const TOOLS: readonly ToolSpec[] = [
     summary: 'Open urls, folders (in the file manager), files or search text in new tabs',
     tier: 1,
     where: 'app',
-    usage: 'ewe-browser open <url|path|text>... [--new-window] [--background]',
+    usage:
+      'ewe-browser open <url|path|text>... [--new-window] [--background] [--workspace <id|name|number>]',
     schema: schema(
       {
         targets: {
@@ -237,19 +259,136 @@ export const TOOLS: readonly ToolSpec[] = [
         },
         newWindow: flag('Open them in a new window'),
         background: flag('Do not switch to the new tabs'),
+        workspace: workspaceKey('open them in'),
       },
       ['targets'],
     ),
   },
   {
     name: 'search',
-    summary: 'Search the web with the search engine chosen in Settings, in a new tab',
+    summary:
+      'Search the web with the search engine chosen in Settings, or search one site (its own results page), in a new tab',
     tier: 1,
     where: 'app',
-    usage: 'ewe-browser search <query> [--new-window]',
-    schema: schema({ query: str('What to search for'), newWindow: flag('Use a new window') }, [
-      'query',
-    ]),
+    usage: 'ewe-browser search <query> [--site <name|host>] [--new-window]',
+    schema: schema(
+      {
+        query: str('What to search for'),
+        site: str(
+          'Search on this site instead: a name ("zara", "h&m"), a domain ("ss.ge") or a word naming a site you visited ("myauto"); unknown-site when it cannot be found',
+        ),
+        newWindow: flag('Use a new window'),
+      },
+      ['query'],
+    ),
+  },
+  {
+    name: 'site',
+    summary:
+      'How a site is searched, without opening anything: its name, host and search url template ({q} = the words), learned from history, OpenSearch, the built-in table or a site: filter',
+    tier: 0,
+    where: 'read',
+    usage: 'ewe-browser site <name|host>',
+    schema: schema(
+      { site: str('A site name ("zara"), a domain ("ss.ge") or a word naming a visited site') },
+      ['site'],
+    ),
+  },
+  {
+    name: 'workspaces',
+    summary:
+      'The workspaces of the focused (else last used) window in bar order: id, name, colour, number, tab count, which is active',
+    tier: 0,
+    where: 'read',
+    usage: 'ewe-browser workspaces',
+    schema: schema(),
+  },
+  {
+    name: 'workspace_activate',
+    summary: 'Switch to a workspace by id, name or number',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser workspace activate <id|name|number>',
+    schema: schema({ workspace: workspaceKey('switch to') }, ['workspace']),
+  },
+  {
+    name: 'workspace_next',
+    summary: 'Switch to the next workspace (the last wraps to the first), like Ctrl+Alt+Right',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser workspace next',
+    schema: schema(),
+  },
+  {
+    name: 'workspace_prev',
+    summary: 'Switch to the previous workspace (the first wraps to the last), like Ctrl+Alt+Left',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser workspace prev',
+    schema: schema(),
+  },
+  {
+    name: 'workspace_create',
+    summary: 'Create a workspace and switch to it; it opens on Home',
+    tier: 1,
+    where: 'app',
+    usage: 'ewe-browser workspace create [name] [--color c]',
+    schema: schema({
+      name: str('Name (default "Workspace N")'),
+      color: str('Colour (default the next free one)', { enum: WORKSPACE_COLOR_NAMES }),
+    }),
+  },
+  {
+    name: 'workspace_rename',
+    summary: 'Rename a workspace',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser workspace rename <id|name|number> <new name>',
+    schema: schema(
+      { workspace: workspaceKey('rename'), name: str('The new name (40 characters at most)') },
+      ['workspace', 'name'],
+    ),
+  },
+  {
+    name: 'workspace_remove',
+    summary:
+      'Remove a workspace and close its tabs (web pages can be reopened with tab_reopen); the last workspace cannot be removed',
+    tier: 2,
+    where: 'live',
+    usage: 'ewe-browser workspace remove <id|name|number>',
+    schema: schema({ workspace: workspaceKey('remove') }, ['workspace']),
+  },
+  {
+    name: 'back',
+    summary: 'Go back in the active tab of the focused (else last used) window',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser back',
+    schema: schema(),
+  },
+  {
+    name: 'forward',
+    summary: 'Go forward in the active tab of the focused (else last used) window',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser forward',
+    schema: schema(),
+  },
+  {
+    name: 'download_open',
+    summary: 'Open a finished download with its default app',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser download open <id>',
+    schema: downloadId,
+  },
+  {
+    name: 'download_show',
+    summary: 'Show a download selected in the file manager',
+    tier: 1,
+    where: 'live',
+    usage: 'ewe-browser download show <id>',
+    schema: downloadId,
   },
   {
     name: 'play',

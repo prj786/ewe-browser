@@ -6,6 +6,7 @@ import {
   SIDEBAR_MIN,
   isHistoryKeepDays,
   sanitizeSafeSettings,
+  sanitizePrivacySettings,
   sanitizeShortcuts,
   type Settings,
   type WebPanel,
@@ -53,6 +54,8 @@ export function sanitizeSettings(patch: unknown, base: Settings): Settings {
   if (isHistoryKeepDays(patch.historyDays)) next.historyDays = patch.historyDays
   if (Array.isArray(patch.panels)) next.panels = sanitizePanels(patch.panels)
   if (patch.safe !== undefined) next.safe = sanitizeSafeSettings(patch.safe, base.safe)
+  if (patch.privacy !== undefined)
+    next.privacy = sanitizePrivacySettings(patch.privacy, base.privacy)
   return next
 }
 

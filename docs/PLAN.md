@@ -513,6 +513,41 @@ small foot. Done on `feat/bottom-bar`:
 4. [ ] Not done: dropping a tab from the rail PEEK onto a chip (the peek is the overlay
        document; its tab menu has Move to workspace).
 
+## Wave 2 — privacy, site search, command line (stream B, 2026-10-18, `feat/privacy-site-search`)
+
+The owner asked for DNS and security settings, and for Shaun to reach further into the browser
+("search men's shoes on zara" → Zara's own results). Built on `feat/privacy-site-search`,
+waiting for review:
+
+1. [x] **Command line (contract 1)**: `search --site`, `site`, `workspaces`, `workspace
+    activate|next|prev|create|rename|remove`, `back`, `forward`, `download open|show`,
+       `open --workspace`. `workspace next` answers in ~45 ms (the 4-finger swipe runs it).
+2. [x] **Site search**: history-learned templates (keeps the owner's locale), OpenSearch
+       descriptors found on visited pages (`site-search.json`), a 66-site table with `{cc}` from
+       the time zone and `{lang}` from `LANG`, a `site:` filter fallback, `@site words` in the
+       palette and the address field. Every table template was requested once on 2026-10-18 (curl
+       with a Chrome user agent, then Electron for the 403s); Mango (404 for `/ge/en/`), Shein,
+       Unsplash, Yelp and Merriam-Webster (bot walls) were dropped; Adidas, Best Buy, eBay, H&M,
+       Uniqlo, Newegg, Amazon, AliExpress, GitLab, Stack Overflow and Facebook stay unverified
+       (bot walls or sign-in, also in a fresh Electron profile).
+3. [x] **Settings → Privacy and security**: Secure DNS (Off by default, Automatic, Cloudflare,
+       Quad9, Mullvad, AdGuard, NextDNS, Custom; live), HTTPS-Only (off by default; interstitial
+       with "Continue to the http site" for the session), third-party cookies blocked through
+       Chromium's own `ForceThirdPartyCookieBlockingEnabled` (applies after a restart), Global
+       Privacy Control (`Sec-GPC: 1` and `navigator.globalPrivacyControl`, on by default).
+4. [x] **Site permissions**: camera, microphone, location, notifications, clipboard, MIDI, local
+       network, window placement and idle detection ask through a prompt card (merged requests,
+       clickjacking guard, no focus steal), decisions in `permissions.json`, the check handler and
+       `navigator.permissions.query` agree, a list in Settings, and a site info panel from the
+       address field's lock (permissions, clear site data, site settings). Video calls and web
+       notifications work now; they were silently denied before.
+5. [ ] Not done: screen sharing (`getDisplayMedia` needs `setDisplayMediaRequestHandler` and the
+       portal picker), external protocol links (`openExternal`, still denied), USB/HID/serial
+       choosers, Storage Access API prompts (denied, so an embed that asks for its cookies under
+       third-party blocking gets none), per-site HTTPS-Only exceptions beyond the session,
+       `navigator.globalPrivacyControl` in workers, a fast fallback when port 443 hangs, and
+       a lock / site info entry while the rail is hidden.
+
 ## Phase 3 — Chrome extensions
 
 - [x] License decision: GPL-3.0 for the whole project
@@ -530,7 +565,8 @@ small foot. Done on `feat/bottom-bar`:
 - [x] History page (`app://history`), full-text search, SQLite (2026-10-15, see below)
 - [x] Downloads in the sidebar (see roadmap step 1)
 - [x] History list in the sidebar (search, remove, Show all history)
-- [ ] Permissions prompts, find in page, zoom per site, print
+- [x] Permissions prompts (wave 2, see above)
+- [ ] Find in page, zoom per site, print
 - [ ] Private windows, profiles (user circle), default-browser registration
 - [ ] Reopen-closed-tab history across restarts
 

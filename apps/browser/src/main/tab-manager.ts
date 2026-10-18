@@ -38,6 +38,7 @@ export interface TabManagerHost {
   onContentsCreated(contents: WebContents): void
   onTabCreated(contents: WebContents): void
   onTabActivated(contents: WebContents): void
+  failedLoad?(contents: WebContents, url: string, description: string): string | undefined
 }
 
 export class Tab {
@@ -159,7 +160,7 @@ export class TabManager {
   createWorkspace(name?: string, color?: WorkspaceColor, activate = true): Workspace {
     const trimmed = name?.trim() ?? ''
     const workspace = newWorkspace(
-      trimmed === '' ? defaultWorkspaceName(this.workspaces) : trimmed,
+      trimmed === '' ? defaultWorkspaceName(this.workspaces) : trimmed.slice(0, 40),
       color ?? nextWorkspaceColor(this.workspaces.map((w) => w.color)),
     )
     this.workspaces.push(workspace)
@@ -589,7 +590,9 @@ export class TabManager {
     wc.on('audio-state-changed', (event) => this.update(tab, { audible: event.audible }))
     wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
       if (!isMainFrame || code === -3 || code === 0) return
-      const target = `${SAD_TAB_URL}?url=${encodeURIComponent(url)}&error=${encodeURIComponent(description)}`
+      const target =
+        this.host.failedLoad?.(wc, url, description) ??
+        `${SAD_TAB_URL}?url=${encodeURIComponent(url)}&error=${encodeURIComponent(description)}`
       void wc.loadURL(target).catch(() => undefined)
     })
     wc.on('render-process-gone', (_event, details) => {

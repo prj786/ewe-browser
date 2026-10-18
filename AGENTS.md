@@ -70,6 +70,10 @@ packages/shared/src/
   history.ts                      HISTORY_URL, ranges and keep options, HistoryClear + clearCovers, sites
                                   (siteOf/hostInSite), HistoryRequest + isHistoryRequest, day rows,
                                   RemoteMachine / tabs files (isRemoteTabsFile, searchRemoteTabs)
+  privacy.ts                      PrivacySettings (+ sanitize, DOH_PROVIDERS, dohConfig, isDohTemplate),
+                                  permission kinds, labels and asks, PermissionPrompt, SiteInfo, origins
+  sites.ts                        SITES (the site search table), siteByName/siteByHost, domainOf,
+                                  fill/withLocale, parseSiteQuery (@site), learnSearchTemplate
 apps/browser/
   electron.vite.config.ts         main/preload/renderer builds, seven HTML inputs, devCsp plugin, @ewe/shared alias
   electron-builder.yml            dir target, castlabs runtime from node_modules/electron/dist, app.asar
@@ -100,6 +104,12 @@ apps/browser/
                                   local.ts (help, commands, ls, locate, places), offline.ts (stores from disk),
                                   server.ts (socket, JSON lines), host.ts (main side), index.ts (CLI entry)
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
+  src/main/privacy/               service.ts (permission request/check handlers, HTTPS-Only webRequest,
+                                  Secure DNS, GPC header, site info, clear site data), permissions.ts
+                                  (PermissionStore, kindsFor, verdict), https-only.ts, window.ts
+                                  (PrivacyWindow: the prompt and site info per window), ipc.ts, startup.ts
+  src/main/site-search/           resolve.ts (site → template order), opensearch.ts (parser + store),
+                                  locale.ts ({cc}/{lang}), service.ts (live side, OpenSearch discovery)
   src/main/history.ts             frecency scoring and ranking
   src/main/history-service.ts     HistoryService: the `ewe:history-page` ops (rows, summary, delete, deleteSite,
                                   clear browsing data, keep), retention timer, pushes to history pages;
@@ -116,6 +126,7 @@ apps/browser/
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
   src/preload/chrome-version.ts    navigator.userAgentData with the reported Chrome major (main world)
+  src/preload/privacy.ts          navigator.globalPrivacyControl and "prompt" for undecided permissions
   src/ui/shell/                   base layer: the tab rail (or none when collapsed), the edge strip, the page slot (card)
   src/ui/overlay/                 floating layer: rail peek, palette, context menus (tab-menu.ts, workspace-menu.ts),
                                   toast
@@ -156,7 +167,8 @@ docs/screenshots/                 generated, untracked
   sidebar view (created on first open, `SidebarController`), and the overlay view added last. Every
   tab attach re-raises the sidebar and then the overlay, so the order is pages < sidebar < overlay.
 - Every tab lives on `session.fromPartition('persist:default')`. The default session gets the same
-  identity and permission handlers. `will-attach-webview` is denied everywhere.
+  identity and permission handlers (`PrivacyService.install`, see Privacy and security).
+  `will-attach-webview` is denied everywhere.
 - Identity (`identity.ts`, `preload/chrome-version.ts`): pages are told the major Chrome stable is
   on today, not the engine's. Since 153 (2026-09-08) Chrome ships a major every two weeks and
   Electron's newest stable still carries Chromium 152, so Gmail, which supports the two newest
@@ -243,6 +255,10 @@ throttled to 500ms, and history pages, throttled to 400ms), `ewe:home-changed`
 (home tabs only, throttled to 400ms), `ewe:ui` (main → renderer).
 Safe adds `ewe:safe-page` and `ewe:safe-passkey` (invoke, page layer, http(s) frames only) and
 `ewe:safe-fill` / `ewe:safe-suggest` (main → one frame); see Safe under ewe integration.
+Privacy adds `ewe:permissions` (invoke, `app://settings` only: `{op: 'list'}` → `PermissionSite[]`,
+`{op: 'status'}` → `PrivacyStatus`), `ewe:permissions-changed` (main → settings pages) and
+`ewe:privacy-frame` (a synchronous `sendSync` from the page preload of every http(s) frame:
+`{gpc, ask}`); see Privacy and security.
 
 Main validates every command at runtime (`isShellCommand`), checks the sender frame
 (`senderFrameUrl`: main frame only, `app://` for the page layer), and applies the per-layer policy
@@ -250,7 +266,8 @@ in `WindowController.dispatch`: the page layer may only send `PAGE_COMMANDS`
 (`workspace.activate`, `tab.create`, `tab.activate`, `tab.navigate`, `tab.close`, `nav.reload`,
 `settings.update`, `open.internal`, `music.play`, `shortcuts.recording`, `bookmarks.importChrome`),
 `settings.update`, `shortcuts.recording` and `bookmarks.importChrome` only from `app://settings`,
-`music.play` only from `app://home`,
+`permission.set` and `permission.forget` only from `app://settings` (and the overlay), `https.allow`
+only from `app://sad`, `music.play` only from `app://home`,
 and `tab.navigate` from a page is pinned to that page's own tab. Pages get no `bookmark.*` editing
 commands yet; a future bookmarks page adds what it needs.
 
@@ -284,13 +301,20 @@ displayed before the move, `folderId` alone appends; cycles are refused),
 `sidebar.toggle {section?}`, `sidebar.close`, `sidebar.resize {width, commit?}`,
 `download {id, action: pause|resume|cancel|retry|open|show|remove}` (`remove` drops the entry,
 never the file), `downloads.clear` (finished entries only), `history.remove {url}`,
-`window.new|close|minimize|toggleMaximize`, `devtools.toggle`. `menu.open` from the sidebar layer
-is ignored (the sidebar renders its own menus).
+`window.new|close|minimize|toggleMaximize`, `devtools.toggle`, `permission.decide {promptId,
+decision: allow | block | dismiss}` and `permission.fit {promptId, height}` (overlay only),
+`permission.set {origin, kind, value: ask | allow | block}`, `permission.forget {origin}`,
+`siteinfo.open {x, y}` (shell or overlay coordinates, like `menu.open`), `site.clearData
+{origin}` (overlay), `https.allow {url}` (the interstitial). A `tab.navigate` input of the form
+`@site words` is rewritten in `dispatch` to that site's search url (`siteInput`, see Site search);
+an unknown site stays a plain search. `menu.open` from the sidebar layer is ignored (the sidebar
+renders its own menus).
 
 UiEvent types (main → a renderer): `focus-address`, `overlay.show {part}`, `overlay.hide`,
 `palette.open {query?, newTab?}` (the palette reacts to a new `query` while mounted),
 `menu.open {menu, x, y}`, `toast {message, icon?: star | download | check | alert}`,
-`sidebar.focus`, `workspace.rename {id}`, `music.play {path}` (to the music tab).
+`sidebar.focus`, `workspace.rename {id}`, `music.play {path}` (to the music tab),
+`permission.prompt {prompt}`, `siteinfo.open {info, x, y}`, `siteinfo.update {info}`.
 
 State: `WindowSnapshot { windowId, tabs: TabState[], activeTabId, workspaces, activeWorkspaceId,
 focused, maximized, fullscreen, sidebar: { section, width } | null }` is broadcast (coalesced to one per 16ms) to the shell, the
@@ -355,8 +379,9 @@ every tab.
 
 ## Overlay and hover state machine
 
-- Parts: `none | rail | palette | menu | toast | prompt | suggest | sheet` (Safe's save prompt,
-  inline list and passkey sheet; see Safe below). `OverlayController.show(part, size, extra?, at?)` sets
+- Parts: `none | rail | palette | menu | toast | prompt | suggest | sheet | permission | siteinfo`
+  (Safe's save prompt, inline list and passkey sheet, see Safe below; the permission card and the
+  site info panel, see Privacy and security). `OverlayController.show(part, size, extra?, at?)` sets
   bounds, makes the view visible, records `shownAt`, sends `overlay.show {part}` on a part change,
   then any `extra` UiEvent. `hide()` sends `overlay.hide` (the UI adds `.leaving` for the exit
   animation), waits `HIDE_ANIMATION_MS` = 160ms, hides the view and sends `overlay.show none`.
@@ -760,6 +785,115 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
 '<app> --background' }`; `ewe:startup` (invoke, `app://settings` only, optional boolean)
   returns `{ available, on }`.
 
+## Privacy and security (wave 2, 2026-10-18)
+
+Settings → Privacy and security (`pages/settings/privacy.tsx`) holds `Settings.privacy`
+(`PrivacySettings`, `sanitizePrivacySettings`; not synced, DNS is per machine): `secureDns: off |
+automatic | secure` with `dnsProvider` (cloudflare, quad9, mullvad, adguard, nextdns + `nextdnsId`,
+custom + `dnsTemplate`), `httpsOnly` (default off), `blockThirdPartyCookies` (default on), `gpc`
+(default on). `PrivacyService` (`main/privacy/service.ts`) is created in `main()` after the
+settings load and installed on both sessions.
+
+- **Secure DNS**: `dohConfig()` → `app.configureHostResolver` (`off` → `secureDnsMode: 'off'`, the
+  system resolver; `automatic` → Chromium's upgrade when the system's DNS provider offers DoH;
+  a provider → `secure` with that one template, no fallback). Applied at start and on every
+  settings change; an invalid NextDNS id or custom template keeps the configuration applied
+  before it (only at start, with nothing applied yet, does it fall back to `off`) and reports
+  `dnsError` (`PrivacyStatus`, shown in Settings). Electron throws "not a valid DoH template" for
+  bad templates, so `isDohTemplate` checks https, no credentials and at most `{?dns}` first.
+  Verified: all five providers resolve live with `secure`, a template pointing at a closed local
+  port makes `session.resolveHost` fail, `off` resolves again (e2e).
+- **HTTPS-Only** (`https-only.ts`): `webRequest.onBeforeRequest` (`http://*/*`, types `mainFrame`
+  and `subFrame`; the only onBeforeRequest listener) redirects to https when the url has the
+  default port and the host is not local (`isLocalHost`: localhost, `.localhost`, `.local`,
+  `.home.arpa`, `.internal`, `.lan`, `.test`, single-label names, loopback, private, link-local and
+  CGNAT IPv4, IPv6 loopback/ULA/link-local) and not allowed for this run. Main-frame upgrades are
+  remembered per webContents; when that load fails (`TabManagerHost.failedLoad` hook in
+  `did-fail-load`), the tab goes to `app://sad/?kind=https-only&url=<http url>&error=…`, the sad
+  page's interstitial: Go back, or Continue to the http site (`https.allow {url}`, page command
+  from `app://sad` only), which allows that host until quit and navigates the tab. Any committed
+  navigation (`did-navigate`) forgets the upgrade. Not handled: a site whose port 443 hangs waits
+  for Chromium's own timeout before the interstitial.
+- **Third-party cookies**: Chromium's own blocking, the `ForceThirdPartyCookieBlockingEnabled`
+  feature (`net::features::kForceThirdPartyCookieBlocking`, present in the Electron 44 binary),
+  appended to `--enable-features` in `bootstrap()` from `settings.json` read synchronously
+  (`privacyAtStartup`). Electron has no live switch (no cookie-settings API), so a change applies
+  after a restart; Settings says so (`PrivacyStatus.thirdPartyBlocked` is the state at start).
+  Verified with a cross-site iframe on two local origins (127.0.0.1 embedding localhost): with
+  the feature neither the frame's `Set-Cookie` (`SameSite=None; Secure`) nor its
+  `document.cookie` is stored, a top-level visit to localhost still stores its first-party
+  cookie, without the feature both are stored (e2e). `test-third-party-cookie-phaseout` works too
+  but turns on more of the phase-out; no header stripping is used.
+- **Global Privacy Control**: `Sec-GPC: 1` on every http(s) request (`applyIdentity` takes an
+  `extraHeaders` hook; its `onBeforeSendHeaders` now matches `http://*/*` too, and only the https
+  side rewrites client hints) and `navigator.globalPrivacyControl === true` defined on
+  `Navigator.prototype` in the main world (`preload/privacy.ts`), both following the setting live
+  (new documents). Chromium's own `GlobalPrivacyControl` blink feature exposes the property but
+  reads a renderer preference Electron cannot set, so it stays off. Workers do not get the property.
+- **Site permissions** (`permissions.ts`, `<userData>/permissions.json` `{version: 1, sites:
+[{origin, permissions: {kind: allow | block}, updated}]}`, 1000 origins): kinds `camera,
+microphone, location, notifications, clipboard, midi, local-network, windows, idle`
+  (`kindsFor` maps Chromium's `media` + mediaTypes, `geolocation`, `notifications`,
+  `clipboard-read`, `midi`/`midiSysex`, `local-network-access`/`local-network`/`loopback-network`,
+  `window-management`, `idle-detection`). Fullscreen, pointer and keyboard lock, sanitized
+  clipboard writes, `mediaKeySystem` and `screen-wake-lock` are allowed silently (`SILENT_ALLOW`);
+  everything else (USB, HID, serial, external protocols, storage access, file system writes, …)
+  is denied as before. Decisions are per top-level origin (Chromium's permission delegation
+  checks the iframe `allow` attribute first). `verdict`: every kind allowed → allow, any blocked →
+  block, else ask. The check handler answers the same verdict (so `navigator.permissions.query`
+  says granted only for allowed kinds); because Electron reports "denied" for anything not
+  granted, the page preload patches `Permissions.prototype.query` and `Notification.permission`
+  in the main world to say `prompt` / `default` for undecided kinds of that origin (the `ask` list
+  of `ewe:privacy-frame`, asked by the top frame only, so a page with many iframes pays one sync
+  IPC; iframes and workers get the `Sec-GPC` header but not the property, and a document keeps the
+  values it started with until it reloads), so sites still ask. The request and the check
+  handler both key on the top-level origin (the tab's url, then the embedding origin). Requests from views that are not tabs (popups,
+  panels) are denied. Location: Electron on Linux has no location provider (it needs a Google API
+  key), so an allowed site gets no position; the prompt, site info and Settings say so.
+- **The prompt** (`privacy/window.ts` `PrivacyWindow`, one per window, `WindowController.privacyUi`):
+  one pending prompt per tab; a second request from the same tab and origin merges its kinds
+  (Meet's camera + microphone are one card), a different origin denies the old one; navigation or
+  closing denies. Only the active tab's prompt shows, as part `permission` at an explicit rect at
+  the page's top left (`permissionRect`: 384px wide incl. the `--suggest-pad` shadow room, the
+  height reported by the card through `permission.fit`), without focus; `onPageMouse` ignores it
+  and the overlay keeps it on mouseleave. Another part (palette, menu, peek) replaces it and it
+  comes back when the overlay is `none` again (`overlay.watch`) or its tab is activated. Allow /
+  Block store the decision for all its kinds; × (Not now) denies once, and after two Not now for
+  an origin it is denied silently for 10 minutes (`Dismissals`, this run only; an Allow / Block
+  resets it). A pending prompt holds at most 16 requests; more are denied. Clickjacking: the card
+  (`components/PermissionPrompt.tsx`) counts Allow/Block only 500ms after it appeared or changed
+  and after a pointer move over it, and main ignores them within 500ms of showing.
+- **Site info**: the address field's lock (or open lock for http, `.rail-site`) sends
+  `siteinfo.open` with the button's corner; part `siteinfo` (whole window, focused, like a menu)
+  renders `components/SiteInfo.tsx`: connection state, the four common permissions plus any
+  decided one as Ask / Allow / Block segments (`permission.set`; the panel updates from
+  `siteinfo.update` on every store change), Clear site data (`site.clearData`:
+  `clearStorageData({origin})` plus the cookies of that host and its parents, then a reload and a
+  toast) and Site settings (`app://settings/#privacy`). The settings list shows every decided site
+  with its kinds (select Allow / Block / Ask) and Forget, live through `ewe:permissions-changed`.
+
+## Site search (wave 2)
+
+`search --site`, `site` and `@site words` in the palette and address field resolve a site in
+`main/site-search/resolve.ts` (order and rules in docs/CLI.md, "Site search"): the built-in table
+`SITES` (66 sites, every template checked with a real request on 2026-10-18), a domain, or a
+visited host by its first label; then the newest history url with a search term, an OpenSearch
+template, the table template (`{cc}` from the time zone via zone1970.tab, `{lang}` from `LANG`) or
+a `site:` search. `SiteSearchService` (main) feeds it live stores and discovers OpenSearch links:
+on every tab's `did-finish-load` for a host it has not checked this run and has no fresh entry
+for, it reads `link[rel~=search][type=application/opensearchdescription+xml]` in isolated world
+1011, fetches the descriptor through the tab's session (`session.fetch`, credentials omitted,
+`redirect: 'error'`, 64 KiB, 8 s) only when `acceptDescriptor` passes (https, default port, no
+credentials, not a local name or private address, the page's registrable domain with private
+suffixes on), parses it (`parseOpenSearch`: the `text/html` GET `Url`, `{searchTerms}` → `{q}`,
+optional parameters dropped, the usual fixed ones filled, unknown required ones refused, https
+only, 2 KiB) and keeps it only when `acceptTemplate` passes (the page's own host or its `www.`)
+(`site-search.json`, 500 hosts; entries that fail the check are dropped on load; Clear browsing
+data removes the ones learned in the cleared range through `HistoryService.onHistoryCleared`).
+History-learned templates count only https urls on a site with 2+ visits. The
+CLI resolves offline from disk (`offlineSite`) and refuses an unknown site before starting the
+browser. The palette shows "Search Zara" for `@zara …` (`parseSiteQuery` + `siteByName`).
+
 ## Viewers and music (roadmap step 4)
 
 - The files viewer (`viewer.tsx`) shows images, video, audio, text, code, Markdown and PDF and
@@ -791,7 +925,7 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
 
 - `settings.json`: `Settings { rail: 'expanded'|'collapsed', searchEngine: google|duckduckgo|bing|
 kagi|brave, theme: 'system'|'dark'|'light', restoreSession, sidebarWidth, background, sync, historyDays,
-panels, shortcuts }` with `DEFAULT_SETTINGS`.
+panels, shortcuts, safe, privacy }` with `DEFAULT_SETTINGS`.
   Changes broadcast to every renderer and sync `nativeTheme.themeSource`.
 - `session.json`: windows with `bounds`, `tabs [{ url, title, workspace, pinned }]`, `activeIndex`,
   `workspaces [{ id, name, color }]`, `activeWorkspace`. The exact validator is `isSessionFile` in
@@ -852,6 +986,10 @@ received, total, speed, status, started, ended`, times in epoch ms), newest firs
   window and sidebar background follow ewe `surface-base` in system mode.
 - Account: `~/.config/ewe/cloud.json`, identity fields only (display name / login / user, email,
   server). Shown as the avatar initial; no sync yet.
+- `permissions.json`: per-origin site permission decisions (see Privacy and security), writes
+  debounced 500ms, flushed on quit. `site-search.json`: `{ version: 1, hosts: { host: { template,
+descriptor, checked } } }`, learned OpenSearch templates, 500 hosts, writes debounced 1s.
+  `Settings.privacy` lives in `settings.json`.
 
 ## Renderer conventions
 
@@ -950,6 +1088,13 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   in isolated world 1010 with a 3s timeout and returns `untrusted: true`. It reads
   `document.body.innerText` only, so Safe's key (on `<html>`, in a closed shadow root) and its
   overlay parts never reach it.
+- Wave 2 tools: `site`, `workspaces`, `workspace_activate|next|prev|create|rename|remove`,
+  `back`, `forward`, `download_open|show`, `search.site`, `open.workspace` (docs/CLI.md).
+  Groups in `argv.ts` map each action to its own positional (`workspace rename <ws> <new name…>`
+  is a `pair`). Workspaces match by id, name (any case), 1-based number or a 4+ character id
+  prefix (`matchWorkspace`). The live side picks the focused window, else the last focused one
+  (`browser-window-focus`), else the first. `workspace next` round trip: ~42 ms from Node, ~49 ms
+  from Electron's Node mode (median of 30, 2026-10-18).
 - Tested by unit tests and the e2e "the command line answers in JSON…" (offline status,
   bookmark write and locate, then a launched browser: open a folder, tabs, pin by id prefix,
   close with undo, a local page read through `page --text`, reopen, find, quit → offline).
@@ -995,6 +1140,19 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   cross-origin frame, generate + save, update, no prompt for a known login, and locked → Unlock
   Safe (`EWE_SAFE_ASK_CMD`). Both run inside a nested Hyprland (`WAYLAND_DISPLAY` /
   `HYPRLAND_INSTANCE_SIGNATURE` of the nest), never the live session.
+- Wave 2 (B) tests: unit `packages/shared/src/sites.test.ts` (table sanity, aliases, hosts,
+  templates, `@site`, learning from history), `packages/shared/src/privacy.test.ts` (settings,
+  `dohConfig`, templates, origins, command validators), `tests/unit/site-search.test.ts` (zone
+  tables, locale fallbacks, OpenSearch fixtures, `site-search.json`, the resolution order),
+  `tests/unit/privacy.test.ts` (kinds, verdicts, the permission store, local hosts, upgrades,
+  startup feature, the main-world script on stubs, the prompt rect) and the new cases in
+  `cli.test.ts`. E2E `tests/e2e/privacy.spec.ts` (5: prompt merge/guard/allow/block/dismiss/tab
+  switch with fake media devices, site info + clear data + the settings list, the settings
+  section and Secure DNS against `resolveHost`, the HTTPS-Only interstitial through
+  `--host-resolver-rules=MAP flock.example 127.0.0.1:<port>`, third-party cookies and GPC on two
+  local origins in two launches) and `tests/e2e/cli-browser.spec.ts` (every new verb against a
+  launched browser, history-learned and OpenSearch templates, `@site`, download show/open with
+  `shell.openPath` stubbed, offline `workspaces`/`site`). Helpers in `tests/e2e/wave2-support.ts`.
 - History tests: `history-store.test.ts` (migration, a broken database, the read-only snapshot
   for the CLI, rows by day and paging, FTS and short words, site filters, range and page clears, remote clears, retention, the merge
   diff, the page cap), `history-sync.test.ts` (clear filtering, compaction, tab files, PROPFIND

@@ -1,3 +1,4 @@
+import { DEFAULT_PRIVACY_SETTINGS, type PrivacySettings } from './privacy'
 import { DEFAULT_SAFE_SETTINGS, type SafeSettings } from './safe'
 import type { ShortcutMap } from './shortcuts'
 
@@ -85,6 +86,7 @@ export interface Settings {
   panels: WebPanel[]
   shortcuts: ShortcutMap
   safe: SafeSettings
+  privacy: PrivacySettings
 }
 
 export interface WebPanel {
@@ -184,6 +186,7 @@ export const DEFAULT_SETTINGS: Settings = {
   panels: [],
   shortcuts: {},
   safe: DEFAULT_SAFE_SETTINGS,
+  privacy: DEFAULT_PRIVACY_SETTINGS,
 }
 
 export interface SessionTab {
