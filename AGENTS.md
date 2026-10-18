@@ -421,7 +421,7 @@ every tab.
 ## Overlay and hover state machine
 
 - Parts: `none | rail | palette | menu | toast | prompt | suggest | sheet | find | swipe |
-  permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see Safe below; the
+permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see Safe below; the
   find bar and the swipe arrow, see Input; the permission card and the site info panel, see
   Privacy and security). `OverlayController.show(part, size, extra?, at?)` sets
   bounds, makes the view visible, records `shownAt`, sends `overlay.show {part}` on a part change,

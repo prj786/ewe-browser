@@ -572,7 +572,7 @@ The owner asked for DNS and security settings, and for Shaun to reach further in
 released in 0.4.0-beta:
 
 1. [x] **Command line (contract 1)**: `search --site`, `site`, `workspaces`, `workspace
-    activate|next|prev|create|rename|remove`, `back`, `forward`, `download open|show`,
+ activate|next|prev|create|rename|remove`, `back`, `forward`, `download open|show`,
        `open --workspace`. `workspace next` answers in ~45 ms (the 4-finger swipe runs it).
 2. [x] **Site search**: history-learned templates (keeps the owner's locale), OpenSearch
        descriptors found on visited pages (`site-search.json`), a 66-site table with `{cc}` from
