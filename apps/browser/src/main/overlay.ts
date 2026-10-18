@@ -104,7 +104,7 @@ export class OverlayController {
     }
     this.clearShrink()
     const changed = this.part !== part
-    const fromMenu = this.part === 'menu'
+    const fromMenu = this.part === 'menu' || this.part === 'siteinfo'
     this.setPart(part)
     if (changed) this.shownAt = Date.now()
     if (fromMenu && changed) {
@@ -116,7 +116,8 @@ export class OverlayController {
     this.view.setVisible(true)
     if (changed) this.sendUi({ type: 'overlay.show', part })
     if (extra !== undefined) this.sendUi(extra)
-    if (part === 'palette' || part === 'menu' || part === 'sheet') this.view.webContents.focus()
+    if (part === 'palette' || part === 'menu' || part === 'sheet' || part === 'siteinfo')
+      this.view.webContents.focus()
   }
 
   hide(): void {

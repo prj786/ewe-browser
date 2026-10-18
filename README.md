@@ -30,6 +30,11 @@ toasts) and a right sidebar.
 - **Extensions, DRM, sync**: Chrome Web Store extensions (an "Add to ewe browser" button on
   store pages), Widevine DRM through castlabs Electron, and sync of bookmarks, history and
   settings with your ewe Nextcloud account.
+- **Privacy and security**: Secure DNS (Cloudflare, Quad9, Mullvad, AdGuard, NextDNS or your
+  own), HTTPS-Only, third-party cookies blocked, Global Privacy Control, and site permissions
+  that ask first (camera, microphone, notifications, …) with a site info panel behind the lock.
+- **Site search**: `@zara men's shoes` in the palette opens Zara's own results; sites you search
+  on, sites with an OpenSearch description and 66 well-known sites are understood.
 
 ## Command line
 
@@ -39,6 +44,8 @@ Companion. `ewe-browser help` lists the verbs; the reference is [docs/CLI.md](do
 ```
 ewe-browser open ~/Documents         # a folder in the file manager, a url, a file or a search
 ewe-browser search sheep breeds      # web search with the engine from Settings
+ewe-browser search "men's shoes" --site zara   # the site's own search results
+ewe-browser workspace next           # what the 4-finger swipe runs
 ewe-browser find invoice             # tabs, bookmarks, history, recent files and music at once
 ewe-browser locate report --in ~/Documents
 ewe-browser tabs | jq '.tabs[].title'

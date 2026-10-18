@@ -32,9 +32,32 @@ import {
   type SafeSuggestKey,
 } from './safe'
 import { isWorkspaceColor } from './workspaces'
+import {
+  isPermissionDecision,
+  isPermissionKind,
+  isPermissionValue,
+  isWebOrigin,
+  type PermissionDecision,
+  type PermissionKind,
+  type PermissionPrompt,
+  type PermissionsRequest,
+  type PermissionValue,
+  type SiteInfo,
+} from './privacy'
 
 export type OverlayPart =
-  'none' | 'rail' | 'palette' | 'menu' | 'toast' | 'prompt' | 'suggest' | 'sheet' | 'find' | 'swipe'
+  | 'none'
+  | 'rail'
+  | 'palette'
+  | 'menu'
+  | 'toast'
+  | 'prompt'
+  | 'suggest'
+  | 'sheet'
+  | 'find'
+  | 'swipe'
+  | 'permission'
+  | 'siteinfo'
 export type InternalPage = 'newtab' | 'home' | 'settings' | 'files' | 'music' | 'history'
 export type MenuTarget =
   | { kind: 'tab'; id: TabId }
@@ -123,6 +146,13 @@ export type ShellCommand =
   | { type: 'find.step'; forward: boolean }
   | { type: 'find.close' }
   | { type: 'page.menu.run'; menuId: string; action: string }
+  | { type: 'permission.decide'; promptId: string; decision: PermissionDecision }
+  | { type: 'permission.fit'; promptId: string; height: number }
+  | { type: 'permission.set'; origin: string; kind: PermissionKind; value: PermissionValue }
+  | { type: 'permission.forget'; origin: string }
+  | { type: 'siteinfo.open'; x: number; y: number }
+  | { type: 'site.clearData'; origin: string }
+  | { type: 'https.allow'; url: string }
 
 export type UiEvent =
   | { type: 'focus-address' }
@@ -145,6 +175,9 @@ export type UiEvent =
   | { type: 'find.result'; result: FindResult | null }
   | { type: 'swipe'; dir: SwipeDirection; progress: number; done?: boolean }
   | { type: 'page.menu'; menu: PageMenu }
+  | { type: 'permission.prompt'; prompt: PermissionPrompt }
+  | { type: 'siteinfo.open'; info: SiteInfo; x: number; y: number }
+  | { type: 'siteinfo.update'; info: SiteInfo }
 
 export type ApiLayer = 'shell' | 'overlay' | 'sidebar' | 'page'
 
@@ -180,6 +213,8 @@ export interface BrowserApi {
   onTheme(listener: (theme: ThemeTokens | null) => void): () => void
   onBookmarks(listener: (root: BookmarkFolder) => void): () => void
   onUi(listener: (event: UiEvent) => void): () => void
+  permissions<T = unknown>(request: PermissionsRequest): Promise<T | null>
+  onPermissions(listener: () => void): () => void
 }
 
 export const IPC = {
@@ -219,6 +254,9 @@ export const IPC = {
   ui: 'ewe:ui',
   pageInput: 'ewe:page-input',
   pageAction: 'ewe:page-action',
+  permissions: 'ewe:permissions',
+  permissionsChanged: 'ewe:permissions-changed',
+  privacyFrame: 'ewe:privacy-frame',
 } as const
 
 const PAGE_COMMANDS = new Set<ShellCommand['type']>([
@@ -239,6 +277,9 @@ const PAGE_COMMANDS = new Set<ShellCommand['type']>([
   'extension.remove',
   'extensions.update',
   'extension.install',
+  'permission.set',
+  'permission.forget',
+  'https.allow',
 ])
 
 export function isPageCommandAllowed(command: ShellCommand): boolean {
@@ -429,6 +470,19 @@ export function isShellCommand(value: unknown): value is ShellCommand {
       return isString(c.requestId) && typeof c.allow === 'boolean'
     case 'extensions.update':
       return true
+    case 'permission.decide':
+      return isString(c.promptId) && isPermissionDecision(c.decision)
+    case 'permission.fit':
+      return isString(c.promptId) && isFiniteNumber(c.height)
+    case 'permission.set':
+      return isWebOrigin(c.origin) && isPermissionKind(c.kind) && isPermissionValue(c.value)
+    case 'permission.forget':
+    case 'site.clearData':
+      return isWebOrigin(c.origin)
+    case 'siteinfo.open':
+      return isFiniteNumber(c.x) && isFiniteNumber(c.y)
+    case 'https.allow':
+      return isString(c.url) && /^http:\/\//i.test(c.url) && c.url.length <= 4096
     case 'passwords.open':
     case 'sidebar.close':
     case 'downloads.clear':

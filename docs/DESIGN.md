@@ -114,6 +114,25 @@ surface to the Ewe component it follows and records what the system did not cove
   `panel-md` wide) with a `fingerprint` well, the account in a `surface-sunken` box or the
   passkeys as rows, and actions _Use a security key instead_ (ghost, Lucide `usb`), Cancel
   (ghost) and the primary Save / Sign in / Unlock Safe.
+- Permission prompt (2026-10-18): the system has no permission dialog. It is the Safe save
+  prompt's card (the palette surface, `surface-overlay`, `rounded`, `shadow-float`, slides down at
+  `dur-base`) at the page's top left, next to the address field it is about, never taking focus:
+  "<host> wants to" with the host in `text-primary` semibold, one row per ask with a
+  `control-md` well on `surface-sunken` and a Lucide glyph in `accent-text` (camera, mic,
+  map-pin, bell, clipboard, music, network, monitor, moon), the location note in `text-muted`
+  `font-size-s`, and Block (ghost) / Allow (primary) after an × for Not now. `--suggest-pad`
+  gives the shadow room.
+- Site info (2026-10-18): a Menu-like panel (`panel-sm` wide) dropped under the lock: a header
+  well (`shield-check` in `accent-text` on `surface-sunken` for https, `triangle-alert` on
+  `warning-subtle` in `warning` for http), the host in semibold and the state in `text-muted`,
+  one detail line, an overline "Permissions" after a hairline, rows with a three-way Segmented
+  control (`surface-sunken` track, the chosen segment on `surface-overlay` with `shadow-sm`,
+  Allow in `success`, Block in `danger`) and a footer with Clear site data (ghost, `trash-2`)
+  and Site settings (secondary). The address field's lock is now a ghost `control-sm` button;
+  http pages show `lock-open` in `warning`.
+- HTTPS-Only interstitial: the sad page's EmptyState with a `lock-open` circle on
+  `warning-subtle`, a sentence on what continuing means, Go back (secondary) and Continue to the
+  http site (ghost), so the safe choice is the stronger button.
 - Context menus: the system has no menu placement rule. Menus open with their top-left corner at
   the pointer and flip to the other side of it when they would leave the window, keeping an 8px
   margin (`placeMenu`); a submenu opens to the right of its row with the first item aligned to the

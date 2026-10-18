@@ -7,6 +7,7 @@ import {
   isHistoryKeepDays,
   sanitizeGestureSettings,
   sanitizeSafeSettings,
+  sanitizePrivacySettings,
   sanitizeShortcuts,
   type Settings,
   type WebPanel,
@@ -56,6 +57,8 @@ export function sanitizeSettings(patch: unknown, base: Settings): Settings {
   if (patch.safe !== undefined) next.safe = sanitizeSafeSettings(patch.safe, base.safe)
   if (patch.gestures !== undefined)
     next.gestures = sanitizeGestureSettings(patch.gestures, base.gestures)
+  if (patch.privacy !== undefined)
+    next.privacy = sanitizePrivacySettings(patch.privacy, base.privacy)
   return next
 }
 

@@ -1,4 +1,5 @@
 import { DEFAULT_GESTURE_SETTINGS, type GestureSettings } from './input'
+import { DEFAULT_PRIVACY_SETTINGS, type PrivacySettings } from './privacy'
 import { DEFAULT_SAFE_SETTINGS, type SafeSettings } from './safe'
 import type { ShortcutMap } from './shortcuts'
 
@@ -87,6 +88,7 @@ export interface Settings {
   shortcuts: ShortcutMap
   safe: SafeSettings
   gestures: GestureSettings
+  privacy: PrivacySettings
 }
 
 export interface WebPanel {
@@ -171,6 +173,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcuts: {},
   safe: DEFAULT_SAFE_SETTINGS,
   gestures: DEFAULT_GESTURE_SETTINGS,
+  privacy: DEFAULT_PRIVACY_SETTINGS,
 }
 
 export interface SessionTab {

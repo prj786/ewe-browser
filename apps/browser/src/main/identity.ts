@@ -88,17 +88,24 @@ export function withChromeBrand(value: string): string {
   return major === undefined ? value : `${value}, "Google Chrome";v="${major}"`
 }
 
-export function applyIdentity(session: Session): void {
+export function applyIdentity(
+  session: Session,
+  extraHeaders: () => Record<string, string> = () => ({}),
+): void {
   const ua = chromeUserAgent()
   app.userAgentFallback = ua
   session.setUserAgent(ua)
-  session.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
-    callback({
-      requestHeaders: details.url.startsWith(STORE_URL)
-        ? storeHeaders(details.requestHeaders)
-        : versionHeaders(details.requestHeaders),
-    })
-  })
+  session.webRequest.onBeforeSendHeaders(
+    { urls: ['https://*/*', 'http://*/*'] },
+    (details, callback) => {
+      const headers = details.url.startsWith('http:')
+        ? details.requestHeaders
+        : details.url.startsWith(STORE_URL)
+          ? storeHeaders(details.requestHeaders)
+          : versionHeaders(details.requestHeaders)
+      callback({ requestHeaders: { ...headers, ...extraHeaders() } })
+    },
+  )
 }
 
 export function applyIdentityToContents(contents: WebContents): void {

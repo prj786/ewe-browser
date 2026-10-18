@@ -3,6 +3,7 @@ import { exposeApi } from './api'
 import { ignoreDragRegions, installChromeShim, installChromeVersion } from './chrome-shim'
 import { installPageInput, installSideButtons } from './page-input'
 import { installSafe, openSafeAt, safeKindOf } from './safe/content'
+import { installPrivacy } from './privacy'
 
 const layer = process.argv.find((arg) => arg.startsWith(LAYER_ARG))?.slice(LAYER_ARG.length)
 const topFrame = window === window.top
@@ -19,7 +20,10 @@ if (layer === 'shell' || layer === 'overlay' || layer === 'sidebar') {
   ignoreDragRegions()
   if (location.protocol === 'https:' || location.protocol === 'http:') {
     installChromeVersion()
-    if (topFrame) installChromeShim()
+    if (topFrame) {
+      installPrivacy()
+      installChromeShim()
+    }
     installSafe()
     installPageInput({
       swipe: topFrame,

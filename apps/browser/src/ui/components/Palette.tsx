@@ -2,7 +2,9 @@ import { For, Show, createEffect, createMemo, createSignal, on, onMount, type JS
 import {
   SEARCH_ENGINES,
   displayUrl,
+  parseSiteQuery,
   rankBookmarks,
+  siteByName,
   resolveInput,
   searchRemoteTabs,
   type BookmarkFolder,
@@ -156,12 +158,17 @@ export function Palette(props: PaletteProps): JSX.Element {
         run: () => props.onNavigate(v),
       })
     } else {
+      const at = parseSiteQuery(v)
+      const site = at === null ? '' : (siteByName(at.site)?.name ?? at.site)
       list.push({
         key: 'search',
         icon: 'search',
         favicon: null,
-        label: r.query,
-        hint: `${props.newTab ? 'New tab · ' : ''}Search ${SEARCH_ENGINES[props.engine].name}`,
+        label: at === null ? r.query : at.query === '' ? site : at.query,
+        hint:
+          at === null
+            ? `${props.newTab ? 'New tab · ' : ''}Search ${SEARCH_ENGINES[props.engine].name}`
+            : `${props.newTab ? 'New tab · ' : ''}${at.query === '' ? 'Open' : 'Search'} ${site}`,
         run: () => props.onNavigate(v),
       })
     }

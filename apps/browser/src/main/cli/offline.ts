@@ -1,3 +1,4 @@
+import { flattenBookmarks } from '@ewe/shared'
 import { RecentsService } from '../home/recents'
 import { MusicLibraryStore } from '../media/library'
 import { BookmarksStore } from '../storage/bookmarks-store'
@@ -5,13 +6,15 @@ import { DownloadsStore } from '../storage/downloads-store'
 import { HistoryStore } from '../storage/history-store'
 import { RecentStore } from '../storage/recent-store'
 import { SessionStore } from '../storage/session-store'
-import { bookmarkWrite, readTool, type CliTab, type Sources } from './data'
+import { SettingsStore } from '../storage/settings-store'
+import { bookmarkWrite, readTool, siteReply, type CliTab, type Sources } from './data'
 import type { CliReply } from './socket'
 import type { Args } from './tools'
 
 const NEEDS: Record<string, string[]> = {
   status: ['session'],
   tabs: ['session'],
+  workspaces: ['session'],
   history: ['history'],
   bookmarks: ['bookmarks'],
   downloads: ['downloads'],
@@ -79,6 +82,7 @@ export async function diskSources(userData: string, tool: string): Promise<Sourc
           tabs: w.tabs.filter((t) => (t.workspace ?? 0) === i).length,
         })),
       ),
+    currentWindow: () => (windows.length > 0 ? 1 : null),
     history: (query, limit) => history.list(query, limit),
     bookmarks: () => bookmarks.root(),
     downloads: () => downloads.list(),
@@ -87,11 +91,34 @@ export async function diskSources(userData: string, tool: string): Promise<Sourc
   }
 }
 
+export async function offlineSite(site: string, userData: string): Promise<CliReply> {
+  const [{ resolveSite }, { SiteSearchStore }, { systemSiteLocale }] = await Promise.all([
+    import('../site-search/resolve'),
+    import('../site-search/opensearch'),
+    import('../site-search/locale'),
+  ])
+  const history = new HistoryStore(userData)
+  const bookmarks = new BookmarksStore(userData)
+  const store = new SiteSearchStore(userData)
+  const settings = new SettingsStore(userData)
+  await Promise.all([history.loadSnapshot(), bookmarks.load(), store.load(), settings.load()])
+  const found = resolveSite(site, {
+    history: () => history.all(),
+    bookmarks: () => flattenBookmarks(bookmarks.root()).map((h) => h.item.url),
+    opensearch: () => store.entries(),
+    locale: systemSiteLocale(),
+    engine: settings.get().searchEngine,
+  })
+  return siteReply(found, false)
+}
+
 export async function offlineRead(
   tool: string,
   args: Args,
   ctx: { userData: string; socket: string; version: string },
 ): Promise<CliReply> {
+  if (tool === 'site')
+    return offlineSite(typeof args.site === 'string' ? args.site : '', ctx.userData)
   const sources = await diskSources(ctx.userData, tool)
   if (tool === 'status') {
     const tabs = sources.tabs()

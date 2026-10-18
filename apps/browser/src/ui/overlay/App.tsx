@@ -26,6 +26,7 @@ import { tabMenuItems } from './tab-menu'
 import { workspaceMenuItems } from './workspace-menu'
 import { extensionMenuItems } from './extension-menu'
 import { SafeLayer } from './SafeLayer'
+import { PrivacyLayer } from './PrivacyLayer'
 import { createExtensions } from '../lib/extensions'
 import { InstallPrompt } from '../components/InstallPrompt'
 import { InputLayer } from './InputLayer'
@@ -173,7 +174,9 @@ export function OverlayApp(): JSX.Element {
         p === 'suggest' ||
         p === 'sheet' ||
         p === 'find' ||
-        p === 'swipe'
+        p === 'swipe' ||
+        p === 'permission' ||
+        p === 'siteinfo'
       if (!entered || held || editing()) return
       if (p === 'rail' && e.clientX <= EDGE_LEAVE_ZONE) return
       close()
@@ -262,6 +265,7 @@ export function OverlayApp(): JSX.Element {
       </Show>
       <SafeLayer part={part()} leaving={leaving()} />
       <InputLayer part={part()} leaving={leaving()} />
+      <PrivacyLayer part={part()} leaving={leaving()} />
       <Show when={part() === 'toast'}>
         <div class="toast-host">
           <div class="toast" classList={{ leaving: leaving() }} role="status">

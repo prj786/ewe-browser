@@ -27,6 +27,7 @@ import { api } from '../../ui/lib/api'
 import { applyTheme, createBrowserStore } from '../../ui/lib/store'
 import { GestureRows } from './gesture-rows'
 import { HistoryRows } from './history-rows'
+import { Privacy } from './privacy'
 
 function SettingRow(props: {
   icon: IconName
@@ -775,6 +776,7 @@ function SettingsPage(): JSX.Element {
           <HistoryRows settings={() => store.settings()} update={update} />
           <GestureRows settings={() => store.settings()} update={update} />
         </div>
+        <Privacy settings={() => store.settings()} update={update} />
         <Bookmarks count={bookmarkCount()} />
         <Files />
         <Extensions />

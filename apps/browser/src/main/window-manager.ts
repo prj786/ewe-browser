@@ -22,6 +22,7 @@ import {
   FILES_PAGE_URL,
   MUSIC_PAGE_URL,
   HISTORY_URL,
+  SAD_TAB_URL,
   TOAST_MS,
   filesUrl,
   viewerUrl,
@@ -66,6 +67,9 @@ import { PageMenus, printPage, viewSource } from './page-menu'
 import type { SafeService } from './safe/service'
 import { SafeWindow } from './safe/window'
 import { SwipeController, go } from './swipe'
+import type { PermissionStore } from './privacy/permissions'
+import type { PrivacyService } from './privacy/service'
+import { PrivacyWindow } from './privacy/window'
 import { SidebarController } from './sidebar'
 import type { BookmarksStore } from './storage/bookmarks-store'
 import type { HistoryStore } from './storage/history-store'
@@ -85,6 +89,9 @@ export interface WindowDeps {
   downloads: DownloadManager
   extensions?: ExtensionHost | undefined
   safe?: SafeService | undefined
+  privacy?: PrivacyService | undefined
+  permissions?: PermissionStore | undefined
+  siteInput?: ((input: string) => string | null) | undefined
   importChromeBookmarks(): Promise<string>
   isMusicTrack(path: string): boolean
   onSessionChange(): void
@@ -150,6 +157,7 @@ export class WindowController {
   readonly find: FindController
   readonly swipe: SwipeController
   readonly pageMenus: PageMenus
+  readonly privacyUi: PrivacyWindow | null
   private readonly deps: WindowDeps
 
   constructor(deps: WindowDeps, initial?: SessionWindow) {
@@ -229,12 +237,19 @@ export class WindowController {
           deps.extensions?.selectTab(contents)
         this.find.tabChanged(contents)
         this.swipe.tabChanged(contents)
+        this.privacyUi?.refresh()
       },
       onContextMenu: (tab, params) => {
         this.pageMenus.open(tab, params).catch(() => undefined)
       },
       onPageFirstKey: (tab, action, code) => {
         this.pendingKey = { contentsId: tab.webContents.id, action, code, at: Date.now() }
+      },
+      failedLoad: (contents, url, description) => {
+        const from = deps.privacy?.https.failed(contents.id, url) ?? null
+        if (from === null) return undefined
+        const params = new URLSearchParams({ kind: 'https-only', url: from, error: description })
+        return `${SAD_TAB_URL}?${params.toString()}`
       },
     })
 
@@ -283,6 +298,25 @@ export class WindowController {
       armGenerate: (contents, frame) => this.safeUi?.armGenerate(contents, frame),
     })
 
+    const privacy = deps.privacy
+    const permissions = deps.permissions
+    this.privacyUi =
+      privacy === undefined || permissions === undefined
+        ? null
+        : new PrivacyWindow({
+            overlay: this.overlay,
+            permissions,
+            service: privacy,
+            activeContents: () => this.tabs.active?.webContents ?? null,
+            activeUrl: () => {
+              const tab = this.tabs.active
+              return tab === undefined ? '' : this.tabs.urlOf(tab)
+            },
+            pageBounds: () => this.tabs.getBounds(),
+            contentSize: () => this.contentSize(),
+            toast: (message, icon) => this.toast(message, icon),
+          })
+
     this.win.on('resize', () => this.layout())
     this.win.on('maximize', () => this.layout())
     this.win.on('unmaximize', () => this.layout())
@@ -309,6 +343,7 @@ export class WindowController {
       if (this.toastTimer !== null) clearTimeout(this.toastTimer)
       try {
         this.safeUi?.dispose()
+        this.privacyUi?.dispose()
         this.overlay.destroy()
         this.sidebar.destroy()
         this.panels.destroy()
@@ -391,6 +426,7 @@ export class WindowController {
     if (panel === undefined) this.panels.hide()
     else this.panels.show(panel, panelBounds(sidebarBounds(inset, size, bar)))
     this.overlay.relayout(size, page, bar)
+    this.privacyUi?.place()
     this.scheduleBroadcast()
     this.deps.onSessionChange()
   }
@@ -526,9 +562,17 @@ export class WindowController {
       )
         return
       if (command.type === 'music.play' && !frameUrl.startsWith(HOME_URL)) return
+      if (
+        (command.type === 'permission.set' || command.type === 'permission.forget') &&
+        !frameUrl.startsWith(SETTINGS_URL)
+      )
+        return
+      if (command.type === 'https.allow' && !frameUrl.startsWith(SAD_TAB_URL)) return
       if ((command.type === 'tab.navigate' || command.type === 'nav.reload') && tab !== undefined)
         command = { ...command, id: tab.id }
     }
+    if (command.type === 'tab.navigate' && this.deps.siteInput !== undefined)
+      command = { ...command, input: this.deps.siteInput(command.input) ?? command.input }
     switch (command.type) {
       case 'tab.create': {
         const url = command.url ?? NEW_TAB_URL
@@ -833,6 +877,35 @@ export class WindowController {
       case 'page.menu.run':
         if (layer === 'overlay') this.pageMenus.run(command.menuId, command.action)
         break
+      case 'permission.decide':
+        if (layer === 'overlay') this.privacyUi?.decide(command.promptId, command.decision)
+        break
+      case 'permission.fit':
+        if (layer === 'overlay') this.privacyUi?.fit(command.promptId, command.height)
+        break
+      case 'permission.set':
+        if (layer === 'overlay' || layer === 'page')
+          this.deps.permissions?.set(command.origin, [command.kind], command.value)
+        break
+      case 'permission.forget':
+        if (layer === 'overlay' || layer === 'page') this.deps.permissions?.forget(command.origin)
+        break
+      case 'siteinfo.open': {
+        if (layer !== 'shell' && layer !== 'overlay') return
+        const origin = layer === 'overlay' ? this.overlay.view.getBounds() : { x: 0, y: 0 }
+        this.privacyUi?.openSiteInfo({ x: command.x + origin.x, y: command.y + origin.y })
+        break
+      }
+      case 'site.clearData':
+        if (layer === 'overlay') void this.privacyUi?.clearData(command.origin)
+        break
+      case 'https.allow': {
+        const tab = layer === 'page' ? this.tabs.byWebContents(sender) : undefined
+        if (tab === undefined || (this.deps.privacy?.https.allow(command.url) ?? null) === null)
+          return
+        this.tabs.navigate(tab.id, command.url)
+        break
+      }
     }
   }
 
@@ -1192,7 +1265,9 @@ export class WindowController {
       part === 'prompt' ||
       part === 'sheet' ||
       part === 'find' ||
-      part === 'swipe'
+      part === 'swipe' ||
+      part === 'permission' ||
+      part === 'siteinfo'
     )
       return
     if (part === 'rail') {

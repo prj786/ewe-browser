@@ -247,8 +247,20 @@ export function Rail(props: RailProps): JSX.Element {
     if (tab === undefined || tab.kind === 'newtab') return 'search'
     if (tab.kind === 'files') return 'folder'
     if (tab.url.startsWith('https://')) return 'lock'
+    if (tab.url.startsWith('http://')) return 'lock-open'
     if (tab.url.startsWith('app://')) return 'app-window'
     return 'globe'
+  }
+
+  const siteInfoOn = () => /^(https?|file):/i.test(active()?.url ?? '')
+  const openSiteInfo = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => {
+    e.stopPropagation()
+    const r = e.currentTarget.getBoundingClientRect()
+    void api.send({
+      type: 'siteinfo.open',
+      x: Math.round(r.left - 4),
+      y: Math.round(r.bottom + 8),
+    })
   }
 
   const addressParts = () => {
@@ -391,7 +403,19 @@ export function Rail(props: RailProps): JSX.Element {
           if (!editing()) beginEdit()
         }}
       >
-        <Icon name={addressIcon()} size={14} />
+        <Show when={siteInfoOn() && !editing()} fallback={<Icon name={addressIcon()} size={14} />}>
+          <button
+            class="rail-site"
+            classList={{ insecure: addressIcon() === 'lock-open' }}
+            title="Site information"
+            aria-label="Site information"
+            tabindex="-1"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={openSiteInfo}
+          >
+            <Icon name={addressIcon()} size={14} />
+          </button>
+        </Show>
         <Show
           when={editing()}
           fallback={

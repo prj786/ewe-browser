@@ -3,6 +3,10 @@ import { basename, dirname, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   HOME_URL,
+  NEW_TAB_URL,
+  isRestorableUrl,
+  type Workspace,
+  type WorkspaceColor,
   filesUrl,
   resolveInput,
   searchTracks,
@@ -15,9 +19,18 @@ import type { BookmarksStore } from '../storage/bookmarks-store'
 import type { DownloadsStore } from '../storage/downloads-store'
 import type { HistoryStore } from '../storage/history-store'
 import type { SettingsStore } from '../storage/settings-store'
+import type { SiteSearchService } from '../site-search/service'
 import type { Tab } from '../tab-manager'
 import type { WindowController, WindowManager } from '../window-manager'
-import { bookmarkWrite, readTool, trackOut, type CliTab, type Sources } from './data'
+import {
+  bookmarkWrite,
+  matchWorkspace,
+  readTool,
+  siteReply,
+  trackOut,
+  type CliTab,
+  type Sources,
+} from './data'
 import { failure, type CliReply } from './socket'
 import type { Args } from './tools'
 
@@ -29,6 +42,9 @@ export interface CliHostDeps {
   recents: RecentsService
   music: MusicLibraryStore
   settings: SettingsStore
+  siteSearch?: SiteSearchService | undefined
+  downloadAction?: ((id: string, action: 'open' | 'show') => void) | undefined
+  lastFocused?: (() => number | null) | undefined
   reopen(): Promise<void>
   version: string
   userData: string
@@ -92,6 +108,7 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
           tabs: c.tabs.tabsIn(w.id).length,
         })),
       ),
+    currentWindow: () => current()?.id ?? null,
     history: (query, limit) => deps.history.list(query, limit),
     bookmarks: () => deps.bookmarks.root(),
     downloads: () => deps.downloads.list(),
@@ -99,7 +116,27 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
     tracks: () => deps.music.snapshot().tracks,
   }
 
-  const current = (): WindowController | undefined => windows.focused() ?? windows.all()[0]
+  const current = (): WindowController | undefined => {
+    const all = windows.all()
+    const focused = all.find((c) => !c.win.isDestroyed() && c.win.isFocused())
+    if (focused !== undefined) return focused
+    const last = deps.lastFocused?.() ?? null
+    return all.find((c) => c.id === last) ?? all[0]
+  }
+  const workspaceOut = (c: WindowController, w: Workspace) => {
+    const list = c.tabs.workspaceList()
+    return {
+      id: w.id,
+      name: w.name,
+      color: w.color,
+      index: list.findIndex((x) => x.id === w.id) + 1,
+      tabs: c.tabs.tabsIn(w.id).length,
+      active: c.tabs.activeWorkspace === w.id,
+      window: c.id,
+    }
+  }
+  const activeWorkspace = (c: WindowController) =>
+    c.tabs.workspaceList().find((w) => w.id === c.tabs.activeWorkspace)
   const target = async (newWindow = false): Promise<WindowController> => {
     if (newWindow) return windows.open()
     let c = current()
@@ -155,6 +192,12 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
               : { id: active.id, title: active.state.title, url: c.tabs.urlOf(active) },
         }
       }
+      case 'site': {
+        const search = deps.siteSearch
+        if (search === undefined) return failure('failed', 'site search is not ready')
+        return siteReply(search.resolve(str('site')), true)
+      }
+      case 'workspaces':
       case 'tabs':
       case 'history':
       case 'bookmarks':
@@ -187,8 +230,23 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
         return { ...head, ...result }
       }
       case 'open': {
+        const wanted = str('workspace')
+        if (wanted !== '' && yes('newWindow'))
+          return failure('bad-args', '--workspace cannot be used with --new-window')
+        const existing = current()
+        if (wanted !== '' && existing !== undefined) {
+          const found = matchWorkspace(existing.tabs.workspaceList(), wanted)
+          if (typeof found !== 'number') return found
+        }
         const c = await target(yes('newWindow'))
         const background = yes('background')
+        let workspaceId: string | undefined
+        if (wanted !== '') {
+          const list = c.tabs.workspaceList()
+          const found = matchWorkspace(list, str('workspace'))
+          if (typeof found !== 'number') return found
+          workspaceId = list[found]?.id
+        }
         const opened: { id: string; url: string; target: string }[] = []
         const failed: { target: string; error: string }[] = []
         const targets = Array.isArray(args.targets) ? args.targets : []
@@ -208,7 +266,10 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
               continue
             }
           }
-          const tab = c.tabs.create(url, { activate: !background })
+          const tab = c.tabs.create(url, {
+            activate: !background,
+            ...(workspaceId === undefined ? {} : { workspaceId }),
+          })
           opened.push({ id: tab.id, url, target: t })
         }
         if (opened.length === 0)
@@ -223,12 +284,165 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
         }
       }
       case 'search': {
-        const c = await target(yes('newWindow'))
         const engine = deps.settings.get().searchEngine
-        const url = searchUrl(str('query').trim(), engine)
+        const query = str('query').trim()
+        const wanted = str('site').trim()
+        let url = searchUrl(query, engine)
+        let site: { name: string; host: string; via: string } | undefined
+        if (wanted !== '') {
+          const search = deps.siteSearch
+          if (search === undefined) return failure('failed', 'site search is not ready')
+          const found = search.resolve(wanted)
+          if (!found.ok) return siteReply(found, true)
+          url = search.url(found.template, query)
+          site = { name: found.name, host: found.host, via: found.via }
+        }
+        const c = await target(yes('newWindow'))
         const tab = c.tabs.create(url, { activate: true })
         show(c)
-        return { ok: true, engine, url, tab: { id: tab.id }, window: c.id, undo: [close(tab.id)] }
+        return {
+          ok: true,
+          engine,
+          url,
+          ...(site === undefined ? {} : { site }),
+          tab: { id: tab.id },
+          window: c.id,
+          undo: [close(tab.id)],
+        }
+      }
+      case 'workspace_activate':
+      case 'workspace_rename':
+      case 'workspace_remove': {
+        const c = current()
+        if (c === undefined) return failure('not-running', 'no browser window is open')
+        const list = c.tabs.workspaceList()
+        const found = matchWorkspace(list, str('workspace'))
+        if (typeof found !== 'number') return found
+        const ws = list[found]
+        if (ws === undefined) return failure('not-found', 'no such workspace')
+        if (tool === 'workspace_activate') {
+          const previous = c.tabs.activeWorkspace
+          c.tabs.activateWorkspace(ws.id)
+          show(c)
+          return {
+            ok: true,
+            workspace: workspaceOut(c, ws),
+            undo: previous === ws.id ? [] : [['ewe-browser', 'workspace', 'activate', previous]],
+          }
+        }
+        if (tool === 'workspace_rename') {
+          const before = ws.name
+          c.tabs.updateWorkspace(ws.id, { name: str('name') })
+          return {
+            ok: true,
+            workspace: workspaceOut(c, ws),
+            undo: [['ewe-browser', 'workspace', 'rename', ws.id, before]],
+          }
+        }
+        if (list.length <= 1)
+          return failure('last-workspace', 'the last workspace cannot be removed')
+        const urls = c.tabs
+          .tabsIn(ws.id)
+          .map((t) => c.tabs.urlOf(t))
+          .filter(
+            (u) => isRestorableUrl(u) && !u.startsWith(NEW_TAB_URL) && !u.startsWith(HOME_URL),
+          )
+        const closed = c.tabs.tabsIn(ws.id).length
+        const removed = { id: ws.id, name: ws.name, color: ws.color }
+        c.tabs.removeWorkspace(ws.id)
+        const recreate = [
+          'ewe-browser',
+          'workspace',
+          'create',
+          removed.name,
+          '--color',
+          removed.color,
+        ]
+        return {
+          ok: true,
+          workspace: removed,
+          closedTabs: closed,
+          undo:
+            urls.length === 0
+              ? [recreate]
+              : [
+                  recreate,
+                  ['ewe-browser', 'open', ...urls, '--workspace', removed.name, '--background'],
+                ],
+        }
+      }
+      case 'workspace_next':
+      case 'workspace_prev': {
+        const c = current()
+        if (c === undefined) return failure('not-running', 'no browser window is open')
+        const next = tool === 'workspace_next'
+        c.tabs.cycleWorkspace(next ? 1 : -1)
+        const ws = activeWorkspace(c)
+        return {
+          ok: true,
+          workspace: ws === undefined ? null : workspaceOut(c, ws),
+          undo: [['ewe-browser', 'workspace', next ? 'prev' : 'next']],
+        }
+      }
+      case 'workspace_create': {
+        const c = await target()
+        const color = str('color')
+        const ws = c.tabs.createWorkspace(
+          str('name') === '' ? undefined : str('name'),
+          color === '' ? undefined : (color as WorkspaceColor),
+        )
+        show(c)
+        return {
+          ok: true,
+          workspace: workspaceOut(c, ws),
+          undo: [['ewe-browser', 'workspace', 'remove', ws.id]],
+        }
+      }
+      case 'back':
+      case 'forward': {
+        const c = current()
+        const tab = c?.tabs.active
+        if (c === undefined || tab === undefined) return failure('no-tab', 'no tab is open')
+        const nav = tab.webContents.navigationHistory
+        const back = tool === 'back'
+        if (tab.pending || !(back ? nav.canGoBack() : nav.canGoForward()))
+          return failure(
+            'no-history',
+            back
+              ? 'the active tab has no page to go back to'
+              : 'the active tab has no page to go forward to',
+          )
+        const before = { id: tab.id, title: tab.state.title, url: c.tabs.urlOf(tab) }
+        if (back) nav.goBack()
+        else nav.goForward()
+        return { ok: true, tab: before, undo: [['ewe-browser', back ? 'forward' : 'back']] }
+      }
+      case 'download_open':
+      case 'download_show': {
+        const id = str('id')
+        const hits = deps.downloads
+          .list()
+          .filter((d) => d.id === id || (id.length >= 4 && d.id.startsWith(id)))
+        const entry = hits.find((d) => d.id === id) ?? (hits.length === 1 ? hits[0] : undefined)
+        if (entry === undefined)
+          return hits.length > 1
+            ? failure('ambiguous-id', `${id} matches ${hits.length} downloads`)
+            : failure('not-found', `no download has the id ${id}`, 'ewe-browser downloads')
+        const action = tool === 'download_open' ? 'open' : 'show'
+        if (action === 'open' && entry.status !== 'completed')
+          return failure('not-finished', `${entry.filename} has not finished downloading`)
+        const info = await stat(entry.path).catch(() => null)
+        if (info === null) return failure('not-found', `${entry.path} was moved or deleted`)
+        deps.downloadAction?.(entry.id, action)
+        return {
+          ok: true,
+          download: {
+            id: entry.id,
+            filename: entry.filename,
+            path: entry.path,
+            status: entry.status,
+          },
+        }
       }
       case 'play': {
         const query = str('query').trim()
