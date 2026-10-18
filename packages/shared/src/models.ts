@@ -1,3 +1,4 @@
+import { DEFAULT_GESTURE_SETTINGS, type GestureSettings } from './input'
 import { DEFAULT_SAFE_SETTINGS, type SafeSettings } from './safe'
 import type { ShortcutMap } from './shortcuts'
 
@@ -85,6 +86,7 @@ export interface Settings {
   panels: WebPanel[]
   shortcuts: ShortcutMap
   safe: SafeSettings
+  gestures: GestureSettings
 }
 
 export interface WebPanel {
@@ -156,22 +158,6 @@ export interface SyncStatus {
   warning?: string | null | undefined
 }
 
-export interface PasswordItem {
-  id: string
-  title: string
-  username: string
-  host: string
-  score: number
-}
-
-export interface PasswordStatus {
-  ok: boolean
-  provider: string
-  ready: boolean
-  error: string | null
-  hint: string | null
-}
-
 export const DEFAULT_SETTINGS: Settings = {
   rail: 'expanded',
   searchEngine: 'google',
@@ -184,6 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
   panels: [],
   shortcuts: {},
   safe: DEFAULT_SAFE_SETTINGS,
+  gestures: DEFAULT_GESTURE_SETTINGS,
 }
 
 export interface SessionTab {

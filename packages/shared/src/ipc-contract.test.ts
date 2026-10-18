@@ -156,3 +156,33 @@ describe('isPageCommandAllowed', () => {
     ).toBe(false)
   })
 })
+
+describe('find, page menu and Safe-only commands', () => {
+  it('accepts the find and page menu commands', () => {
+    expect(isShellCommand({ type: 'find.query', text: 'sheep' })).toBe(true)
+    expect(isShellCommand({ type: 'find.step', forward: false })).toBe(true)
+    expect(isShellCommand({ type: 'find.close' })).toBe(true)
+    expect(isShellCommand({ type: 'page.menu.run', menuId: 'm', action: 'link.tab' })).toBe(true)
+    expect(isShellCommand({ type: 'menu.open', menu: { kind: 'page', id: 'm' }, x: 1, y: 2 })).toBe(
+      true,
+    )
+  })
+
+  it('rejects malformed ones and the old ewe-pass commands', () => {
+    expect(isShellCommand({ type: 'find.query', text: 'x'.repeat(1001) })).toBe(false)
+    expect(isShellCommand({ type: 'find.step', forward: 'yes' })).toBe(false)
+    expect(isShellCommand({ type: 'page.menu.run', menuId: 'm', action: 'x'.repeat(65) })).toBe(
+      false,
+    )
+    expect(isShellCommand({ type: 'passwords.fill', id: 'a', what: 'login' })).toBe(false)
+    expect(isShellCommand({ type: 'passwords.copy', id: 'a', what: 'password' })).toBe(false)
+    expect(isShellCommand({ type: 'passwords.open' })).toBe(true)
+  })
+
+  it('keeps them away from pages', () => {
+    expect(isPageCommandAllowed({ type: 'find.query', text: 'x' })).toBe(false)
+    expect(isPageCommandAllowed({ type: 'page.menu.run', menuId: 'm', action: 'inspect' })).toBe(
+      false,
+    )
+  })
+})

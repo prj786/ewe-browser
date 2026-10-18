@@ -160,6 +160,8 @@
   --bottom-bar-height: 32px;
   --menu-width: 220px;
   --suggest-pad: 12px;
+  --find-pad: 12px;
+  --swipe-box: 96px;
 }
 
 @media (prefers-reduced-motion: reduce) {

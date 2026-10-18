@@ -1706,32 +1706,16 @@ test('home: big search, folder shortcuts, recent docs, videos, music and sites',
   }
 })
 
-test('ewe plugins: password picker through ewe-pass, web panels, background start', async () => {
+test('ewe plugins: web panels, background start', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ewe-e2e-plugins-'))
   const userData = join(dir, 'profile')
-  const log = join(dir, 'pass.log')
-  const tool = join(dir, 'ewe-pass')
-  writeFileSync(
-    tool,
-    [
-      '#!/bin/sh',
-      `echo "$@" >> '${log}'`,
-      'case "$1" in',
-      `  status) echo '{"ok": true, "provider": "pass", "label": "pass", "ready": true}' ;;`,
-      `  match) echo '{"ok": true, "items": [{"id": "gh", "title": "Sheep login", "username": "ewe", "host": "127.0.0.1", "score": 5}, {"id": "mail", "title": "Mail", "username": "ram", "host": "mail.example", "score": 1}]}' ;;`,
-      `  *) echo '{"ok": true}' ;;`,
-      'esac',
-      '',
-    ].join('\n'),
-    { mode: 0o755 },
-  )
   const server = await serve({
     '/login.html': {
       body: '<!doctype html><title>Sheep login</title><form><input name="user" id="user"><input type="password" id="pw"></form>',
       type: 'text/html',
     },
   })
-  const env = { EWE_PASS: tool }
+  const env = { EWE_SAFE_SOCKET: join(dir, 'no-safe.sock') }
   const app = await launch(userData, env)
   const shell = await shellOf(app)
   await shell.evaluate(
@@ -1740,23 +1724,6 @@ test('ewe plugins: password picker through ewe-pass, web panels, background star
   )
   await expect.poll(() => activeUrl(shell)).toBe(`${server.url}/login.html`)
   await expect.poll(() => activeLoading(shell)).toBe(false)
-
-  await sendKey(app, 'L', ['control', 'shift'])
-  const overlay = await windowWith(app, '/ui/overlay/')
-  await expect(overlay.locator('.passwords .pw-row')).toHaveCount(2)
-  await expect(overlay.locator('.passwords .palette-chip')).toHaveText('127.0.0.1')
-  expect(readFileSync(log, 'utf8')).toContain('match --class ewe-browser --title 127.0.0.1')
-  await overlay.locator('.passwords input').press('Control+c')
-  await expect.poll(() => readFileSync(log, 'utf8')).toContain('copy gh --what password')
-
-  await shell.evaluate(() => window.ewe.send({ type: 'passwords.open' }))
-  await expect(overlay.locator('.passwords .pw-row')).toHaveCount(2)
-  await overlay.locator('.passwords input').press('Enter')
-  const pid = await app.evaluate(() => process.pid)
-  await expect.poll(() => readFileSync(log, 'utf8')).toContain(`fill gh --pid ${pid} --what login`)
-  await expect.poll(() => overlayVisible(app)).toBe(false)
-  const loginPage = await windowWith(app, '/login.html')
-  expect(await loginPage.evaluate(() => document.activeElement?.id)).toBe('user')
 
   await shell.evaluate(() => window.ewe.send({ type: 'sidebar.toggle', section: 'bookmarks' }))
   const sidebar = await windowWith(app, '/ui/sidebar/')

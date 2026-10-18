@@ -2,15 +2,14 @@ import type { BookmarkFolder } from './bookmarks'
 import type { FsRequest, FsResult } from './files'
 import type { HistoryRequest, RemoteMachine } from './history'
 import type { HomeRequest } from './home'
+import type { FindResult, PageMenu, SwipeDirection } from './input'
 import type { MusicLibrary, MusicRequest } from './music'
 import {
   SIDEBAR_SECTIONS,
   type Account,
-  type PasswordItem,
   type ExtensionInstallRequest,
   type ExtensionsState,
   type SyncStatus,
-  type PasswordStatus,
   type DownloadEntry,
   type HistorySuggestion,
   type HistoryVisit,
@@ -35,10 +34,13 @@ import {
 import { isWorkspaceColor } from './workspaces'
 
 export type OverlayPart =
-  'none' | 'rail' | 'palette' | 'menu' | 'toast' | 'prompt' | 'suggest' | 'sheet'
+  'none' | 'rail' | 'palette' | 'menu' | 'toast' | 'prompt' | 'suggest' | 'sheet' | 'find' | 'swipe'
 export type InternalPage = 'newtab' | 'home' | 'settings' | 'files' | 'music' | 'history'
 export type MenuTarget =
-  { kind: 'tab'; id: TabId } | { kind: 'workspace'; id: string } | { kind: 'extension'; id: string }
+  | { kind: 'tab'; id: TabId }
+  | { kind: 'workspace'; id: string }
+  | { kind: 'extension'; id: string }
+  | { kind: 'page'; id: string }
 export type DownloadAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'open' | 'show' | 'remove'
 export type ToastIcon = 'star' | 'download' | 'check' | 'alert'
 
@@ -94,8 +96,6 @@ export type ShellCommand =
   | { type: 'downloads.clear' }
   | { type: 'history.remove'; url: string }
   | { type: 'passwords.open' }
-  | { type: 'passwords.fill'; id: string; what: 'login' | 'username' | 'password' }
-  | { type: 'passwords.copy'; id: string; what: 'username' | 'password' }
   | { type: 'safe.choose'; requestId: string; id: string }
   | { type: 'safe.generate'; requestId: string }
   | { type: 'safe.unlock'; requestId: string }
@@ -119,6 +119,10 @@ export type ShellCommand =
   | { type: 'window.minimize' }
   | { type: 'window.toggleMaximize' }
   | { type: 'devtools.toggle' }
+  | { type: 'find.query'; text: string }
+  | { type: 'find.step'; forward: boolean }
+  | { type: 'find.close' }
+  | { type: 'page.menu.run'; menuId: string; action: string }
 
 export type UiEvent =
   | { type: 'focus-address' }
@@ -128,7 +132,6 @@ export type UiEvent =
   | { type: 'menu.open'; menu: MenuTarget; x: number; y: number }
   | { type: 'toast'; message: string; icon?: ToastIcon }
   | { type: 'sidebar.focus' }
-  | { type: 'passwords.open'; host: string }
   | { type: 'safe.suggest'; menu: SafeMenu }
   | { type: 'safe.suggest.key'; requestId: string; key: SafeSuggestKey }
   | { type: 'safe.suggest.filter'; requestId: string; text: string }
@@ -138,6 +141,10 @@ export type UiEvent =
   | { type: 'extension.install'; request: ExtensionInstallRequest }
   | { type: 'workspace.rename'; id: string }
   | { type: 'music.play'; path: string }
+  | { type: 'find.open'; query: string }
+  | { type: 'find.result'; result: FindResult | null }
+  | { type: 'swipe'; dir: SwipeDirection; progress: number; done?: boolean }
+  | { type: 'page.menu'; menu: PageMenu }
 
 export type ApiLayer = 'shell' | 'overlay' | 'sidebar' | 'page'
 
@@ -165,7 +172,6 @@ export interface BrowserApi {
   onMusic(listener: (library: MusicLibrary) => void): () => void
   getExtensions(): Promise<ExtensionsState>
   onExtensions(listener: (state: ExtensionsState) => void): () => void
-  passwords(query: string): Promise<{ status: PasswordStatus; items: PasswordItem[] }>
   sync(run?: boolean): Promise<SyncStatus | null>
   onSync(listener: (status: SyncStatus) => void): () => void
   startup(on?: boolean): Promise<{ available: boolean; on: boolean } | null>
@@ -196,7 +202,6 @@ export const IPC = {
   music: 'ewe:music',
   home: 'ewe:home',
   homeChanged: 'ewe:home-changed',
-  passwords: 'ewe:passwords',
   safePage: 'ewe:safe-page',
   safeFill: 'ewe:safe-fill',
   safeSuggest: 'ewe:safe-suggest',
@@ -212,6 +217,8 @@ export const IPC = {
   theme: 'ewe:theme',
   bookmarks: 'ewe:bookmarks',
   ui: 'ewe:ui',
+  pageInput: 'ewe:page-input',
+  pageAction: 'ewe:page-action',
 } as const
 
 const PAGE_COMMANDS = new Set<ShellCommand['type']>([
@@ -260,7 +267,10 @@ function isFiniteNumber(value: unknown): value is number {
 function isMenuTarget(value: unknown): value is MenuTarget {
   if (typeof value !== 'object' || value === null) return false
   const m = value as Record<string, unknown>
-  return (m.kind === 'tab' || m.kind === 'workspace' || m.kind === 'extension') && isString(m.id)
+  return (
+    (m.kind === 'tab' || m.kind === 'workspace' || m.kind === 'extension' || m.kind === 'page') &&
+    isString(m.id)
+  )
 }
 
 const DOWNLOAD_ACTIONS = new Set<string>([
@@ -383,12 +393,6 @@ export function isShellCommand(value: unknown): value is ShellCommand {
       return isString(c.id) && typeof c.action === 'string' && DOWNLOAD_ACTIONS.has(c.action)
     case 'history.remove':
       return isString(c.url)
-    case 'passwords.fill':
-      return (
-        isString(c.id) && (c.what === 'login' || c.what === 'username' || c.what === 'password')
-      )
-    case 'passwords.copy':
-      return isString(c.id) && (c.what === 'username' || c.what === 'password')
     case 'safe.choose':
       return isString(c.requestId) && isString(c.id)
     case 'safe.generate':
@@ -438,7 +442,14 @@ export function isShellCommand(value: unknown): value is ShellCommand {
     case 'window.minimize':
     case 'window.toggleMaximize':
     case 'devtools.toggle':
+    case 'find.close':
       return true
+    case 'find.query':
+      return typeof c.text === 'string' && c.text.length <= 1000
+    case 'find.step':
+      return typeof c.forward === 'boolean'
+    case 'page.menu.run':
+      return isString(c.menuId) && typeof c.action === 'string' && c.action.length <= 64
     default:
       return false
   }

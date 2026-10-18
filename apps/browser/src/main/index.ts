@@ -46,6 +46,9 @@ import {
   type WindowController,
 } from './window-manager'
 
+const BLOCKED_TOAST_DELAY_MS = 1500
+const BLOCKED_TOAST_TRIES = 20
+
 const WEB_PERMISSIONS = new Set([
   'fullscreen',
   'pointerLock',
@@ -171,6 +174,14 @@ async function main(): Promise<void> {
     },
   )
   let extensionTimer: NodeJS.Timeout | null = null
+  const notifyBlocked = (message: string, tries = BLOCKED_TOAST_TRIES): void => {
+    const target = windows.focused()
+    if (target !== undefined && Date.now() - target.openedAt > BLOCKED_TOAST_DELAY_MS) {
+      target.toast(message, 'alert')
+      return
+    }
+    if (tries > 0) setTimeout(() => notifyBlocked(message, tries - 1), BLOCKED_TOAST_DELAY_MS)
+  }
   const extensions: ExtensionHost = new ExtensionHost({
     session: persistent,
     preload: preloadPath(),
@@ -205,6 +216,7 @@ async function main(): Promise<void> {
         windows.broadcastExtensions(extensions.state())
       }, 50)
     },
+    onBlocked: (message) => notifyBlocked(message),
   })
   const sync = new SyncService({ userData, settings, bookmarks, history })
   sync.on('status', (status) => {

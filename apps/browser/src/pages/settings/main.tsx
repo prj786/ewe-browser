@@ -25,6 +25,7 @@ import { Icon, type IconName } from '../../ui/components/Icon'
 import { createExtensions } from '../../ui/lib/extensions'
 import { api } from '../../ui/lib/api'
 import { applyTheme, createBrowserStore } from '../../ui/lib/store'
+import { GestureRows } from './gesture-rows'
 import { HistoryRows } from './history-rows'
 
 function SettingRow(props: {
@@ -640,10 +641,11 @@ function Ewe(props: {
             <Icon name="key-round" />
           </span>
           <span class="row-text">
-            <span class="row-title">Other password managers</span>
-            <span class="row-desc">
-              Ctrl+Shift+L or the key in the address field fills a login through ewe Passwords:
-              Safe, 1Password, Bitwarden or pass.
+            <span class="row-title">Safe only</span>
+            <span class="row-desc settings-safe-only">
+              Ctrl+Shift+L, the key in the address field and the right-click menu open Safe for the
+              sign-in field. Password-manager extensions (1Password, Bitwarden, LastPass and others)
+              cannot be added and are turned off.
             </span>
           </span>
         </div>
@@ -771,6 +773,7 @@ function SettingsPage(): JSX.Element {
             </select>
           </SettingRow>
           <HistoryRows settings={() => store.settings()} update={update} />
+          <GestureRows settings={() => store.settings()} update={update} />
         </div>
         <Bookmarks count={bookmarkCount()} />
         <Files />

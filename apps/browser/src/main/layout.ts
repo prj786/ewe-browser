@@ -15,11 +15,16 @@ import {
   type Point,
   type Rect,
   type Size,
+  type SwipeDirection,
 } from '@ewe/shared'
 
 export type { Point }
 
 const PAGE_MIN_WIDTH = 320
+export const FIND_PAD = 12
+export const FIND_WIDTH = 360 + 2 * FIND_PAD
+export const FIND_HEIGHT = 48 + 2 * FIND_PAD
+export const SWIPE_BOX = 96
 
 export type HoverZone = 'rail' | null
 
@@ -88,10 +93,34 @@ export function overlayBounds(part: OverlayPart, full: Size, area?: Rect, bottom
         full,
       )
     }
+    case 'find':
+      return clampRect(
+        {
+          x: page.x + Math.max(0, page.width - FIND_WIDTH),
+          y: page.y,
+          width: Math.min(FIND_WIDTH, page.width),
+          height: FIND_HEIGHT,
+        },
+        full,
+      )
     case 'suggest':
+    case 'swipe':
     case 'none':
       return null
   }
+}
+
+export function swipeBounds(dir: SwipeDirection, page: Rect, full: Size): Rect {
+  const size = Math.min(SWIPE_BOX, page.width, page.height)
+  return clampRect(
+    {
+      x: dir === 'back' ? page.x : page.x + page.width - size,
+      y: page.y + Math.round((page.height - size) / 2),
+      width: size,
+      height: size,
+    },
+    full,
+  )
 }
 
 export function hoverZone(point: Point, size: Size, zone = EDGE_ZONE): HoverZone {

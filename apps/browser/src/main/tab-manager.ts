@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { WebContentsView, type BrowserWindow, type Session, type WebContents } from 'electron'
+import {
+  WebContentsView,
+  type BrowserWindow,
+  type ContextMenuParams,
+  type Session,
+  type WebContents,
+} from 'electron'
 import {
   LAYER_ARG,
   HOME_URL,
@@ -19,7 +25,9 @@ import {
   type Workspace,
   type WorkspaceColor,
 } from '@ewe/shared'
-import { matchShortcut, type ShortcutAction } from './shortcuts'
+import { ownsFind } from './find'
+import { shownUrl } from './page-menu-model'
+import { isPageFirst, matchShortcut, type ShortcutAction } from './shortcuts'
 import type { Point } from './layout'
 
 export interface TabManagerHost {
@@ -38,6 +46,8 @@ export interface TabManagerHost {
   onContentsCreated(contents: WebContents): void
   onTabCreated(contents: WebContents): void
   onTabActivated(contents: WebContents): void
+  onContextMenu(tab: Tab, params: ContextMenuParams): void
+  onPageFirstKey(tab: Tab, action: ShortcutAction, code: string): void
 }
 
 export class Tab {
@@ -559,7 +569,8 @@ export class TabManager {
       this.update(tab, { loading: false })
       this.syncNavigation(tab)
     })
-    wc.on('did-navigate', (_event, url) => {
+    wc.on('did-navigate', (_event, navigated) => {
+      const url = shownUrl(wc.getURL(), navigated)
       this.recording.delete(wc.id)
       const sad = url.startsWith(SAD_TAB_URL)
       if (!sad) tab.lastGoodUrl = url
@@ -602,9 +613,15 @@ export class TabManager {
       if (this.recording.has(wc.id)) return
       const action = matchShortcut(input)
       if (action === null) return
+      if (action.action === 'find' && ownsFind(tab.state.url)) return
+      if (/^https?:/i.test(tab.state.url) && isPageFirst(action, input)) {
+        this.host.onPageFirstKey(tab, action, input.code)
+        return
+      }
       event.preventDefault()
       this.host.onShortcut(action)
     })
+    wc.on('context-menu', (_event, params) => this.host.onContextMenu(tab, params))
     wc.on('input-event', (_event, input) => {
       if (input.type === 'mouseLeave') {
         this.host.onMouseLeave(

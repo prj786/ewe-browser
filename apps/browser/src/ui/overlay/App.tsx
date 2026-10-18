@@ -18,7 +18,6 @@ import {
 } from '@ewe/shared'
 import { Icon, type IconName } from '../components/Icon'
 import { Menu } from '../components/Menu'
-import { Passwords } from '../components/Passwords'
 import { Palette } from '../components/Palette'
 import { Rail } from '../components/Rail'
 import { api } from '../lib/api'
@@ -29,6 +28,8 @@ import { extensionMenuItems } from './extension-menu'
 import { SafeLayer } from './SafeLayer'
 import { createExtensions } from '../lib/extensions'
 import { InstallPrompt } from '../components/InstallPrompt'
+import { InputLayer } from './InputLayer'
+import { createPageMenus, pageMenuEntries } from './page-menu'
 import './App.css'
 
 const MENU_FADE_MS = 160
@@ -52,7 +53,6 @@ export function OverlayApp(): JSX.Element {
   const [leaving, setLeaving] = createSignal(false)
   const [paletteQuery, setPaletteQuery] = createSignal('')
   const [paletteNewTab, setPaletteNewTab] = createSignal(false)
-  const [passwordsHost, setPasswordsHost] = createSignal<string | null>(null)
   const [editing, setEditing] = createSignal(false)
   const [menu, setMenu] = createSignal<OpenMenu | null>(null)
   const [under, setUnder] = createSignal<'rail' | null>(null)
@@ -62,6 +62,7 @@ export function OverlayApp(): JSX.Element {
     icon: 'star',
   })
   const extensions = createExtensions()
+  const pageMenu = createPageMenus()
   const [install, setInstall] = createSignal<ExtensionInstallRequest | null>(null)
   let entered = false
 
@@ -83,6 +84,10 @@ export function OverlayApp(): JSX.Element {
       const info = extensions().list.find((e) => e.id === target.id)
       return info === undefined ? undefined : { kind: 'extension' as const, info }
     }
+    if (target.kind === 'page') {
+      const page = pageMenu()
+      return page?.menuId === target.id ? { kind: 'page' as const, page } : undefined
+    }
     const workspace = s.workspaces.find((w) => w.id === target.id)
     return workspace === undefined
       ? undefined
@@ -93,6 +98,7 @@ export function OverlayApp(): JSX.Element {
     if (target === undefined) return []
     if (target.kind === 'tab') return tabMenuItems(target.tab, target.snapshot)
     if (target.kind === 'extension') return extensionMenuItems(target.info)
+    if (target.kind === 'page') return pageMenuEntries(target.page)
     const id = target.workspace.id
     return workspaceMenuItems(target.workspace, target.snapshot, () => {
       pendingRename = id
@@ -136,7 +142,6 @@ export function OverlayApp(): JSX.Element {
         setPart(event.part)
         if (event.part === 'none' || event.part === 'palette') setEditing(false)
         if (event.part !== 'palette') {
-          setPasswordsHost(null)
           const pending = untrack(install)
           if (pending !== null) {
             setInstall(null)
@@ -145,14 +150,9 @@ export function OverlayApp(): JSX.Element {
         }
       } else if (event.type === 'overlay.hide') {
         setLeaving(true)
-      } else if (event.type === 'passwords.open') {
-        setInstall(null)
-        setPasswordsHost(event.host)
       } else if (event.type === 'extension.install') {
-        setPasswordsHost(null)
         setInstall(event.request)
       } else if (event.type === 'palette.open') {
-        setPasswordsHost(null)
         setPaletteQuery(event.query ?? '')
         setPaletteNewTab(event.newTab ?? false)
       } else if (event.type === 'menu.open') {
@@ -167,7 +167,13 @@ export function OverlayApp(): JSX.Element {
     const onLeave = (e: MouseEvent) => {
       const p = part()
       const held =
-        p === 'palette' || p === 'menu' || p === 'prompt' || p === 'suggest' || p === 'sheet'
+        p === 'palette' ||
+        p === 'menu' ||
+        p === 'prompt' ||
+        p === 'suggest' ||
+        p === 'sheet' ||
+        p === 'find' ||
+        p === 'swipe'
       if (!entered || held || editing()) return
       if (p === 'rail' && e.clientX <= EDGE_LEAVE_ZONE) return
       close()
@@ -211,23 +217,18 @@ export function OverlayApp(): JSX.Element {
           <Show
             when={install()}
             fallback={
-              <Show
-                when={passwordsHost() === null}
-                fallback={<Passwords host={passwordsHost() ?? ''} onClose={close} />}
-              >
-                <Palette
-                  tabs={store.tabs()}
-                  bookmarks={store.bookmarks()}
-                  engine={store.settings().searchEngine}
-                  initial={paletteQuery()}
-                  newTab={paletteNewTab()}
-                  onNavigate={(input) =>
-                    void api.send({ type: 'tab.navigate', input, newTab: paletteNewTab() })
-                  }
-                  onActivate={(id) => void api.send({ type: 'tab.activate', id })}
-                  onClose={close}
-                />
-              </Show>
+              <Palette
+                tabs={store.tabs()}
+                bookmarks={store.bookmarks()}
+                engine={store.settings().searchEngine}
+                initial={paletteQuery()}
+                newTab={paletteNewTab()}
+                onNavigate={(input) =>
+                  void api.send({ type: 'tab.navigate', input, newTab: paletteNewTab() })
+                }
+                onActivate={(id) => void api.send({ type: 'tab.activate', id })}
+                onClose={close}
+              />
             }
           >
             {(request) => (
@@ -260,6 +261,7 @@ export function OverlayApp(): JSX.Element {
         )}
       </Show>
       <SafeLayer part={part()} leaving={leaving()} />
+      <InputLayer part={part()} leaving={leaving()} />
       <Show when={part() === 'toast'}>
         <div class="toast-host">
           <div class="toast" classList={{ leaving: leaving() }} role="status">

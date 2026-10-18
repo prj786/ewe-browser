@@ -432,8 +432,8 @@ export function Rail(props: RailProps): JSX.Element {
         <Show when={/^https?:/i.test(active()?.url ?? '')}>
           <button
             class="iconbtn iconbtn--sm rail-key"
-            title="Fill a password (Ctrl+Shift+L)"
-            aria-label="Fill a password"
+            title="Fill from Safe (Ctrl+Shift+L)"
+            aria-label="Fill from Safe"
             tabindex="-1"
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {

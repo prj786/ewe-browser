@@ -1,5 +1,8 @@
 import {
+  PAGE_FIRST_CHORDS,
+  PAGE_FIRST_SHORTCUTS,
   buildKeymap,
+  chordFromInput,
   matchKeymap,
   type ChordInput,
   type KeymapEntry,
@@ -32,4 +35,12 @@ export function matchShortcut(input: KeyInput): ShortcutAction | null {
     return { action: hit.id, index: digit - 1 }
   }
   return { action: hit.id }
+}
+
+const PAGE_FIRST_IDS: ReadonlySet<string> = PAGE_FIRST_SHORTCUTS
+
+export function isPageFirst(action: ShortcutAction, input: KeyInput): boolean {
+  if (PAGE_FIRST_IDS.has(action.action)) return true
+  const chord = chordFromInput(input)
+  return chord !== null && PAGE_FIRST_CHORDS.has(chord)
 }

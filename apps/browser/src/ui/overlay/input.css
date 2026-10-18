@@ -1,0 +1,131 @@
+.find-host {
+  position: absolute;
+  inset: 0;
+  padding: var(--find-pad);
+}
+
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  height: var(--control-2xl);
+  padding: 0 var(--space-s);
+  background: var(--surface-overlay);
+  border: var(--border-width-1) solid var(--border-subtle);
+  border-radius: var(--rounded);
+  box-shadow: var(--shadow-float);
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-md);
+  transform-origin: top right;
+  animation: ewe-slide-down var(--dur-base) var(--ease-out);
+}
+
+.find-bar.leaving {
+  animation: ewe-fade-out var(--dur-fast) var(--ease-out) forwards;
+}
+
+.find-glyph {
+  flex: none;
+  width: var(--icon-md);
+  height: var(--icon-md);
+  margin-left: var(--space-xxs);
+  color: var(--text-muted);
+}
+
+.find-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-lg);
+  padding: 0 var(--space-s);
+  background: var(--surface-sunken);
+  border: var(--border-width-1) solid transparent;
+  border-radius: var(--secondary);
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.find-input:focus {
+  border-color: var(--focus-ring);
+}
+
+.find-bar.none .find-input {
+  border-color: var(--danger);
+}
+
+.find-count {
+  flex: none;
+  min-width: var(--control-xl);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-s);
+  text-align: right;
+}
+
+.find-bar.none .find-count {
+  color: var(--danger);
+}
+
+.find-divider {
+  flex: none;
+  width: var(--border-width-1);
+  height: var(--control-sm);
+  margin: 0 var(--space-xxs);
+  background: var(--border-subtle);
+}
+
+.find-bar .iconbtn:disabled {
+  color: var(--text-disabled);
+  background: transparent;
+}
+
+.swipe-host {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 var(--space-md);
+}
+
+.swipe-host.forward {
+  justify-content: flex-end;
+}
+
+.swipe-disc {
+  --swipe-progress: 0;
+  display: grid;
+  place-items: center;
+  width: var(--control-2xl);
+  height: var(--control-2xl);
+  border-radius: var(--fully-rounded);
+  background:
+    radial-gradient(
+      circle closest-side,
+      var(--surface-overlay) calc(100% - var(--border-width-2) - var(--border-width-1)),
+      transparent calc(100% - var(--border-width-2))
+    ),
+    conic-gradient(var(--accent) calc(var(--swipe-progress) * 1turn), var(--border-subtle) 0);
+  box-shadow: var(--shadow-float);
+  color: var(--text-secondary);
+  transform: translateX(calc((var(--swipe-progress) - 1) * var(--space-lg)))
+    scale(calc(0.8 + var(--swipe-progress) * 0.2));
+  transition: transform var(--dur-fast) var(--ease-out);
+  animation: ewe-fade-in var(--dur-fast) var(--ease-out);
+}
+
+.swipe-host.forward .swipe-disc {
+  transform: translateX(calc((1 - var(--swipe-progress)) * var(--space-lg)))
+    scale(calc(0.8 + var(--swipe-progress) * 0.2));
+}
+
+.swipe-disc.ready {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.swipe-disc.leaving {
+  animation: ewe-fade-out var(--dur-fast) var(--ease-out) forwards;
+}

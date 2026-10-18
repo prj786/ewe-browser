@@ -31,9 +31,50 @@ export const SHORTCUT_IDS = [
   'zoom.reset',
   'fullscreen',
   'quit',
+  'find',
+  'find.next',
+  'find.prev',
+  'workspace.new',
+  'workspace.rename',
+  'tab.workspace.next',
+  'tab.workspace.prev',
+  'settings',
+  'print',
+  'source',
+  'tab.duplicate',
+  'tab.pin',
+  'tab.mute',
+  'url.copy',
+  'tab.search',
+  'music',
 ] as const
 
 export type ShortcutId = (typeof SHORTCUT_IDS)[number]
+
+export const PAGE_FIRST_SHORTCUTS: ReadonlySet<ShortcutId> = new Set<ShortcutId>([
+  'find',
+  'find.next',
+  'find.prev',
+  'print',
+  'source',
+  'settings',
+  'tab.mute',
+  'tab.duplicate',
+  'tab.pin',
+  'tab.search',
+  'url.copy',
+  'music',
+  'workspace.new',
+  'workspace.rename',
+  'tab.workspace.next',
+  'tab.workspace.prev',
+])
+
+export const PAGE_FIRST_CHORDS: ReadonlySet<string> = new Set([
+  'Alt+Shift+Left',
+  'Alt+Shift+Right',
+  'Alt+Shift+H',
+])
 export type ShortcutMap = Partial<Record<ShortcutId, string[]>>
 
 export const DIGITS_KEY = '1-9'
@@ -46,9 +87,9 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string[]> = {
   'tab.prev': ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
   'tab.select': ['Ctrl+1-9', 'Alt+1-9'],
   'workspace.select': ['Alt+Shift+1-9'],
-  'workspace.next': ['Ctrl+Shift+PageDown', 'Ctrl+Alt+Right'],
-  'workspace.prev': ['Ctrl+Shift+PageUp', 'Ctrl+Alt+Left'],
-  home: ['Alt+Home'],
+  'workspace.next': ['Ctrl+Shift+PageDown', 'Ctrl+Alt+Right', 'Alt+Shift+Right'],
+  'workspace.prev': ['Ctrl+Shift+PageUp', 'Ctrl+Alt+Left', 'Alt+Shift+Left'],
+  home: ['Alt+Home', 'Alt+Shift+H'],
   address: ['Ctrl+L', 'Ctrl+E'],
   palette: ['Ctrl+K', 'Ctrl+Shift+P'],
   bookmark: ['Ctrl+D'],
@@ -71,6 +112,22 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string[]> = {
   'zoom.reset': ['Ctrl+0'],
   fullscreen: ['F11'],
   quit: ['Ctrl+Shift+Q'],
+  find: ['Ctrl+F'],
+  'find.next': ['Ctrl+G', 'F3'],
+  'find.prev': ['Ctrl+Shift+G', 'Shift+F3'],
+  'workspace.new': ['Alt+Shift+N'],
+  'workspace.rename': ['Alt+Shift+R'],
+  'tab.workspace.next': ['Ctrl+Alt+Shift+Right'],
+  'tab.workspace.prev': ['Ctrl+Alt+Shift+Left'],
+  settings: ['Ctrl+,'],
+  print: ['Ctrl+P'],
+  source: ['Ctrl+U'],
+  'tab.duplicate': ['Alt+Shift+D'],
+  'tab.pin': ['Alt+Shift+P'],
+  'tab.mute': ['Ctrl+M'],
+  'url.copy': ['Alt+Shift+C'],
+  'tab.search': ['Ctrl+Shift+A'],
+  music: ['Alt+Shift+M'],
 }
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
@@ -89,7 +146,7 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   bookmark: 'Bookmark this page',
   'rail.toggle': 'Collapse or expand the tab rail',
   files: 'Open files',
-  passwords: 'Fill a password',
+  passwords: 'Fill from Safe',
   'sidebar.bookmarks': 'Bookmarks sidebar',
   'sidebar.downloads': 'Downloads sidebar',
   'sidebar.history': 'History sidebar',
@@ -106,6 +163,22 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'zoom.reset': 'Reset zoom',
   fullscreen: 'Fullscreen',
   quit: 'Quit',
+  find: 'Find in page',
+  'find.next': 'Find next',
+  'find.prev': 'Find previous',
+  'workspace.new': 'New workspace',
+  'workspace.rename': 'Rename workspace',
+  'tab.workspace.next': 'Move tab to the next workspace',
+  'tab.workspace.prev': 'Move tab to the previous workspace',
+  settings: 'Open settings',
+  print: 'Print',
+  source: 'View page source',
+  'tab.duplicate': 'Duplicate tab',
+  'tab.pin': 'Pin or unpin tab',
+  'tab.mute': 'Mute or unmute tab',
+  'url.copy': 'Copy page address',
+  'tab.search': 'Search open tabs',
+  music: 'Open music',
 }
 
 export interface Chord {
