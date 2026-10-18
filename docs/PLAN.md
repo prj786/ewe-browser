@@ -516,7 +516,7 @@ small foot. Done on `feat/bottom-bar`:
 ## Wave 2, browser details (asked 2026-10-18, branch `feat/input-menus`)
 
 The owner: finger gestures, more shortcuts, right-click menus on websites, and no third-party
-passwords (only Safe fills inputs). Built on `feat/input-menus`, waiting for review:
+passwords (only Safe fills inputs). Built on `feat/input-menus`, released in 0.4.0-beta:
 
 1. [x] **Two-finger swipe** back and forward: the page preload watches `wheel` in the main frame,
        an arrow at the page edge fills as the swipe nears the threshold (160 px), letting go past
@@ -569,7 +569,7 @@ Known / open:
 
 The owner asked for DNS and security settings, and for Shaun to reach further into the browser
 ("search men's shoes on zara" → Zara's own results). Built on `feat/privacy-site-search`,
-waiting for review:
+released in 0.4.0-beta:
 
 1. [x] **Command line (contract 1)**: `search --site`, `site`, `workspaces`, `workspace
     activate|next|prev|create|rename|remove`, `back`, `forward`, `download open|show`,
