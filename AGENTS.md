@@ -1165,7 +1165,12 @@ hidden: [{ key, time }] }`, 300 entries and 500 hidden keys at most, writes debo
   the files `open`/`mpv` ops, `MusicRequest {op: 'played'}` for library tracks, home `open`/`mpv`).
 - `downloads.json`: `{ version: 1, entries: DownloadEntry[] }` (`id, url, filename, path, mime,
 received, total, speed, status, started, ended`, times in epoch ms), newest first, at most 200,
-  writes debounced 1s, flushed on quit. Entries that were running at quit load as `interrupted`.
+  writes **throttled** to once a second (the first change at once, the latest never lost —
+  `throttle` in `json-file.ts`), flushed on quit; a failed write is retried by the next change.
+  Entries that were running at quit load as `interrupted`. ewe's dock (Dock 1.2.0+) watches this
+  file for its progress ring, so it is a public contract: keep the path and the fields, and never
+  debounce it again — a running download updates every 250 ms, so a trailing 1s debounce held
+  every write back until the download had finished (fixed in 0.5.2-beta).
 - Theme: `~/.config/quickshell/theme-tokens.json` (version 3) is parsed into `ThemeTokens
 { source, variant, name, vars, base }`. `vars` holds colours (`#AARRGGBB` → rgba) and shadows;
   `base` holds the rest of the ewe look: `shape` (radii, border widths) and `size` (type scale ×

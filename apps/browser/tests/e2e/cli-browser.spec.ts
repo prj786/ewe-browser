@@ -52,6 +52,23 @@ test('the command line drives workspaces, history, downloads and site search', a
       })
       res.end('twelve sheep\n')
     },
+    // a slow download: ten 64 KB chunks, one every 400 ms
+    '/flock.iso': (_req, res) => {
+      const chunk = Buffer.alloc(64 * 1024, 7)
+      res.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'content-length': String(10 * chunk.length),
+        'content-disposition': 'attachment; filename="flock.iso"',
+      })
+      let sent = 0
+      const timer = setInterval(() => {
+        res.write(chunk)
+        if (++sent === 10) {
+          clearInterval(timer)
+          res.end()
+        }
+      }, 400)
+    },
   })
 
   expect(cli('site', 'zara')).toMatchObject({
@@ -237,6 +254,29 @@ test('the command line drives workspaces, history, downloads and site search', a
       .poll(() => app.evaluate(() => (globalThis as { opened?: string[] }).opened))
       .toEqual([join(downloads, 'report.txt')])
     expect(cli('download', 'open', 'zzzz')).toMatchObject({ ok: false, error: 'not-found' })
+
+    // ewe's dock draws its progress ring from downloads.json: a running
+    // download must reach the file WHILE it runs (a 1 s debounce held every
+    // write back until the download had finished)
+    const record = join(userData, 'downloads.json')
+    const flock = () => {
+      if (!existsSync(record)) return null
+      const file = JSON.parse(readFileSync(record, 'utf8')) as {
+        entries: { filename: string; status: string; received: number; total: number }[]
+      }
+      return file.entries.find((e) => e.filename === 'flock.iso') ?? null
+    }
+    await send(shell, { type: 'tab.create', url: `${site.url}/flock.iso` })
+    await expect
+      .poll(
+        () => {
+          const e = flock()
+          return e !== null && e.status === 'progressing' && e.received > 0 && e.received < e.total
+        },
+        { timeout: 10_000, intervals: [100] },
+      )
+      .toBe(true)
+    await expect.poll(() => flock()?.status, { timeout: 15_000 }).toBe('completed')
 
     const removed = cli('workspace', 'remove', 'Barn') as { undo: string[][] }
     expect(removed).toMatchObject({ ok: true, workspace: { name: 'Barn' }, closedTabs: 1 })

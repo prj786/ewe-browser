@@ -177,6 +177,9 @@ built, verified and handed to the owner for testing before the next starts.
      scale, fonts, weights, durations with speed, easing, reduced motion), not only colours; the
      window background follows ewe `surface-base`; live update after an atomic rewrite is covered
      by e2e.
+   - 2026-10-23 (0.5.2-beta): `downloads.json` is written once a second while a download runs
+     (it was debounced, so ewe's dock saw no progress until the end); e2e checks a slow
+     download shows up `progressing` in the file before it completes.
    - Known: AI icon stays a disabled placeholder; downloads do not resume across restarts
      (interrupted entries offer Retry); no download drag-out to other apps yet; favicons for
      history rows are guessed from `origin/favicon.ico`.

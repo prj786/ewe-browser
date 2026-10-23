@@ -1,8 +1,8 @@
 import { existsSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { readJson, staleTemp } from '../../src/main/storage/json-file'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { debounce, readJson, staleTemp, throttle } from '../../src/main/storage/json-file'
 
 describe('atomic json files', () => {
   it('recognizes temp files that a killed process left behind', () => {
@@ -34,5 +34,38 @@ describe('atomic json files', () => {
     expect(existsSync(inFlight)).toBe(true)
     expect(existsSync(own)).toBe(true)
     expect(existsSync(other)).toBe(true)
+  })
+})
+
+describe('write pacing', () => {
+  afterEach(() => vi.useRealTimers())
+
+  // a running download reports progress every 250 ms
+  const stream = (fn: (n: number) => void, until: number) => {
+    for (let t = 0; t < until; t += 250) {
+      fn(t)
+      vi.advanceTimersByTime(250)
+    }
+  }
+
+  it('throttle writes a steady stream once a second, first at once, last kept', () => {
+    vi.useFakeTimers()
+    const seen: number[] = []
+    const write = throttle((n: number) => seen.push(n), 1000)
+    stream(write, 3000)
+    expect(seen).toEqual([0, 750, 1750, 2750])
+    write(9999)
+    write.flush()
+    expect(seen.at(-1)).toBe(9999)
+  })
+
+  it('debounce waits for the stream to stop (why downloads use throttle)', () => {
+    vi.useFakeTimers()
+    const seen: number[] = []
+    const write = debounce((n: number) => seen.push(n), 1000)
+    stream(write, 3000)
+    expect(seen).toEqual([])
+    vi.advanceTimersByTime(1000)
+    expect(seen).toEqual([2750])
   })
 })
