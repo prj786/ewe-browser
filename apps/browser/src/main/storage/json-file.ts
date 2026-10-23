@@ -76,3 +76,34 @@ export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: numb
   }
   return Object.assign(call, { flush })
 }
+
+// At most one call per `ms`: the first at once, the latest never lost. For a
+// steady stream — a running download reports progress every 250 ms — where a
+// trailing debounce would wait for the stream to stop: the desktop's dock
+// reads downloads.json for its progress ring, and saw a download only once it
+// had finished.
+export function throttle<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
+  let timer: NodeJS.Timeout | null = null
+  let pending: A | null = null
+  let last = Number.NEGATIVE_INFINITY
+  const run = () => {
+    timer = null
+    if (pending === null) return
+    const args = pending
+    pending = null
+    last = Date.now()
+    fn(...args)
+  }
+  const call = (...args: A) => {
+    pending = args
+    if (timer !== null) return
+    const wait = last + ms - Date.now()
+    if (wait <= 0) run()
+    else timer = setTimeout(run, wait)
+  }
+  const flush = () => {
+    if (timer !== null) clearTimeout(timer)
+    run()
+  }
+  return Object.assign(call, { flush })
+}

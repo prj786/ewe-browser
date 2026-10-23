@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { basename, extname, join } from 'node:path'
 import type { DownloadEntry, DownloadStatus } from '@ewe/shared'
-import { debounce, readJson, writeJsonAtomic } from './json-file'
+import { readJson, throttle, writeJsonAtomic } from './json-file'
 
 const MAX_ENTRIES = 200
 const STATUSES = new Set<string>(['progressing', 'paused', 'completed', 'cancelled', 'interrupted'])
@@ -75,8 +75,14 @@ export function uniquePath(dir: string, name: string, taken: (path: string) => b
 export class DownloadsStore extends EventEmitter<{ change: [DownloadEntry[]] }> {
   private readonly path: string
   private entries: DownloadEntry[] = []
-  private readonly write = debounce(() => {
-    void writeJsonAtomic(this.path, this.toFile())
+  // throttled, not debounced: once a second WHILE a download runs, since
+  // ewe's dock draws its progress ring from this file (a public contract —
+  // keep the path and the fields; ewe-map "Storage Map")
+  // A failed write is retried by the next change and reported by flush();
+  // it must not surface as an unhandled rejection (the first write of a
+  // burst now goes out at once, while a test may be removing its folder).
+  private readonly write = throttle(() => {
+    writeJsonAtomic(this.path, this.toFile()).catch(() => undefined)
   }, 1000)
 
   constructor(userData: string) {
