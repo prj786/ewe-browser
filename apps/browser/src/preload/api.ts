@@ -5,6 +5,7 @@ import {
   type ApiLayer,
   type BookmarkFolder,
   type DownloadEntry,
+  type EweSyncRequest,
   type FsRequest,
   type HomeRequest,
   type MusicLibrary,
@@ -69,6 +70,9 @@ export function createApi(layer: ApiLayer): BrowserApi {
       ipcRenderer.invoke(IPC.startup, on) as Promise<{ available: boolean; on: boolean } | null>,
     onMusic: (listener) => subscribe(IPC.musicChanged, (p) => listener(p as MusicLibrary)),
     onFsChanged: (listener) => subscribe(IPC.fsChanged, (p) => listener(p as string)),
+    onPlacesChanged: (listener) => subscribe(IPC.placesChanged, () => listener()),
+    eweSync: (request: EweSyncRequest) =>
+      ipcRenderer.invoke(IPC.eweSync, request) as Promise<boolean>,
     onState: (listener) => subscribe(IPC.state, (p) => listener(p as WindowSnapshot)),
     onSettings: (listener) => subscribe(IPC.settings, (p) => listener(p as Settings)),
     onTheme: (listener) => subscribe(IPC.theme, (p) => listener(p as ThemeTokens | null)),

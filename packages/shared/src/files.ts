@@ -21,7 +21,7 @@ export interface FsListing {
   free: number | null
 }
 
-export type FsPlaceGroup = 'places' | 'cloud' | 'bookmarks' | 'devices' | 'other'
+export type FsPlaceGroup = 'places' | 'cloud' | 'synced' | 'bookmarks' | 'devices' | 'other'
 export type FsPlaceState = 'ready' | 'offline' | 'setup'
 export type FsPlaceIcon =
   | 'house'
@@ -47,6 +47,100 @@ export interface FsPlace {
   icon: FsPlaceIcon
   state: FsPlaceState
   mount?: 'nextcloud' | 'drive' | undefined
+  sync?: FsPlaceSync | undefined
+}
+
+export type FsSyncState =
+  'synced' | 'syncing' | 'pending' | 'paused' | 'error' | 'conflict' | 'offline'
+
+export interface FsPlaceSync {
+  state: FsSyncState
+  conflicts: number
+  lastSync: number | null
+  engine: 'ewe' | 'nextcloud-app'
+  error: string
+}
+
+export function isInsidePath(child: string, parent: string): boolean {
+  if (parent === '/') return child.startsWith('/')
+  return child === parent || child.startsWith(`${parent}/`)
+}
+
+export function syncRootOf(path: string, places: readonly FsPlace[]): FsPlace | null {
+  let best: FsPlace | null = null
+  for (const place of places) {
+    if (place.sync === undefined || !isInsidePath(path, place.path)) continue
+    if (best === null || place.path.length > best.path.length) best = place
+  }
+  return best
+}
+
+export function syncAction(
+  path: string,
+  places: readonly FsPlace[],
+  home: string,
+): 'keep' | 'settings' | null {
+  if (syncRootOf(path, places) !== null) return 'settings'
+  if (home === '' || home === '/' || path === home || !isInsidePath(path, home)) return null
+  if (places.some((p) => p.sync !== undefined && isInsidePath(p.path, path))) return null
+  return 'keep'
+}
+
+export function syncLabel(sync: FsPlaceSync): string {
+  switch (sync.state) {
+    case 'synced':
+      return 'In your account'
+    case 'syncing':
+      return 'Syncing…'
+    case 'pending':
+      return 'Waiting to sync'
+    case 'paused':
+      return 'Paused on this computer'
+    case 'error':
+      return "Couldn't sync"
+    case 'conflict':
+      return sync.conflicts > 0
+        ? `${sync.conflicts} conflict${sync.conflicts === 1 ? '' : 's'}`
+        : 'Needs a decision'
+    case 'offline':
+      return 'Offline'
+  }
+}
+
+export type EweSyncPane =
+  'overview' | 'folders' | 'machine' | 'machines' | 'account' | 'mail' | 'google'
+
+const EWE_SYNC_PANES: ReadonlySet<string> = new Set([
+  'overview',
+  'folders',
+  'machine',
+  'machines',
+  'account',
+  'mail',
+  'google',
+])
+
+export type EweSyncRequest =
+  { op: 'available' } | { op: 'pane'; pane: EweSyncPane } | { op: 'add-folder'; path: string }
+
+export function isEweSyncRequest(value: unknown): value is EweSyncRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  switch (r.op) {
+    case 'available':
+      return true
+    case 'pane':
+      return typeof r.pane === 'string' && EWE_SYNC_PANES.has(r.pane)
+    case 'add-folder':
+      return (
+        typeof r.path === 'string' &&
+        r.path.startsWith('/') &&
+        r.path.length <= 4096 &&
+        !r.path.includes('\0')
+      )
+    default:
+      return false
+  }
 }
 
 export type ArchiveFormat = 'zip' | 'tar.gz' | 'tar.zst'

@@ -153,6 +153,8 @@ export function extensionIconUrl(state: ExtensionsState, info: ExtensionInfo, si
 
 export interface SyncStatus {
   enabled: boolean
+  managed: boolean
+  signedIn: boolean
   state: 'off' | 'idle' | 'syncing' | 'error'
   lastSync: number | null
   error: string | null

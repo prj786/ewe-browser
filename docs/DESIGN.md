@@ -57,6 +57,13 @@ surface to the Ewe component it follows and records what the system did not cove
 | Toast (overlay)              | Pill-shaped panel                                                                                              | `control-lg` tall, `fully-rounded`, `surface-overlay`, `border-subtle`, `shadow-float`, `font-weight-medium`, star glyph in `accent-text`; slides up at `dur-base`, fades out at `dur-fast`; shown 1.8s                                                                                                                                                                                                                                                                          |
 | Bookmark star                | ghost sm IconButton inside the Text field                                                                      | `text-muted` outline; filled `accent-text` when bookmarked; an `icon-xs`-sized filled star in `accent-text` before a bookmarked active tab's title                                                                                                                                                                                                                                                                                                                               |
 
+Synced folders in the file manager (2026-10-31) reuse the place row and the Badge idea: an
+`icon-xs` state glyph after a synced place's label and on a synced folder's icon well
+(`text-muted` synced, `accent-text` syncing and turning, `warning` conflict, `danger` error,
+`text-disabled` pending or offline), and a `control-md` pill chip in the toolbar on
+`surface-sunken` (`accent-subtle`, `warning-subtle` or `danger-subtle` by state) that names the
+state in words.
+
 ## Not covered by the system, and what we chose
 
 - Tab rail (chosen 2026-10-13 over a floating island, mockups in `docs/mockups/step2/`): ewe's

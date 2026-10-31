@@ -4,6 +4,7 @@ import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gvfsLabel, type FsPlace, type FsPlaceIcon } from '@ewe/shared'
+import { SNAPSHOT_FILE, parseSyncSnapshot, placeSync } from '../sync/snapshot'
 
 export interface CloudStatus {
   configured: boolean
@@ -17,6 +18,7 @@ export interface PlacesEnv {
   uid: number
   configHome: string
   dataHome: string
+  stateHome: string
   readText(path: string): string | null
   listDirs(path: string): string[]
   isDir(path: string): boolean
@@ -113,14 +115,50 @@ export async function computePlaces(env: PlacesEnv): Promise<FsPlace[]> {
     })
   }
 
+  const snapshot = parseSyncSnapshot(env.readText(join(env.stateHome, 'ewe', SNAPSHOT_FILE)))
+  const synced = snapshot?.folders ?? []
   const [files, drive] = await Promise.all([env.status('ewe-files'), env.status('ewe-drive')])
+  let nextcloud = cloudPlace('nextcloud', 'Nextcloud', files, join(env.home, 'Nextcloud'))
+  const account = snapshot?.accountFolder ?? null
+  if (account !== null && account.state !== 'off') {
+    if (nextcloud === null)
+      nextcloud = {
+        id: 'nextcloud',
+        label: 'Nextcloud',
+        path: account.path,
+        group: 'cloud',
+        icon: 'cloud',
+        state: 'ready',
+      }
+    else if (nextcloud.path === account.path) nextcloud.state = 'ready'
+  }
+  if (nextcloud !== null && synced.some((f) => f.local === nextcloud?.path))
+    nextcloud.state = 'ready'
   for (const place of [
-    cloudPlace('nextcloud', 'Nextcloud', files, join(env.home, 'Nextcloud')),
+    nextcloud,
     cloudPlace('drive', 'Google Drive', drive, join(env.home, 'Google Drive')),
   ]) {
     if (place === null) continue
     seen.add(place.path)
     places.push(place)
+  }
+
+  for (const folder of synced) {
+    const existing = places.find((p) => p.path === folder.local)
+    if (existing !== undefined) {
+      existing.sync = placeSync(folder)
+      continue
+    }
+    seen.add(folder.local)
+    places.push({
+      id: `synced-${folder.local}`,
+      label: folder.name,
+      path: folder.local,
+      group: 'synced',
+      icon: 'folder',
+      state: env.isDir(folder.local) ? 'ready' : 'offline',
+      sync: placeSync(folder),
+    })
   }
 
   for (const b of parseGtkBookmarks(
@@ -199,7 +237,7 @@ export function eweBinDir(): string {
   return process.env.EWE_BIN ?? join(homedir(), '.local', 'share', 'ewe', 'bin')
 }
 
-function toolPath(tool: string): string | null {
+export function toolPath(tool: string): string | null {
   const local = join(eweBinDir(), tool)
   if (existsSync(local)) return local
   for (const dir of (process.env.PATH ?? '').split(':')) {
@@ -242,6 +280,7 @@ export function systemPlacesEnv(): PlacesEnv {
     uid: process.getuid?.() ?? 1000,
     configHome: process.env.XDG_CONFIG_HOME ?? join(home, '.config'),
     dataHome: process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'),
+    stateHome: process.env.XDG_STATE_HOME ?? join(home, '.local', 'state'),
     readText: (path) => {
       try {
         return readFileSync(path, 'utf8')

@@ -2,7 +2,7 @@
   "name": "ewe-browser-monorepo",
   "private": true,
   "license": "GPL-3.0-only",
-  "version": "0.5.2-beta",
+  "version": "0.6.0-beta",
   "engines": {
     "node": ">=22.12.0"
   },

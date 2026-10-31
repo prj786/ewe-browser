@@ -101,8 +101,8 @@ apps/browser/
                                   retry, open, show in folder
   src/main/files/service.ts       FileService: the `ewe:fs` ops (list, mkdir, rename, trash, copy, move, open,
                                   terminal, mount, watch, clipboard, drag), the raw/thumb token
-  src/main/files/places.ts        computePlaces(): XDG dirs, ewe-files / ewe-drive cloud status, GTK bookmarks,
-                                  /run/media, GVFS, rclone mounts, File system, Trash
+  src/main/files/places.ts        computePlaces(): XDG dirs, ewe-files / ewe-drive cloud status, ewe-sync's
+                                  synced folders, GTK bookmarks, /run/media, GVFS, rclone mounts, File system, Trash
   src/main/files/thumbs.ts        thumbnails (freedesktop cache, own cache, nativeImage, ffmpegthumbnailer) and
                                   ranged raw file responses
   src/main/files/default-handler.ts  "open folders with ewe browser" through a .desktop file and `gio mime`
@@ -112,6 +112,7 @@ apps/browser/
                                   local.ts (help, commands, ls, locate, places), offline.ts (stores from disk),
                                   server.ts (socket, JSON lines), host.ts (main side), index.ts (CLI entry)
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
+  src/main/ewe-sync.ts            runEweSync(): `ewe-sync --pane <id>` / `--add-folder <path>` (argv, detached)
   src/main/privacy/               service.ts (permission request/check handlers, HTTPS-Only webRequest,
                                   Secure DNS, GPC header, site info, clear site data), permissions.ts
                                   (PermissionStore, kindsFor, verdict), https-only.ts, window.ts
@@ -129,7 +130,9 @@ apps/browser/
   src/main/storage/               json-file (atomic, serialized writes), settings-store, session-store,
                                   history-store (SQLite, node:sqlite), bookmarks-store, downloads-store, recent-store
   src/main/sync/                  merge (merge3, clears, filterHistory), service (SyncService, tab files),
-                                  webdav (Dav: get, put, putAlways, PROPFIND list)
+                                  webdav (Dav: get, put, putAlways, PROPFIND list), ewe-link (managed mode,
+                                  EweLink: ~/.config/ewe and the sync-now nudge, DirWatch), snapshot
+                                  (ewe-sync's sync-folders.json)
   src/preload/index.ts            the only preload; picks the layer from --ewe-layer=shell|overlay|sidebar|page
   src/preload/api.ts              window.ewe (BrowserApi) via contextBridge
   src/preload/chrome-shim.ts      window.chrome for http(s) pages
@@ -256,12 +259,15 @@ computers' tabs (`[]` while sync is off, and for every other page).
 `getAccount()`, `getBookmarks()`, `suggest(query)`, `getDownloads()`, `history(query, limit)`,
 `home(request)`, `historyPage(request)`, `remoteTabs()`, and subscriptions `onState`, `onSettings`,
 `onTheme`, `onBookmarks`, `onDownloads`,
-`onHistory`, `onHomeChanged`, `onUi`.
+`onHistory`, `onHomeChanged`, `onUi`, and for the files and settings pages `eweSync(request)` and
+`onPlacesChanged`.
 `getDownloads` and `history` answer only the shell, overlay and sidebar layers (pages get `[]`).
 
 IPC channels (`IPC` in ipc-contract.ts): `ewe:command`, `ewe:get-state`, `ewe:get-settings`,
 `ewe:get-theme`, `ewe:get-account`, `ewe:get-bookmarks`, `ewe:suggest`, `ewe:get-downloads`,
-`ewe:history`, `ewe:home`, `ewe:history-page`, `ewe:remote-tabs` (invoke), and `ewe:state`,
+`ewe:history`, `ewe:home`, `ewe:history-page`, `ewe:remote-tabs`, `ewe:ewe-sync` (invoke, `app://files`
+and `app://settings`; `--add-folder` only from files), and `ewe:places-changed` (main → files pages,
+when ewe-sync's folder snapshot changes), `ewe:state`,
 `ewe:settings`, `ewe:theme`, `ewe:bookmarks`, `ewe:downloads`, `ewe:history-changed` (sidebars,
 throttled to 500ms, and history pages, throttled to 400ms), `ewe:home-changed`
 (home tabs only, throttled to 400ms), `ewe:ui` (main → renderer).
@@ -603,7 +609,11 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
 - Places (`computePlaces`): Home, the XDG dirs that exist (`user-dirs.dirs`, incl. Projects),
   Nextcloud and Google Drive from `~/.local/share/ewe/bin/ewe-files status` / `ewe-drive status`
   (`$EWE_BIN` overrides; `ready` when mounted, `offline` → "Connect" runs `… mount`, `setup` →
-  a hint to sign in from ewe Settings; hidden when the tool is missing), GTK bookmarks
+  a hint to sign in from ewe-sync; hidden when the tool is missing; Nextcloud is also `ready`
+  when ewe-sync's snapshot says its folder is mounted or synced, or a synced folder is that
+  path), ewe-sync's synced folders (`$XDG_STATE_HOME/ewe/sync-folders.json`, `sync/snapshot.ts`:
+  a place with that path gets `sync {state, conflicts, lastSync, engine, error}`, the others
+  become the `synced` group, before the bookmarks so a GTK bookmark of one dedupes), GTK bookmarks
   (`~/.config/gtk-3.0/bookmarks`; trailing slashes are stripped, so `file:///home/me/Nextcloud/`
   gets a label and dedupes with the Nextcloud place), `/run/media/$USER/*`, GVFS mounts under
   `/run/user/$UID/gvfs` (labels from `gvfsLabel`), other `fuse.rclone` mounts, File system and
@@ -616,6 +626,14 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
   (`fs.watch`, 200ms debounce, one per page), a cut/copy clipboard shared by every files tab, and
   native drag-out (`startDrag`). Dropping the dragged items on a folder tile, place or crumb
   moves them (Ctrl copies).
+- Synced folders (2026-10-31): the sidebar shows a state glyph after a synced place's label
+  (`SYNC_ICON`; synced, syncing turning, pending, paused, conflict, error, offline), synced folder
+  tiles and rows carry it on the icon well, and inside a synced folder (`syncRootOf`, the deepest)
+  the toolbar shows a chip (`syncLabel`) that opens `ewe-sync --pane folders`. The entry menu of
+  a folder and the background menu add, when `ewe-sync` exists (`eweSync({op: 'available'})`),
+  "Keep in your account…" (`ewe-sync --add-folder <path>`) for a folder inside home, not home
+  itself, not synced and holding no synced folder, or "Sync settings…" inside a synced one
+  (`syncAction`). Places refresh on `ewe:places-changed` as well as on focus.
 - Thumbnails: the freedesktop cache (x-large, large, normal, by md5 of the file URI, fresh by
   mtime) is read first, so Nemo's thumbnails are reused; otherwise png/jpeg are scaled with
   `nativeImage` and videos go through `ffmpegthumbnailer`, both into
@@ -752,8 +770,15 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
   history max count / newest title, settings local, or remote on a machine's first sync). Bookmarks
   are flattened to `{kind, title, url, parent, index, added}` and rebuilt (orphans and cycles go to
   the root). PUT uses `If-Match` / `If-None-Match: *` and retries twice on 412.
-  `Settings.sync` toggles it; `ewe:sync` (invoke, `app://settings` only) returns or runs
-  `SyncStatus`, pushed as `ewe:sync-status`. `SettingsStore.flush()` now runs on quit.
+  Under ewe the ewe account decides (`sync/ewe-link.ts`): managed when `ewe-conf` is found and
+  neither `EWE_USER_DATA` nor `EWE_SYNC_URL` is set (`EWE_SYNC_MANAGED=1|0` forces it), and then
+  sync runs exactly when `cloud.json` names a server and a login and `ewe-conf get sync.browser`
+  is not `false`; `EweLink` watches `$XDG_CONFIG_HOME/ewe/` (1 s debounce) and
+  `$XDG_STATE_HOME/ewe/` (`sync-now` → a cycle, `sync-folders.json` → `ewe:places-changed`),
+  never creating either directory. Outside ewe `Settings.sync` toggles it. `ewe:sync` (invoke,
+  `app://settings` only) returns or runs `SyncStatus` (`managed`, `signedIn` added), pushed as
+  `ewe:sync-status`. Settings → Sync in managed mode shows what syncs, the status and "Manage in
+  ewe-sync" (no toggle, no Sync now: rule 6). `SettingsStore.flush()` now runs on quit.
   `historyDays` is a synced setting too.
 - History deletions: `history.json` on the server also carries `clears` (the clear records of
   every machine, 180 days, 5000 at most, `compactClears`). A sync first applies the records it has
@@ -784,8 +809,8 @@ machine, savedAt, windows: [{ workspaces: [{ name, color, tabs: [{ url, title, p
   cycles, and the history kind refuses to build an upload once `HistoryStore` is closed (it is
   closed on `will-quit` after `flush()`).
 - `<userData>/sync/status.json` mirrors `SyncStatus` plus `machine`, `machineId`, `clockOffset`
-  and `updatedAt` (debounced 500ms) so ewe-sync can show the browser's state. The browser still has its own Sync now
-  (rule 6 says only ewe-sync should have one); see PLAN.md, "History and real sync".
+  and `updatedAt` (debounced 500ms) so ewe-sync can show the browser's state. Under ewe only
+  ewe-sync has sync buttons (rule 6); see PLAN.md, "Sync follows the ewe account".
 
 ## ewe integration (roadmap step 5)
 
@@ -1182,7 +1207,7 @@ received, total, speed, status, started, ended`, times in epoch ms), newest firs
   exist and `vars` only when `theme === 'system'`; `data-theme` follows the ewe variant. The
   window and sidebar background follow ewe `surface-base` in system mode.
 - Account: `~/.config/ewe/cloud.json`, identity fields only (display name / login / user, email,
-  server). Shown as the avatar initial; no sync yet.
+  server). Shown as the avatar initial; under ewe it also decides whether sync runs.
 - `permissions.json`: per-origin site permission decisions (see Privacy and security), writes
   debounced 500ms, flushed on quit. `site-search.json`: `{ version: 1, hosts: { host: { template,
 descriptor, checked } } }`, learned OpenSearch templates, 500 hosts, writes debounced 1s.
@@ -1379,6 +1404,15 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   local origins in two launches) and `tests/e2e/cli-browser.spec.ts` (every new verb against a
   launched browser, history-learned and OpenSearch templates, `@site`, download show/open with
   `shell.openPath` stubbed, offline `workspaces`/`site`). Helpers in `tests/e2e/wave2-support.ts`.
+- ewe sync: `tests/unit/ewe-link.test.ts` (managed mode, `effectiveSync`, `sync.browser`, the
+  sign-in test, `EweLink` change events, `DirWatch`, the snapshot validator, `eweSyncArgs`, and a
+  `SyncService` that follows a fake ewe source and runs on the nudge against the mock WebDAV),
+  the synced places in `files.test.ts`, `syncRootOf` / `syncAction` / `syncLabel` /
+  `isEweSyncRequest` in `packages/shared/src/files.test.ts`, and `tests/e2e/ewe-sync.spec.ts`
+  (a temp HOME and XDG dirs, fake `ewe-conf` and `ewe-sync` on `EWE_BIN` logging their argv,
+  `EWE_SYNC_MANAGED=1` against the mock WebDAV: the managed Settings section and its button, the
+  nudge, the Synced group and glyphs, the chip following a rewritten snapshot, Keep in your
+  account… and Sync settings…; `EWE_SYNC_SHOTS=<dir>` saves light and dark screenshots).
 - History tests: `history-store.test.ts` (migration, a broken database, the read-only snapshot
   for the CLI, rows by day and paging, FTS and short words, site filters, range and page clears, remote clears, retention, the merge
   diff, the page cap), `history-sync.test.ts` (clear filtering, compaction, tab files, PROPFIND

@@ -409,60 +409,104 @@ function Sync(props: {
     })
     onCleanup(off)
   })
+  const enabled = () => status()?.enabled ?? false
   const describe = () => {
     const s = status()
-    if (!props.settings().sync)
-      return 'Off. Bookmarks, history, open tabs and settings stay on this computer.'
-    if (s === null || s.state === 'off') return 'Starting…'
+    const off = 'Off. Bookmarks, history, open tabs and settings stay on this computer.'
+    if (s === null) return props.settings().sync ? 'Starting…' : off
+    if (!s.enabled) return off
+    if (s.state === 'off') return 'Starting…'
     if (s.state === 'syncing') return 'Syncing…'
     if (s.state === 'error') return s.error ?? 'Sync failed'
-    const when =
-      s.lastSync === null
-        ? 'not yet'
-        : new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    if (s.lastSync === null) return 'Waiting for the first sync…'
+    const when = new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     return `Synced ${when}${s.account === null ? '' : ` · ${s.account}`}`
   }
+  const accountText = () => {
+    const s = status()
+    if (s?.signedIn !== true)
+      return 'Sign in to your ewe account in ewe-sync, and bookmarks, history, open tabs and settings follow you to every computer.'
+    if (!s.enabled)
+      return 'Off on this computer. Turn Browser on in ewe-sync to sync bookmarks, history, open tabs and settings.'
+    return 'Bookmarks, history, open tabs and settings sync with your ewe account. Tabs from your other computers show on the history page.'
+  }
+  const statusRow = (button: JSX.Element | null) => (
+    <div class="row">
+      <span class="row-tile" classList={{ 'row-tile--alert': status()?.state === 'error' }}>
+        <Icon name={status()?.state === 'error' ? 'circle-alert' : 'cloud'} />
+      </span>
+      <span class="row-text">
+        <span class="row-title">Status</span>
+        <span class="row-desc settings-sync-status">{describe()}</span>
+        <Show when={enabled() ? status()?.warning : null}>
+          {(warning) => <span class="row-desc row-warning settings-sync-warning">{warning()}</span>}
+        </Show>
+      </span>
+      {button}
+    </div>
+  )
   return (
     <>
       <h2 class="section-header">Sync</h2>
       <div class="list">
-        <SettingRow
-          icon="refresh-cw"
-          title="Sync with Nextcloud"
-          description="Bookmarks, history (deletions too), open tabs, shortcuts, panels and appearance, in ewe/browser on your ewe Nextcloud account. Tabs from your other computers show on the history page."
-        >
-          <select
-            aria-label="Sync with Nextcloud"
-            class="settings-sync"
-            value={props.settings().sync ? 'on' : 'off'}
-            onChange={(e) => props.update({ sync: e.currentTarget.value === 'on' })}
-          >
-            <option value="on">On</option>
-            <option value="off">Off</option>
-          </select>
-        </SettingRow>
-        <div class="list-divider" />
-        <div class="row">
-          <span class="row-tile" classList={{ 'row-tile--alert': status()?.state === 'error' }}>
-            <Icon name={status()?.state === 'error' ? 'circle-alert' : 'cloud'} />
-          </span>
-          <span class="row-text">
-            <span class="row-title">Status</span>
-            <span class="row-desc settings-sync-status">{describe()}</span>
-            <Show when={props.settings().sync ? status()?.warning : null}>
-              {(warning) => (
-                <span class="row-desc row-warning settings-sync-warning">{warning()}</span>
+        <Show
+          when={status()?.managed === true}
+          fallback={
+            <>
+              <SettingRow
+                icon="refresh-cw"
+                title="Sync with Nextcloud"
+                description="Bookmarks, history (deletions too), open tabs, shortcuts, panels and appearance, in ewe/browser on your ewe Nextcloud account. Tabs from your other computers show on the history page."
+              >
+                <select
+                  aria-label="Sync with Nextcloud"
+                  class="settings-sync"
+                  value={props.settings().sync ? 'on' : 'off'}
+                  onChange={(e) => props.update({ sync: e.currentTarget.value === 'on' })}
+                >
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              </SettingRow>
+              <div class="list-divider" />
+              {statusRow(
+                <button
+                  class="btn btn--secondary btn--sm settings-sync-now"
+                  disabled={!props.settings().sync || status()?.state === 'syncing'}
+                  onClick={() =>
+                    void api.sync(true).then((next) => next !== null && setStatus(next))
+                  }
+                >
+                  Sync now
+                </button>,
               )}
-            </Show>
-          </span>
-          <button
-            class="btn btn--secondary btn--sm settings-sync-now"
-            disabled={!props.settings().sync || status()?.state === 'syncing'}
-            onClick={() => void api.sync(true).then((next) => next !== null && setStatus(next))}
-          >
-            Sync now
-          </button>
-        </div>
+            </>
+          }
+        >
+          <div class="row settings-sync-account">
+            <span class="row-tile">
+              <Icon name="refresh-cw" />
+            </span>
+            <span class="row-text">
+              <span class="row-title">Sync with your ewe account</span>
+              <span class="row-desc">{accountText()}</span>
+            </span>
+            <button
+              class="btn btn--sm settings-sync-manage"
+              classList={{
+                'btn--primary': status()?.signedIn !== true,
+                'btn--secondary': status()?.signedIn === true,
+              }}
+              onClick={() => void api.eweSync({ op: 'pane', pane: 'overview' })}
+            >
+              {status()?.signedIn === true ? 'Manage in ewe-sync' : 'Open ewe-sync'}
+            </button>
+          </div>
+          <Show when={enabled()}>
+            <div class="list-divider" />
+            {statusRow(null)}
+          </Show>
+        </Show>
       </div>
     </>
   )
