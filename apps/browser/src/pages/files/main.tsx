@@ -21,6 +21,9 @@ import {
   isFileName,
   pathFromFilesUrl,
   sortEntries,
+  syncAction,
+  syncLabel,
+  syncRootOf,
   type ArchiveFormat,
   type ArchiveListing,
   type FileKind,
@@ -30,7 +33,9 @@ import {
   type FsPlace,
   type FsPlaceGroup,
   type FsPlaceIcon,
+  type FsPlaceSync,
   type FsRequest,
+  type FsSyncState,
   type Point,
   type SortKey,
 } from '@ewe/shared'
@@ -102,10 +107,32 @@ const PLACE_ICON: Record<FsPlaceIcon, IconName> = {
 const GROUPS: { id: FsPlaceGroup; label: string }[] = [
   { id: 'places', label: 'Places' },
   { id: 'cloud', label: 'Cloud' },
+  { id: 'synced', label: 'Synced' },
   { id: 'bookmarks', label: 'Bookmarks' },
   { id: 'devices', label: 'Devices' },
   { id: 'other', label: 'Other' },
 ]
+
+const SYNC_ICON: Record<FsSyncState, IconName> = {
+  synced: 'cloud',
+  syncing: 'refresh-cw',
+  pending: 'cloud',
+  paused: 'pause',
+  error: 'circle-alert',
+  conflict: 'triangle-alert',
+  offline: 'cloud',
+}
+
+function syncTitle(path: string, sync: FsPlaceSync): string {
+  const parts = [path, syncLabel(sync)]
+  if (sync.engine === 'nextcloud-app') parts.push('Synced by the Nextcloud app')
+  if (sync.state === 'error' && sync.error !== '') parts.push(sync.error)
+  if (sync.lastSync !== null)
+    parts.push(
+      `Last synced ${new Date(sync.lastSync).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`,
+    )
+  return parts.join(' · ')
+}
 
 const SORT_KEYS: SortKey[] = ['name', 'mtime', 'size', 'kind']
 const SORT_LABELS: Record<SortKey, string> = {
@@ -220,6 +247,7 @@ function FilesApp(): JSX.Element {
   const [clipboard, setClipboard] = createSignal<FsClipboard>(null)
   const [busy, setBusy] = createSignal(false)
   const [viewer, setViewer] = createSignal<{ items: FsEntry[]; index: number } | null>(null)
+  const [eweSync, setEweSync] = createSignal(false)
   const [archive, setArchive] = createSignal<{
     entry: FsEntry
     listing: ArchiveListing | null
@@ -338,6 +366,7 @@ function FilesApp(): JSX.Element {
       if (path() !== '') document.title = titleFor(path())
     })
     void refreshClipboard()
+    void api.eweSync({ op: 'available' }).then(setEweSync)
     const select = params.get('select')
     void load(params.get('path') ?? '~', { select }).then(() => {
       if (params.get('view') !== '1' || select === null) return
@@ -355,6 +384,7 @@ function FilesApp(): JSX.Element {
     const offChanged = api.onFsChanged((p) => {
       if (p === path()) void load(p, { keep: true })
     })
+    const offPlaces = api.onPlacesChanged(() => void refreshPlaces())
     const clearDrag = () => {
       dragPaths = null
       setDropTarget(null)
@@ -365,6 +395,7 @@ function FilesApp(): JSX.Element {
     window.addEventListener('keydown', onKey)
     onCleanup(() => {
       offChanged()
+      offPlaces()
       window.removeEventListener('popstate', onPop)
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('pointerdown', clearDrag)
@@ -620,6 +651,26 @@ function FilesApp(): JSX.Element {
     )
   }
 
+  const openSyncSettings = () =>
+    void api.eweSync({ op: 'pane', pane: 'folders' }).then((ok) => {
+      if (!ok) say('ewe-sync is not installed', true)
+    })
+
+  const keepInAccount = (p: string) =>
+    void api.eweSync({ op: 'add-folder', path: p }).then((ok) => {
+      say(ok ? 'Opening ewe-sync…' : 'Could not open ewe-sync', !ok)
+    })
+
+  const syncItem = (p: string): MenuEntry | null => {
+    if (!eweSync()) return null
+    const action = syncAction(p, places(), home())
+    if (action === 'keep')
+      return item('sync-keep', 'Keep in your account…', 'cloud', () => keepInAccount(p))
+    if (action === 'settings')
+      return item('sync-settings', 'Sync settings…', 'refresh-cw', openSyncSettings)
+    return null
+  }
+
   const entryMenu = (entry: FsEntry, at: Point) => {
     if (!selected().has(entry.path)) selectOnly(entry.path)
     const paths = [...selected()]
@@ -677,6 +728,8 @@ function FilesApp(): JSX.Element {
       items.push(
         item('terminal', 'Open terminal here', 'terminal', () => void openTerminal(entry.path)),
       )
+    const sync = entry.dir && !many ? syncItem(entry.path) : null
+    if (sync !== null) items.push({ type: 'separator' }, sync)
     items.push(
       { type: 'separator' },
       item('trash', 'Move to Trash', 'trash-2', () => void trash(paths), {
@@ -689,6 +742,7 @@ function FilesApp(): JSX.Element {
 
   const backgroundMenu = (at: Point) => {
     setSelected(new Set<string>())
+    const sync = syncItem(path())
     const writable = listing()?.writable ?? false
     setMenu({
       at,
@@ -717,6 +771,7 @@ function FilesApp(): JSX.Element {
         { type: 'separator' },
         item('terminal', 'Open terminal here', 'terminal', () => void openTerminal(path())),
         item('copy-path', 'Copy path', 'link', () => copyPath(path())),
+        ...(sync === null ? [] : [{ type: 'separator' as const }, sync]),
       ],
     })
   }
@@ -791,9 +846,15 @@ function FilesApp(): JSX.Element {
     return best?.id ?? null
   })
 
+  const syncRoot = createMemo(() => syncRootOf(path(), places()))
+  const syncedFolders = createMemo(
+    () =>
+      new Map(places().flatMap((p) => (p.sync === undefined ? [] : [[p.path, p.sync] as const]))),
+  )
+
   const openPlace = (place: FsPlace) => {
     if (place.state === 'setup') {
-      say(`Sign in to your ewe account in ewe Settings to use ${place.label}`, true)
+      say(`Sign in to your ewe account in ewe-sync to use ${place.label}`, true)
       return
     }
     const target = place.mount
@@ -846,12 +907,24 @@ function FilesApp(): JSX.Element {
       ),
     )
     const wantsThumb = () => THUMBNAIL_KINDS.has(kind()) && token() !== '' && thumb() !== 'failed'
+    const sync = () => (props.entry.dir ? syncedFolders().get(props.entry.path) : undefined)
     return (
       <span
         class={`fm-icon kind-${kind()}`}
         classList={{ folder: props.entry.dir, 'has-thumb': wantsThumb() && thumb() === 'ok' }}
       >
         <Icon name={KIND_ICON[kind()]} size={props.size} />
+        <Show when={sync()}>
+          {(state) => (
+            <span
+              class="fm-icon-sync"
+              classList={{ [state().state]: true }}
+              title={syncLabel(state())}
+            >
+              <Icon name={SYNC_ICON[state().state]} size={props.size > 20 ? 14 : 10} />
+            </span>
+          )}
+        </Show>
         <Show when={wantsThumb()}>
           <img
             class="fm-thumb"
@@ -939,10 +1012,12 @@ function FilesApp(): JSX.Element {
                     data-place={place.id}
                     title={
                       place.state === 'setup'
-                        ? 'Sign in to your ewe account in ewe Settings'
-                        : place.state === 'offline'
+                        ? 'Sign in to your ewe account in ewe-sync'
+                        : place.state === 'offline' && place.mount !== undefined
                           ? `Connect ${place.label}`
-                          : place.path
+                          : place.sync === undefined
+                            ? place.path
+                            : syncTitle(place.path, place.sync)
                     }
                     onClick={() => openPlace(place)}
                     onAuxClick={(e) => {
@@ -958,8 +1033,19 @@ function FilesApp(): JSX.Element {
                   >
                     <Icon name={PLACE_ICON[place.icon]} />
                     <span class="fm-place-label">{place.label}</span>
-                    <Show when={place.state === 'offline'}>
+                    <Show when={place.state === 'offline' && place.mount !== undefined}>
                       <span class="fm-place-state">Connect</span>
+                    </Show>
+                    <Show when={place.state === 'ready' ? place.sync : undefined}>
+                      {(sync) => (
+                        <span
+                          class="fm-place-sync"
+                          classList={{ [sync().state]: true }}
+                          aria-label={syncLabel(sync())}
+                        >
+                          <Icon name={SYNC_ICON[sync().state]} size={12} />
+                        </span>
+                      )}
                     </Show>
                     <Show when={place.state === 'setup'}>
                       <span class="fm-place-state">Set up</span>
@@ -1055,6 +1141,23 @@ function FilesApp(): JSX.Element {
               />
             </Show>
           </div>
+          <Show when={syncRoot()}>
+            {(root) => (
+              <Show when={root().sync}>
+                {(sync) => (
+                  <button
+                    class="fm-sync-chip"
+                    classList={{ [sync().state]: true }}
+                    title={`${syncTitle(root().path, sync())} · Sync settings in ewe-sync`}
+                    onClick={openSyncSettings}
+                  >
+                    <Icon name={SYNC_ICON[sync().state]} size={14} />
+                    <span>{syncLabel(sync())}</span>
+                  </button>
+                )}
+              </Show>
+            )}
+          </Show>
           <label class="fm-filter">
             <Icon name="search" size={14} />
             <input

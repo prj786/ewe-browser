@@ -15,7 +15,8 @@ toasts) and a right sidebar.
   right-click menus on web pages (links, images, video, selected text, fields, the page);
   find in page; two-finger touchpad swipes and the mouse side buttons for back and forward.
 - **Files** (`app://files`): a file manager that can replace Nemo, with places, Nextcloud and
-  Google Drive through ewe's brokers, GVFS and removable drives, thumbnails, copy, move, trash,
+  Google Drive through ewe's brokers, the folders ewe-sync keeps in your account (marked with
+  their state, and "Keep in your account…" on any folder in your home), GVFS and removable drives, thumbnails, copy, move, trash,
   drag and drop, compress and extract, and "open folders with ewe browser".
 - **Viewers**: images, video, audio, text, highlighted code, Markdown and PDF in an overlay that
   steps through the folder; mpv for videos Chromium cannot play.
@@ -28,8 +29,9 @@ toasts) and a right sidebar.
   "start with ewe" for instant windows.
 
 - **Extensions, DRM, sync**: Chrome Web Store extensions (an "Add to ewe browser" button on
-  store pages), Widevine DRM through castlabs Electron, and sync of bookmarks, history and
-  settings with your ewe Nextcloud account.
+  store pages), Widevine DRM through castlabs Electron, and sync of bookmarks, history, open
+  tabs and settings that follows your ewe account: signed in, it syncs; what syncs is chosen in
+  ewe-sync, the one place with sync buttons.
 - **Privacy and security**: Secure DNS (Cloudflare, Quad9, Mullvad, AdGuard, NextDNS or your
   own), HTTPS-Only, third-party cookies blocked, Global Privacy Control, and site permissions
   that ask first (camera, microphone, notifications, …) with a site info panel behind the lock.

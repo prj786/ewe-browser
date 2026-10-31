@@ -5,6 +5,7 @@ import {
   IPC,
   MUSIC_PAGE_URL,
   SETTINGS_URL,
+  isEweSyncRequest,
   isMusicRequest,
   isFsRequest,
   isHomeRequest,
@@ -13,6 +14,7 @@ import {
   type ApiLayer,
   type ThemeTokens,
 } from '@ewe/shared'
+import { runEweSync } from './ewe-sync'
 import type { DefaultHandler } from './files/default-handler'
 import type { FileService } from './files/service'
 import type { HomeService } from './home/service'
@@ -155,6 +157,18 @@ export function registerIpc(windows: WindowManager, settings: SettingsStore, dep
     if (!(frameUrl?.startsWith(SETTINGS_URL) ?? false)) return null
     if (run === true) await deps.sync.run()
     return deps.sync.status()
+  })
+
+  ipcMain.handle(IPC.eweSync, (event, raw: unknown) => {
+    const owner = windows.fromContents(event.sender)
+    if (owner?.layer !== 'page') return false
+    const frameUrl = senderFrameUrl(event, owner.layer)
+    const fromFiles = frameUrl?.startsWith(FILES_PAGE_URL) ?? false
+    const fromSettings = frameUrl?.startsWith(SETTINGS_URL) ?? false
+    if (!fromFiles && !fromSettings) return false
+    if (!isEweSyncRequest(raw)) return false
+    if (raw.op === 'add-folder' && !fromFiles) return false
+    return runEweSync(raw)
   })
 
   ipcMain.handle(IPC.startup, (event, on: unknown) => {

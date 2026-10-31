@@ -510,13 +510,10 @@ The owner asked for "a browser with real syncing and history management" (TRIO.m
 
 Known / open:
 
-- **Rule 6 ("nothing else has a sync button").** The browser still has its own sync switch and
-  _Sync now_ in Settings. ewe-sync cannot start a browser sync today (its Sync now pushes
-  `ewe.conf` and runs folder pairs only), so the button stays until it can. Proposal: a
-  _Browser_ row in ewe-sync that reads `~/.config/ewe-browser/sync/status.json` and runs
-  `ewe-browser sync` (a new verb for the command line in `rail-and-cli`, answering with the
-  status JSON); then the browser's own _Sync now_ goes and its Sync section becomes
-  "Managed in ewe Sync" with the status line.
+- ~~**Rule 6 ("nothing else has a sync button").**~~ Done 2026-10-31, see "Sync follows the ewe
+  account" below: under ewe the switch and _Sync now_ are ewe-sync's; the browser shows the
+  status and "Manage in ewe-sync". ewe-sync's _Sync now_ reaches the browser through
+  `$XDG_STATE_HOME/ewe/sync-now` instead of a new `ewe-browser sync` verb.
 - The command line reads history through `HistoryStore`: from the running browser, or, when it
   is closed, read-only from `history.db` (`loadSnapshot`, which never migrates or prunes, so a
   read cannot move `history.json` away under an older browser). It should get `history delete`
@@ -529,6 +526,45 @@ Known / open:
   days there shows on the last of those days here.
 - Not verified on two real machines or against the owner's real Nextcloud (only the mock WebDAV
   server in unit and e2e tests).
+
+## Sync follows the ewe account (2026-10-31, branch `feat/sync-ecosystem`)
+
+The owner: syncing should feel like an ecosystem: sign in once and everything comes back, set
+up a folder to sync, and see every connected folder in ewe and in ewe browser. The contract is
+shared with ewe and ewe-sync (the ewe-map vault holds it); this repo's half:
+
+- [x] **The account decides.** Under ewe (`ewe-conf` found, the real profile) browser sync is on
+      exactly when `~/.config/ewe/cloud.json` names a signed-in account and
+      `ewe-conf get sync.browser` is not `false` (ewe-sync → Overview → Browser). `sync/ewe-link.ts`
+      (`managedMode`, `effectiveSync`, `EweLink`) watches `~/.config/ewe/` and re-decides. A
+      throwaway profile (`EWE_USER_DATA`) or a test server (`EWE_SYNC_URL`) is never managed,
+      so tests and screenshots cannot start syncing into the account of whoever runs them;
+      `EWE_SYNC_MANAGED=1|0` forces it. Outside ewe the old toggle stays.
+- [x] **One sync button.** Settings → Sync shows what syncs, the status and "Manage in
+      ewe-sync" (`ewe-sync --pane overview`), or "Open ewe-sync" when signed out; no toggle and
+      no Sync now (rule 6). `SyncStatus` gained `managed` and `signedIn`.
+- [x] **The nudge.** ewe-sync's Sync now writes `$XDG_STATE_HOME/ewe/sync-now`; the browser
+      runs a cycle when it changes.
+- [x] **Connected folders in the file manager.** ewe-sync's `$XDG_STATE_HOME/ewe/sync-folders.json`
+      (`sync/snapshot.ts`, validated) marks places that sync (a state glyph: synced, syncing,
+      conflict, error, paused) and lists the other synced folders in a new **Synced** group;
+      a Nextcloud folder that a sync engine fills counts as ready. Synced folder tiles and rows
+      carry the same glyph. Inside a synced folder the toolbar shows a chip ("In your account",
+      "Syncing…", "2 conflicts", "Paused on this computer", "Couldn't sync") that opens
+      ewe-sync's Folders. The snapshot is watched and pushed as `ewe:places-changed`.
+- [x] **Keep in your account….** A folder's menu (and the background menu for the current
+      folder) offers it for folders in your home that are not synced and hold no synced
+      folder; it runs `ewe-sync --add-folder <path>`. Inside a synced folder it is "Sync
+      settings…". Hidden when ewe-sync is not installed. `ewe:ewe-sync` (invoke,
+      `app://files` and `app://settings` only, `isEweSyncRequest`) starts ewe-sync detached,
+      argv only.
+- [x] Tests: `tests/unit/ewe-link.test.ts` (the decision, the snapshot parser, the watcher, the
+      argv, `SyncService` following the account and the nudge against the mock WebDAV), the
+      places cases in `files.test.ts`, the shared helpers in `files.test.ts`, and
+      `tests/e2e/ewe-sync.spec.ts` (fake `ewe-conf`/`ewe-sync` on `EWE_BIN`, a sandboxed HOME
+      and XDG dirs; `EWE_SYNC_SHOTS=<dir>` saves screenshots).
+- [ ] Not tried against the real ewe-sync yet: its `--pane`, `--add-folder` and the snapshot
+      land in the same wave.
 
 ## Bottom bar (asked 2026-10-17, 0.3.0-beta)
 

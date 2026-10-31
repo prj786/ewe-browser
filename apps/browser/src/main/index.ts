@@ -1,7 +1,14 @@
 import { basename, dirname, join, resolve } from 'node:path'
 import { app, components, nativeTheme, session, webContents, type WebContents } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
-import { HOME_URL, IPC, MUSIC_PAGE_URL, NEW_TAB_URL, type SessionWindow } from '@ewe/shared'
+import {
+  FILES_PAGE_URL,
+  HOME_URL,
+  IPC,
+  MUSIC_PAGE_URL,
+  NEW_TAB_URL,
+  type SessionWindow,
+} from '@ewe/shared'
 import { chromeBookmarkPaths, readChromeBookmarks } from './chrome-bookmarks'
 import { createCliHost } from './cli/host'
 import { listenCli, type CliServer } from './cli/server'
@@ -35,6 +42,7 @@ import { SessionStore } from './storage/session-store'
 import { setShortcuts } from './shortcuts'
 import { SettingsStore } from './storage/settings-store'
 import { Startup } from './startup'
+import { EweLink } from './sync/ewe-link'
 import { SyncService } from './sync/service'
 import {
   WindowManager,
@@ -223,7 +231,8 @@ async function main(): Promise<void> {
     },
     onBlocked: (message) => notifyBlocked(message),
   })
-  const sync = new SyncService({ userData, settings, bookmarks, history })
+  const eweLink = EweLink.detect()
+  const sync = new SyncService({ userData, settings, bookmarks, history, ewe: eweLink })
   sync.on('status', (status) => {
     for (const contents of webContents.getAllWebContents())
       if (!contents.isDestroyed() && contents.getURL().startsWith('app://settings'))
@@ -325,6 +334,7 @@ async function main(): Promise<void> {
     safe.client.stop()
     files.dispose()
     sync.dispose()
+    eweLink.dispose()
     historyService.dispose()
     void history.flush().then(() => history.close())
   })
@@ -370,6 +380,12 @@ async function main(): Promise<void> {
     openSession(settings.get().restoreSession ? await sessions.load() : [])
   }
   if (!launchedInBackground) openSession(restored)
+  eweLink.on('folders', () => {
+    for (const wc of webContents.getAllWebContents())
+      if (!wc.isDestroyed() && wc.getURL().startsWith(FILES_PAGE_URL)) wc.send(IPC.placesChanged)
+    homeChanged()
+  })
+  eweLink.start()
   sync.start()
 
   const openTargets = (targets: ReturnType<typeof openArgs>, into?: WindowController): boolean => {

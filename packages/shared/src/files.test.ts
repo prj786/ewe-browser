@@ -11,6 +11,12 @@ import {
   sortEntries,
   tildePath,
   type FsEntry,
+  isEweSyncRequest,
+  syncAction,
+  syncLabel,
+  syncRootOf,
+  type FsPlace,
+  type FsPlaceSync,
 } from './files'
 import { resolveInput } from './url'
 import { tabKindOf } from './models'
@@ -133,5 +139,67 @@ describe('entries', () => {
     expect(gvfsLabel('davs:host=cloud.example.org,ssl=true').label).toBe('cloud.example.org')
     expect(gvfsLabel('mtp:host=Google_Pixel_8').label).toBe('Google Pixel 8')
     expect(gvfsLabel('plain').label).toBe('plain')
+  })
+})
+
+describe('synced folders', () => {
+  const place = (path: string, sync?: FsPlaceSync): FsPlace => ({
+    id: path,
+    label: path.split('/').pop() ?? path,
+    path,
+    group: sync === undefined ? 'places' : 'synced',
+    icon: 'folder',
+    state: 'ready',
+    ...(sync === undefined ? {} : { sync }),
+  })
+  const sync = (state: FsPlaceSync['state'], conflicts = 0): FsPlaceSync => ({
+    state,
+    conflicts,
+    lastSync: null,
+    engine: 'ewe',
+    error: '',
+  })
+  const places = [
+    place('/h'),
+    place('/h/Documents', sync('synced')),
+    place('/h/Documents/Inner', sync('syncing')),
+    place('/h/Work/Notes', sync('paused')),
+  ]
+
+  it('finds the deepest synced folder a path sits in', () => {
+    expect(syncRootOf('/h/Documents/a/b', places)?.path).toBe('/h/Documents')
+    expect(syncRootOf('/h/Documents/Inner/x', places)?.path).toBe('/h/Documents/Inner')
+    expect(syncRootOf('/h/Documents2', places)).toBeNull()
+    expect(syncRootOf('/h', places)).toBeNull()
+  })
+
+  it('offers keep, settings or nothing', () => {
+    expect(syncAction('/h/Pictures', places, '/h')).toBe('keep')
+    expect(syncAction('/h/Documents', places, '/h')).toBe('settings')
+    expect(syncAction('/h/Documents/a', places, '/h')).toBe('settings')
+    expect(syncAction('/h/Work', places, '/h')).toBeNull()
+    expect(syncAction('/h', places, '/h')).toBeNull()
+    expect(syncAction('/srv/data', places, '/h')).toBeNull()
+    expect(syncAction('/h/x', places, '')).toBeNull()
+  })
+
+  it('says what state a folder is in', () => {
+    expect(syncLabel(sync('synced'))).toBe('In your account')
+    expect(syncLabel(sync('conflict', 1))).toBe('1 conflict')
+    expect(syncLabel(sync('conflict', 4))).toBe('4 conflicts')
+    expect(syncLabel(sync('conflict'))).toBe('Needs a decision')
+    expect(syncLabel(sync('paused'))).toBe('Paused on this computer')
+    expect(syncLabel(sync('error'))).toBe("Couldn't sync")
+  })
+
+  it('validates requests to start ewe-sync', () => {
+    expect(isEweSyncRequest({ op: 'available' })).toBe(true)
+    expect(isEweSyncRequest({ op: 'pane', pane: 'folders' })).toBe(true)
+    expect(isEweSyncRequest({ op: 'pane', pane: 'secrets' })).toBe(false)
+    expect(isEweSyncRequest({ op: 'add-folder', path: '/h/Work' })).toBe(true)
+    expect(isEweSyncRequest({ op: 'add-folder', path: 'Work' })).toBe(false)
+    expect(isEweSyncRequest({ op: 'add-folder', path: '/h/a\0b' })).toBe(false)
+    expect(isEweSyncRequest({ op: 'run' })).toBe(false)
+    expect(isEweSyncRequest(null)).toBe(false)
   })
 })

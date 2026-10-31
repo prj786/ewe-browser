@@ -1,5 +1,5 @@
 import type { BookmarkFolder } from './bookmarks'
-import type { FsRequest, FsResult } from './files'
+import type { EweSyncRequest, FsRequest, FsResult } from './files'
 import type { HistoryRequest, RemoteMachine } from './history'
 import type { HomeRequest } from './home'
 import type { FindResult, PageMenu, SwipeDirection } from './input'
@@ -199,6 +199,8 @@ export interface BrowserApi {
   fs<T = unknown>(request: FsRequest): Promise<FsResult<T>>
   defaultHandler(set?: boolean): Promise<{ isDefault: boolean; current: string | null } | null>
   onFsChanged(listener: (path: string) => void): () => void
+  onPlacesChanged(listener: () => void): () => void
+  eweSync(request: EweSyncRequest): Promise<boolean>
   music<T = MusicLibrary>(request: MusicRequest): Promise<FsResult<T>>
   home<T = unknown>(request: HomeRequest): Promise<FsResult<T>>
   onHomeChanged(listener: () => void): () => void
@@ -234,6 +236,8 @@ export const IPC = {
   fs: 'ewe:fs',
   defaultHandler: 'ewe:default-handler',
   fsChanged: 'ewe:fs-changed',
+  placesChanged: 'ewe:places-changed',
+  eweSync: 'ewe:ewe-sync',
   music: 'ewe:music',
   home: 'ewe:home',
   homeChanged: 'ewe:home-changed',

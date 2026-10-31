@@ -17,6 +17,7 @@ import { debounce, readJson, writeJsonAtomic } from '../storage/json-file'
 import type { BookmarksStore } from '../storage/bookmarks-store'
 import type { HistoryStore } from '../storage/history-store'
 import type { SettingsStore } from '../storage/settings-store'
+import { effectiveSync, type EweSyncState } from './ewe-link'
 import { legacyFileId, machineId, machineLabel } from './machine'
 import {
   CLEAR_TTL,
@@ -148,11 +149,17 @@ export function ownTabs(windows: SessionWindow[]): RemoteWindow[] {
   return out
 }
 
+export interface EweSource {
+  current(): EweSyncState
+  on(event: 'change' | 'nudge', listener: () => void): unknown
+}
+
 export interface SyncDeps {
   userData: string
   settings: SettingsStore
   bookmarks: BookmarksStore
   history: HistoryStore
+  ewe?: EweSource | undefined
 }
 
 export class SyncService extends EventEmitter<{ status: [SyncStatus]; tabs: [RemoteMachine[]] }> {
@@ -161,6 +168,8 @@ export class SyncService extends EventEmitter<{ status: [SyncStatus]; tabs: [Rem
   readonly id: string
   private current: SyncStatus = {
     enabled: false,
+    managed: false,
+    signedIn: false,
     state: 'off',
     lastSync: null,
     error: null,
@@ -265,10 +274,30 @@ export class SyncService extends EventEmitter<{ status: [SyncStatus]; tabs: [Rem
     }
     deps.bookmarks.on('change', onChange)
     deps.history.on('change', onChange)
-    deps.settings.on('change', (next) => {
-      if (next.sync !== this.current.enabled) this.configure()
+    deps.settings.on('change', () => {
+      if (this.wanted() !== this.current.enabled) this.configure()
       else onChange()
     })
+    deps.ewe?.on('change', () => {
+      const ewe = this.ewe()
+      if (
+        this.wanted() !== this.current.enabled ||
+        ewe.managed !== this.current.managed ||
+        ewe.signedIn !== this.current.signedIn
+      )
+        this.configure()
+    })
+    deps.ewe?.on('nudge', () => {
+      if (this.wanted()) void this.run()
+    })
+  }
+
+  private ewe(): EweSyncState {
+    return this.deps.ewe?.current() ?? { managed: false, signedIn: false, browser: null }
+  }
+
+  private wanted(): boolean {
+    return effectiveSync(this.ewe(), this.deps.settings.get().sync)
   }
 
   status(): SyncStatus {
@@ -314,15 +343,18 @@ export class SyncService extends EventEmitter<{ status: [SyncStatus]; tabs: [Rem
   }
 
   private configure(): void {
-    const enabled = this.deps.settings.get().sync
+    const enabled = this.wanted()
+    const { managed, signedIn } = this.ewe()
     if (this.timer !== null) clearInterval(this.timer)
     this.timer = null
     if (!enabled) {
-      this.set({ enabled: false, state: 'off', error: null })
+      if (this.kickTimer !== null) clearTimeout(this.kickTimer)
+      this.kickTimer = null
+      this.set({ enabled: false, managed, signedIn, state: 'off', error: null })
       this.emit('tabs', [])
       return
     }
-    this.set({ enabled: true, state: 'idle' })
+    this.set({ enabled: true, managed, signedIn, state: 'idle' })
     this.emit('tabs', this.machines)
     this.timer = setInterval(() => void this.run(), INTERVAL)
     if (this.kickTimer !== null) clearTimeout(this.kickTimer)
@@ -341,7 +373,7 @@ export class SyncService extends EventEmitter<{ status: [SyncStatus]; tabs: [Rem
   }
 
   run(): Promise<void> {
-    if (this.disposed || !this.deps.settings.get().sync) return Promise.resolve()
+    if (this.disposed || !this.wanted()) return Promise.resolve()
     this.running ??= this.cycle().finally(() => {
       this.running = null
     })
@@ -407,7 +439,9 @@ export class SyncService extends EventEmitter<{ status: [SyncStatus]; tabs: [Rem
       this.set({
         state: 'error',
         account: null,
-        error: 'Sign in to Nextcloud in ewe Settings first',
+        error: this.current.managed
+          ? 'Your ewe account is not available here. Open ewe-sync to sign in again.'
+          : 'Sign in to your ewe account in ewe-sync first',
       })
       return
     }

@@ -61,6 +61,7 @@ describe('places parsing', () => {
       uid: 1000,
       configHome: '/h/.config',
       dataHome: '/h/.local/share',
+      stateHome: '/h/.local/state',
       readText: (p) =>
         p.endsWith('user-dirs.dirs')
           ? 'XDG_DOWNLOAD_DIR="$HOME/Downloads"\nXDG_DESKTOP_DIR="$HOME"\n'
@@ -93,6 +94,84 @@ describe('places parsing', () => {
     expect(places.find((p) => p.id === 'media-USB')?.path).toBe('/run/media/me/USB')
     expect(places.find((p) => p.id === 'gvfs-sftp:host=box')?.label).toBe('box')
     expect(ids.slice(-2)).toEqual(['root', 'trash'])
+    expect(places.some((p) => p.group === 'synced')).toBe(false)
+  })
+
+  it('marks synced folders, groups the others and counts a synced Nextcloud as ready', async () => {
+    const snapshot = {
+      version: 1,
+      signed_in: true,
+      folders: [
+        { local: '/h/Downloads', name: 'Downloads', state: 'synced', last_sync: 100 },
+        { local: '/h/work', name: 'Work', state: 'syncing' },
+        { local: '/h/Notes', name: 'Notes', state: 'conflict', conflicts: 3 },
+        { local: '/h/Nextcloud/', engine: 'nextcloud-app', state: 'synced' },
+      ],
+    }
+    const env: PlacesEnv = {
+      home: '/h',
+      user: 'me',
+      uid: 1000,
+      configHome: '/h/.config',
+      dataHome: '/h/.local/share',
+      stateHome: '/h/.local/state',
+      readText: (p) =>
+        p.endsWith('user-dirs.dirs')
+          ? 'XDG_DOWNLOAD_DIR="$HOME/Downloads"\n'
+          : p.endsWith('bookmarks')
+            ? 'file:///h/work Work bookmark\nfile:///h/other Other\n'
+            : p === '/h/.local/state/ewe/sync-folders.json'
+              ? JSON.stringify(snapshot)
+              : null,
+      listDirs: () => [],
+      isDir: (p) => p !== '/h/Notes',
+      mounts: () => '',
+      status: (tool) =>
+        Promise.resolve(
+          tool === 'ewe-files' ? { configured: true, mounted: false, path: '/h/Nextcloud' } : null,
+        ),
+    }
+    const places = await computePlaces(env)
+    expect(places.find((p) => p.id === 'xdg-download')).toMatchObject({
+      group: 'places',
+      sync: { state: 'synced', lastSync: 100_000, engine: 'ewe' },
+    })
+    expect(places.find((p) => p.id === 'nextcloud')).toMatchObject({
+      state: 'ready',
+      sync: { engine: 'nextcloud-app' },
+    })
+    const synced = places.filter((p) => p.group === 'synced')
+    expect(synced.map((p) => [p.label, p.state, p.sync?.state])).toEqual([
+      ['Work', 'ready', 'syncing'],
+      ['Notes', 'offline', 'conflict'],
+    ])
+    expect(places.filter((p) => p.path === '/h/work')).toHaveLength(1)
+    expect(places.find((p) => p.label === 'Other')?.group).toBe('bookmarks')
+  })
+
+  it('shows the account folder ewe-sync reports even without ewe-files', async () => {
+    const env: PlacesEnv = {
+      home: '/h',
+      user: 'me',
+      uid: 1000,
+      configHome: '/h/.config',
+      dataHome: '/h/.local/share',
+      stateHome: '/s',
+      readText: (p) =>
+        p === '/s/ewe/sync-folders.json'
+          ? '{"version":1,"folders":[],"account_folder":{"path":"/h/Nextcloud","state":"mounted"}}'
+          : null,
+      listDirs: () => [],
+      isDir: () => true,
+      mounts: () => '',
+      status: () => Promise.resolve(null),
+    }
+    const places = await computePlaces(env)
+    expect(places.find((p) => p.id === 'nextcloud')).toMatchObject({
+      path: '/h/Nextcloud',
+      state: 'ready',
+      group: 'cloud',
+    })
   })
 })
 

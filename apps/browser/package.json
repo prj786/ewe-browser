@@ -1,6 +1,6 @@
 {
   "name": "@ewe/browser",
-  "version": "0.5.2-beta",
+  "version": "0.6.0-beta",
   "private": true,
   "license": "GPL-3.0-only",
   "description": "ewe browser — Chromium engine, Electron runtime, minimal shell",

@@ -265,6 +265,7 @@ export async function runLocal(tool: string, args: Args, version: string): Promi
           path: p.path,
           group: p.group,
           state: p.state,
+          ...(p.sync === undefined ? {} : { sync: p.sync.state }),
         })),
       }
     }

@@ -1102,3 +1102,127 @@ body {
 .hljs-addition {
   color: var(--success);
 }
+
+.fm-place-sync {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.fm-place .fm-place-sync .icon {
+  color: inherit;
+}
+
+.fm-place-sync.syncing {
+  color: var(--accent-text);
+}
+
+.fm-place-sync.syncing .icon,
+.fm-sync-chip.syncing .icon {
+  animation: fm-spin 0.8s linear infinite;
+}
+
+.fm-place-sync.conflict {
+  color: var(--warning);
+}
+
+.fm-place-sync.error {
+  color: var(--danger);
+}
+
+.fm-place-sync.pending,
+.fm-place-sync.offline {
+  color: var(--text-disabled);
+}
+
+.fm-sync-chip {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-xs);
+  height: var(--control-md);
+  margin-right: var(--space-xs);
+  padding: 0 var(--space-s);
+  border-radius: var(--fully-rounded);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--font-size-s);
+  white-space: nowrap;
+}
+
+.fm-sync-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.fm-sync-chip .icon {
+  color: var(--text-muted);
+}
+
+.fm-sync-chip.synced .icon {
+  color: var(--success);
+}
+
+.fm-sync-chip.syncing {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+}
+
+.fm-sync-chip.conflict {
+  background: var(--warning-subtle);
+  color: var(--warning);
+}
+
+.fm-sync-chip.error {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.fm-sync-chip.syncing .icon,
+.fm-sync-chip.conflict .icon,
+.fm-sync-chip.error .icon {
+  color: inherit;
+}
+
+.fm-icon-sync {
+  position: absolute;
+  right: calc(var(--space-xxs) * -2);
+  bottom: calc(var(--space-xxs) * -2);
+  display: flex;
+  padding: var(--space-xxs);
+  border-radius: var(--fully-rounded);
+  background: var(--surface-base);
+  color: var(--text-muted);
+}
+
+.fm-tile .fm-icon-sync {
+  right: var(--space-s);
+  bottom: var(--space-xs);
+  box-shadow: var(--shadow-sm);
+}
+
+.fm-tile .fm-icon .fm-icon-sync .icon {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+  stroke-width: 2;
+}
+
+.fm-icon.folder .fm-icon-sync .icon {
+  fill: none;
+}
+
+.fm-icon-sync.syncing {
+  color: var(--accent-text);
+}
+
+.fm-icon-sync.syncing .icon {
+  animation: fm-spin 0.8s linear infinite;
+}
+
+.fm-icon-sync.conflict {
+  color: var(--warning);
+}
+
+.fm-icon-sync.error {
+  color: var(--danger);
+}
