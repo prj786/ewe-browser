@@ -316,14 +316,14 @@ export function assertionJson(
 export function safeError(error: string | undefined, message: string | undefined): WebAuthnError {
   switch (error) {
     case 'excluded':
-      return fail('InvalidStateError', 'A passkey for this account is already in Safe.')
+      return fail('InvalidStateError', 'A passkey for this account is already in ewe Safe.')
     case 'unsupported':
       return fail('NotSupportedError', 'None of the key types the site asks for is supported.')
     case 'not-found':
-      return fail('NotAllowedError', 'That passkey is not in Safe.')
+      return fail('NotAllowedError', 'That passkey is not in ewe Safe.')
     case 'locked':
-      return fail('NotAllowedError', 'Safe is locked.')
+      return fail('NotAllowedError', 'ewe Safe is locked.')
     default:
-      return fail('NotAllowedError', message ?? 'Safe could not use the passkey.')
+      return fail('NotAllowedError', message ?? 'ewe Safe could not use the passkey.')
   }
 }

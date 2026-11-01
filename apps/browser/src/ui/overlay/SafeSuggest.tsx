@@ -130,7 +130,7 @@ export function SafeSuggest(props: { menu: SafeMenu; leaving: boolean }): JSX.El
         class="safe-suggest"
         classList={{ leaving: props.leaving, empty: flat().length === 0 }}
         role="listbox"
-        aria-label="Safe"
+        aria-label="ewe Safe"
       >
         <For each={flat()}>
           {(row, i) => (

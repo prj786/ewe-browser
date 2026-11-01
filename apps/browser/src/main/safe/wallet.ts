@@ -67,7 +67,7 @@ const BRANDS = new Set([
 ])
 
 const PAGE_CHANGED: WalletOutcome = { ok: false, message: 'The page changed. Try again.' }
-const NOT_FILLED: WalletOutcome = { ok: false, message: 'Safe did not fill the card.' }
+const NOT_FILLED: WalletOutcome = { ok: false, message: 'ewe Safe did not fill the card.' }
 
 const text = (v: unknown, max = TEXT_MAX): string => (typeof v === 'string' ? v.slice(0, max) : '')
 
@@ -275,7 +275,7 @@ export class SafeWallet {
     if (title === undefined) return { ok: false, message: 'That item is not offered here.' }
     if (this.deps.resolve(r) === null) return PAGE_CHANGED
     if (r.kind === 'card' && !cardOriginOk(r.origin))
-      return { ok: false, message: 'Safe fills cards only on secure (https) pages.' }
+      return { ok: false, message: 'ewe Safe fills cards only on secure (https) pages.' }
     this.requests.delete(requestId)
     let reply = await this.fields(id)
     if (!reply.ok && reply.error === 'confirm-needed') {
@@ -285,9 +285,9 @@ export class SafeWallet {
       reply = await this.fields(id)
     }
     if (!reply.ok) {
-      if (reply.error === 'locked') return { ok: false, message: 'Safe is locked.' }
+      if (reply.error === 'locked') return { ok: false, message: 'ewe Safe is locked.' }
       if (r.kind === 'card') return NOT_FILLED
-      return { ok: false, message: 'Safe could not open that address.' }
+      return { ok: false, message: 'ewe Safe could not open that address.' }
     }
     let fill: SafeWalletFill | null = null
     if (r.kind === 'card') {

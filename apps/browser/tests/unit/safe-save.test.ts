@@ -103,7 +103,7 @@ describe('saving a sign-up', () => {
       title: 'shop.example.com',
       locked: false,
     })
-    expect(await safe.settle(id, 'save')).toEqual({ ok: true, message: 'Saved to Safe' })
+    expect(await safe.settle(id, 'save')).toEqual({ ok: true, message: 'Saved to ewe Safe' })
     expect(fake.calls.find((c) => c.verb === 'add')?.args).toEqual({
       kind: 'login',
       title: 'shop.example.com',
@@ -142,7 +142,7 @@ describe('saving a sign-up', () => {
     expect(await safe.prompt(id)).toMatchObject({ mode: 'save', locked: true, username: 'sam' })
     expect(await safe.unlockAndSave(id)).toEqual({
       kind: 'done',
-      outcome: { ok: true, message: 'Saved to Safe' },
+      outcome: { ok: true, message: 'Saved to ewe Safe' },
     })
     expect(fake.locked).toBe(false)
     expect(cliCalls()).toEqual([['unlock', '--ask']])
@@ -159,7 +159,7 @@ describe('saving a sign-up', () => {
     expect(next).toMatchObject({ kind: 'prompt', prompt: { mode: 'update', locked: false } })
     expect(await safe.settle(id, 'update')).toEqual({
       ok: true,
-      message: 'Password updated in Safe',
+      message: 'Password updated in ewe Safe',
     })
   })
 
@@ -170,7 +170,7 @@ describe('saving a sign-up', () => {
     if (id === null) throw new Error('no capture')
     expect(await safe.unlockAndSave(id)).toEqual({
       kind: 'done',
-      outcome: { ok: false, message: 'Safe is still locked. The login was not saved.' },
+      outcome: { ok: false, message: 'ewe Safe is still locked. The login was not saved.' },
     })
     expect(fake.calls.some((c) => c.verb === 'add')).toBe(false)
   })
@@ -284,7 +284,7 @@ describe('cards and addresses', () => {
     const menu = await safe.wallet.menu(frame(), 'card')
     expect(await safe.choose(menu.requestId, card.id)).toEqual({
       ok: false,
-      message: 'Safe did not fill the card.',
+      message: 'ewe Safe did not fill the card.',
     })
     expect(fills()).toEqual([])
   })

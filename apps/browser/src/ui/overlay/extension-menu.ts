@@ -34,7 +34,7 @@ export function extensionMenuItems(info: ExtensionInfo): MenuEntry[] {
     {
       type: 'item',
       id: 'remove',
-      label: 'Remove from ewe browser',
+      label: 'Remove from ewe Browser',
       icon: 'trash-2',
       danger: true,
       run: () => send({ type: 'extension.remove', id: info.id }),

@@ -10,7 +10,8 @@ export function SafePromptCard(props: {
 }): JSX.Element {
   const update = () => props.prompt.mode === 'update'
   const locked = () => props.prompt.locked && !update()
-  const title = () => (update() ? 'Update the password in Safe?' : 'Save this login to Safe?')
+  const title = () =>
+    update() ? 'Update the password in ewe Safe?' : 'Save this login to ewe Safe?'
   const primary = (): SafePromptAction => (update() ? 'update' : locked() ? 'unlock' : 'save')
   return (
     <div
@@ -34,7 +35,9 @@ export function SafePromptCard(props: {
             </Show>
           </span>
           <Show when={locked()}>
-            <span class="install-sub safe-prompt-locked">Safe is locked. Unlock it to save.</span>
+            <span class="install-sub safe-prompt-locked">
+              ewe Safe is locked. Unlock it to save.
+            </span>
           </Show>
         </span>
       </div>

@@ -653,12 +653,12 @@ function FilesApp(): JSX.Element {
 
   const openSyncSettings = () =>
     void api.eweSync({ op: 'pane', pane: 'folders' }).then((ok) => {
-      if (!ok) say('ewe-sync is not installed', true)
+      if (!ok) say('ewe Sync is not installed', true)
     })
 
   const keepInAccount = (p: string) =>
     void api.eweSync({ op: 'add-folder', path: p }).then((ok) => {
-      say(ok ? 'Opening ewe-sync…' : 'Could not open ewe-sync', !ok)
+      say(ok ? 'Opening ewe Sync…' : 'Could not open ewe Sync', !ok)
     })
 
   const syncItem = (p: string): MenuEntry | null => {
@@ -854,7 +854,7 @@ function FilesApp(): JSX.Element {
 
   const openPlace = (place: FsPlace) => {
     if (place.state === 'setup') {
-      say(`Sign in to your ewe account in ewe-sync to use ${place.label}`, true)
+      say(`Sign in to your ewe account in ewe Sync to use ${place.label}`, true)
       return
     }
     const target = place.mount
@@ -1012,7 +1012,7 @@ function FilesApp(): JSX.Element {
                     data-place={place.id}
                     title={
                       place.state === 'setup'
-                        ? 'Sign in to your ewe account in ewe-sync'
+                        ? 'Sign in to your ewe account in ewe Sync'
                         : place.state === 'offline' && place.mount !== undefined
                           ? `Connect ${place.label}`
                           : place.sync === undefined
@@ -1148,7 +1148,7 @@ function FilesApp(): JSX.Element {
                   <button
                     class="fm-sync-chip"
                     classList={{ [sync().state]: true }}
-                    title={`${syncTitle(root().path, sync())} · Sync settings in ewe-sync`}
+                    title={`${syncTitle(root().path, sync())} · Sync settings in ewe Sync`}
                     onClick={openSyncSettings}
                   >
                     <Icon name={SYNC_ICON[sync().state]} size={14} />

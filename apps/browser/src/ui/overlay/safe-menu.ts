@@ -19,7 +19,7 @@ export interface SafeRows {
 const open: SafeRow = {
   kind: 'action',
   key: 'safe-open',
-  title: 'Open Safe',
+  title: 'Open ewe Safe',
   icon: 'external-link',
   action: 'open',
 }
@@ -33,7 +33,7 @@ const generate: SafeRow = {
 const unlock: SafeRow = {
   kind: 'action',
   key: 'safe-unlock',
-  title: 'Unlock Safe',
+  title: 'Unlock ewe Safe',
   icon: 'lock',
   action: 'unlock',
 }
@@ -75,7 +75,7 @@ function walletRows(menu: SafeMenu, filter: string): SafeRows {
     case 'unavailable':
       return {
         items: [],
-        footer: [{ kind: 'note', key: 'safe-off', title: 'Safe is not running', icon: 'lock' }],
+        footer: [{ kind: 'note', key: 'safe-off', title: 'ewe Safe is not running', icon: 'lock' }],
       }
     case 'not-set-up':
       return {
@@ -84,7 +84,7 @@ function walletRows(menu: SafeMenu, filter: string): SafeRows {
           {
             kind: 'action',
             key: 'safe-setup',
-            title: 'Set up Safe',
+            title: 'Set up ewe Safe',
             icon: 'key-round',
             action: 'setup',
           },
@@ -100,7 +100,7 @@ function walletRows(menu: SafeMenu, filter: string): SafeRows {
             {
               kind: 'note',
               key: 'safe-insecure',
-              title: 'Safe fills cards only on secure (https) pages',
+              title: 'ewe Safe fills cards only on secure (https) pages',
               icon: 'lock',
             },
           ],
@@ -111,7 +111,7 @@ function walletRows(menu: SafeMenu, filter: string): SafeRows {
           {
             kind: 'note',
             key: 'safe-none',
-            title: `No ${what} in Safe`,
+            title: `No ${what} in ewe Safe`,
             icon: card ? 'credit-card' : 'map-pin',
           },
           open,
@@ -148,7 +148,7 @@ export function safeRows(menu: SafeMenu, filterText = ''): SafeRows {
     case 'unavailable':
       return {
         items: [],
-        footer: [{ kind: 'note', key: 'safe-off', title: 'Safe is not running', icon: 'lock' }],
+        footer: [{ kind: 'note', key: 'safe-off', title: 'ewe Safe is not running', icon: 'lock' }],
       }
     case 'not-set-up':
       return {
@@ -157,7 +157,7 @@ export function safeRows(menu: SafeMenu, filterText = ''): SafeRows {
           {
             kind: 'action',
             key: 'safe-setup',
-            title: 'Set up Safe',
+            title: 'Set up ewe Safe',
             icon: 'key-round',
             action: 'setup',
           },

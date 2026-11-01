@@ -202,7 +202,7 @@ export class WindowController {
       titleBarStyle: 'hidden',
       show: false,
       backgroundColor: windowBackground(),
-      title: 'ewe browser',
+      title: 'ewe Browser',
       webPreferences: {
         preload: deps.preload,
         additionalArguments: [`${LAYER_ARG}shell`],

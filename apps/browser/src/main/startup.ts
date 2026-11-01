@@ -1,6 +1,7 @@
 import { runTool } from './files/places'
 
-export const STARTUP_NAME = 'ewe browser'
+export const STARTUP_NAME = 'ewe Browser'
+const LEGACY_NAMES = new Set([STARTUP_NAME, 'ewe browser'])
 
 export interface StartupEntry {
   enabled: boolean
@@ -36,7 +37,7 @@ export function parseEntries(text: string | null): StartupEntry[] | null {
 }
 
 export function withEntry(entries: StartupEntry[], on: boolean, exec: string): StartupEntry[] {
-  const rest = entries.filter((e) => e.name !== STARTUP_NAME)
+  const rest = entries.filter((e) => !LEGACY_NAMES.has(e.name))
   return on ? [...rest, { enabled: true, exec, icon: 'web-browser', name: STARTUP_NAME }] : rest
 }
 
@@ -50,7 +51,7 @@ export class Startup {
   async status(): Promise<{ available: boolean; on: boolean }> {
     const entries = parseEntries(await runTool('ewe-conf', ['get', 'apps.startup']))
     if (entries === null) return { available: false, on: false }
-    return { available: true, on: entries.some((e) => e.name === STARTUP_NAME && e.enabled) }
+    return { available: true, on: entries.some((e) => LEGACY_NAMES.has(e.name) && e.enabled) }
   }
 
   async set(on: boolean): Promise<{ available: boolean; on: boolean }> {

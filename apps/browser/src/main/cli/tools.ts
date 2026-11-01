@@ -92,7 +92,7 @@ export const TOOLS: readonly ToolSpec[] = [
   },
   {
     name: 'version',
-    summary: 'The installed ewe browser version',
+    summary: 'The installed ewe Browser version',
     tier: 0,
     where: 'local',
     usage: 'ewe-browser version',

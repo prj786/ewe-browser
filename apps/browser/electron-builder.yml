@@ -1,7 +1,7 @@
 # electron-builder lays out the app (the castlabs Electron runtime + app.asar);
 # the PKGBUILD at the repo root turns that directory into the Arch package.
 appId: io.github.prj786.ewe-browser
-productName: ewe browser
+productName: ewe Browser
 executableName: ewe-browser
 # Widevine needs castlabs' Electron (ECS), so the runtime is the one pnpm
 # installed from github:castlabs/electron-releases, never a download of

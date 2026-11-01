@@ -25,7 +25,7 @@ export function PasskeySheet(props: {
   const create = () => props.sheet.mode === 'create'
   const title = () =>
     create()
-      ? `Save a passkey for ${props.sheet.rpId} in Safe?`
+      ? `Save a passkey for ${props.sheet.rpId} in ewe Safe?`
       : `Sign in to ${props.sheet.rpId} with a passkey`
 
   const settled = () => performance.now() - shownAt >= SHEET_GUARD_MS
@@ -41,7 +41,7 @@ export function PasskeySheet(props: {
   }
 
   const primary = (): Primary | null => {
-    if (props.sheet.state === 'locked') return { label: 'Unlock Safe', action: 'unlock' }
+    if (props.sheet.state === 'locked') return { label: 'Unlock ewe Safe', action: 'unlock' }
     if (props.sheet.state === 'empty') return null
     return create() ? { label: 'Save', action: 'save' } : { label: 'Sign in', action: 'pick' }
   }
@@ -110,8 +110,8 @@ export function PasskeySheet(props: {
         <Match when={props.sheet.state === 'locked'}>
           <p class="safe-sheet-note">
             {create()
-              ? 'Safe is locked. Unlock it to save the passkey.'
-              : 'Safe is locked. Unlock it to use your passkeys.'}
+              ? 'ewe Safe is locked. Unlock it to save the passkey.'
+              : 'ewe Safe is locked. Unlock it to use your passkeys.'}
           </p>
         </Match>
         <Match when={props.sheet.state === 'empty'}>
@@ -130,7 +130,7 @@ export function PasskeySheet(props: {
             </span>
           </div>
           <p class="safe-sheet-note">
-            <Show when={props.sheet.into} fallback="Safe saves it as a new login.">
+            <Show when={props.sheet.into} fallback="ewe Safe saves it as a new login.">
               {(into) => <>It goes into your login “{into().title}”.</>}
             </Show>
           </p>

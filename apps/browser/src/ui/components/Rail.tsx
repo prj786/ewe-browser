@@ -463,8 +463,8 @@ export function Rail(props: RailProps): JSX.Element {
         <Show when={/^https?:/i.test(active()?.url ?? '')}>
           <button
             class="iconbtn iconbtn--sm rail-key"
-            title="Fill from Safe (Ctrl+Shift+L)"
-            aria-label="Fill from Safe"
+            title="Fill from ewe Safe (Ctrl+Shift+L)"
+            aria-label="Fill from ewe Safe"
             tabindex="-1"
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
@@ -536,7 +536,7 @@ export function Rail(props: RailProps): JSX.Element {
             onClick={() => void api.send({ type: 'extension.install', source: id() })}
           >
             <Icon name="puzzle" />
-            <span>Add to ewe browser</span>
+            <span>Add to ewe Browser</span>
           </button>
         )}
       </Show>
