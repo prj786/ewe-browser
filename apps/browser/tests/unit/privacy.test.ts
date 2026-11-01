@@ -12,7 +12,12 @@ import {
   verdict,
 } from '../../src/main/privacy/permissions'
 import { PrivacyService } from '../../src/main/privacy/service'
-import { featureSwitch, privacyAtStartup } from '../../src/main/privacy/startup'
+import {
+  NO_DNS_PREFETCH,
+  blinkSettingSwitch,
+  featureSwitch,
+  privacyAtStartup,
+} from '../../src/main/privacy/startup'
 import { SettingsStore } from '../../src/main/storage/settings-store'
 import { permissionRect } from '../../src/main/privacy/window'
 import { privacyPage } from '../../src/preload/privacy'
@@ -179,6 +184,10 @@ describe('third-party cookies at startup', () => {
     expect(privacyAtStartup(dir).blockThirdPartyCookies).toBe(true)
     expect(featureSwitch('', 'X')).toBe('X')
     expect(featureSwitch('A,X,B', 'X')).toBe('A,B,X')
+    expect(blinkSettingSwitch('', NO_DNS_PREFETCH)).toBe('dnsPrefetchingEnabled=false')
+    expect(
+      blinkSettingSwitch('imagesEnabled=false,dnsPrefetchingEnabled=true', NO_DNS_PREFETCH),
+    ).toBe('imagesEnabled=false,dnsPrefetchingEnabled=false')
   })
 })
 

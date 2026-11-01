@@ -2,6 +2,7 @@ import {
   WORKSPACE_COLORS,
   WORKSPACE_COLOR_ORDER,
   isWorkspaceColor,
+  type RemoteChoice,
   type ShellCommand,
   type Workspace,
   type WindowSnapshot,
@@ -10,6 +11,28 @@ import type { MenuEntry } from '../components/Menu'
 import { api } from '../lib/api'
 
 const send = (command: ShellCommand): void => void api.send(command)
+
+export function newWorkspaceMenuItems(choices: RemoteChoice[]): MenuEntry[] {
+  return [
+    {
+      type: 'item',
+      id: 'new',
+      label: 'New workspace',
+      icon: 'plus',
+      run: () => send({ type: 'workspace.create' }),
+    },
+    { type: 'separator' },
+    ...choices.map((c): MenuEntry => ({
+      type: 'item',
+      id: `remote:${c.id}`,
+      label: `Browse from ${c.name}`,
+      icon: 'monitor',
+      hint: c.usable ? (c.online ? undefined : 'Offline') : 'Not sharing',
+      disabled: !c.usable,
+      run: () => send({ type: 'workspace.create', remote: c.id }),
+    })),
+  ]
+}
 
 export function workspaceMenuItems(
   workspace: Workspace,

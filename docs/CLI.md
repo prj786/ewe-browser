@@ -39,7 +39,9 @@ browser without the command line is running), `not-installed`, `protocol`, `bad-
 socket got a line that is not a request), `bad-reply` (the browser answered something that is not
 JSON), `unknown-site` (`search --site` / `site` cannot find the site; search without `--site`),
 `no-history` (nothing to go back or forward to), `last-workspace` (the last workspace cannot be
-removed), `not-finished` (the download is still running), `failed`, `internal`.
+removed), `not-finished` (the download is still running), `no-remote` (ewe Remote is not
+installed), `this-computer`, `not-paired`, `not-sharing` (`workspace create --remote` names a
+computer that cannot be browsed from), `failed`, `internal`.
 
 ## Verbs
 
@@ -69,10 +71,10 @@ Tier is the Companion's: 0 read, 1 desktop (runs, then offers Undo), 2 change (a
 | `reveal <path>`                                                                            | 1    | opens the file manager with the item selected                                                                                                                            |
 | `home`                                                                                     | 1    | opens the home page                                                                                                                                                      |
 | `focus`                                                                                    | 1    | raises the browser, starting it if needed                                                                                                                                |
-| `workspaces`                                                                               | 0    | `window`, `workspaces` (id, name, color, index (1-based, bar order), tabs, active) of the focused, else last used, window                                                |
+| `workspaces`                                                                               | 0    | `window`, `workspaces` (id, name, color, index (1-based, bar order), tabs, active, remote) of the focused, else last used, window                                        |
 | `workspace activate <id\|name\|number>`                                                    | 1    | `workspace`; `undo` = activate the one that was active                                                                                                                   |
 | `workspace next` / `workspace prev`                                                        | 1    | the same as the browser's own next/previous workspace shortcut (wraps around); `workspace`; `undo` = the other direction                                                 |
-| `workspace create [name] [--color c]`                                                      | 1    | a new workspace, active, on Home: `workspace`; `undo` = `workspace remove <id>`                                                                                          |
+| `workspace create [name] [--color c] [--remote <computer>]`                                | 1    | a new workspace, active, on Home: `workspace`; `undo` = `workspace remove <id>`; `--remote`: see Remote workspaces below                                                 |
 | `workspace rename <id\|name\|number> <new name>`                                           | 1    | `workspace`; `undo` = rename back                                                                                                                                        |
 | `workspace remove <id\|name\|number>`                                                      | 2    | removes it and closes its tabs, like the bottom bar menu's Remove (web pages go on the closed-tab stack); `closedTabs`; `last-workspace` for the last one                |
 | `back` / `forward`                                                                         | 1    | the active tab of the focused, else last used, window: `tab` (before), `undo` = the other; `no-history`                                                                  |
@@ -88,6 +90,15 @@ Several words are joined into one query (`ewe-browser search sheep breeds`). `op
 plain words searches them as one query; quote a query that looks like a host (`open 'node.js docs'`).
 A first word that names a file or folder in the working directory opens it instead of running a
 verb; `./tabs` or an absolute path makes that explicit.
+
+## Remote workspaces
+
+`workspace create --remote <computer>` makes a workspace that browses from one of your paired ewe
+computers: its own cookies, every request through `ewe-remote tunnel <id>` (SOCKS5, names resolved
+on that computer). `<computer>` is an id or a name from `ewe-remote status` (any case, or a 4+
+character id prefix); the workspace is named after the computer unless a name is given. It fails
+with `this-computer`, `not-paired`, `not-sharing`, `not-found` or `no-remote`. In `workspaces`,
+`remote` is `{id, name}` of that computer, else `null`.
 
 ## When the browser is not running
 

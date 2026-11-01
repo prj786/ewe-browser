@@ -332,10 +332,13 @@ export const TOOLS: readonly ToolSpec[] = [
     summary: 'Create a workspace and switch to it; it opens on Home',
     tier: 1,
     where: 'app',
-    usage: 'ewe-browser workspace create [name] [--color c]',
+    usage: 'ewe-browser workspace create [name] [--color c] [--remote <computer>]',
     schema: schema({
-      name: str('Name (default "Workspace N")'),
+      name: str('Name (default "Workspace N", or the computer\'s name with --remote)'),
       color: str('Colour (default the next free one)', { enum: WORKSPACE_COLOR_NAMES }),
+      remote: str(
+        'Browse from one of your paired computers (its id or name from `ewe-remote status`): the workspace gets its own cookies and its traffic leaves from that computer',
+      ),
     }),
   },
   {

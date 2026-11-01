@@ -69,7 +69,7 @@ export class PrivacyService {
     deps.settings.on('change', () => this.applyDns())
   }
 
-  install(session: Session): void {
+  install(session: Session, gate?: () => boolean): void {
     session.setPermissionRequestHandler((contents, permission, callback, details) => {
       const requesting = details.requestingUrl
       if (requesting.startsWith('app://') || contents.getURL().startsWith('app://')) {
@@ -112,14 +112,27 @@ export class PrivacyService {
         return kinds.some((k) => this.deps.permissions.value(origin, k) === 'allow')
       return verdict(this.deps.permissions.get(origin), kinds) === 'allow'
     })
+    const upgrade = (details: Electron.OnBeforeRequestListenerDetails) =>
+      this.https.upgrade(details.webContentsId, details.url, details.resourceType === 'mainFrame')
+    if (gate === undefined) {
+      session.webRequest.onBeforeRequest(
+        { urls: ['http://*/*'], types: ['mainFrame', 'subFrame'] },
+        (details, callback) => {
+          const target = upgrade(details)
+          callback(target === null ? {} : { redirectURL: target })
+        },
+      )
+      return
+    }
     session.webRequest.onBeforeRequest(
-      { urls: ['http://*/*'], types: ['mainFrame', 'subFrame'] },
+      { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
       (details, callback) => {
-        const target = this.https.upgrade(
-          details.webContentsId,
-          details.url,
-          details.resourceType === 'mainFrame',
-        )
+        if (!gate()) {
+          callback({ cancel: true })
+          return
+        }
+        const frame = details.resourceType === 'mainFrame' || details.resourceType === 'subFrame'
+        const target = frame && details.url.startsWith('http:') ? upgrade(details) : null
         callback(target === null ? {} : { redirectURL: target })
       },
     )

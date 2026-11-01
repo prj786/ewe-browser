@@ -24,6 +24,16 @@ function tabCount(store: BrowserStore, id: string): number {
   return store.state()?.tabs.filter((t) => t.workspaceId === id).length ?? 0
 }
 
+function viaLabel(ws: Workspace): string | null {
+  const remote = ws.remote
+  return remote === undefined || remote.name === ws.name ? null : `via ${remote.name}`
+}
+
+function chipTitle(ws: Workspace, tabs: number): string {
+  const via = ws.remote === undefined ? '' : ` · browses from ${ws.remote.name}`
+  return `${ws.name}${via} · ${tabs} tabs`
+}
+
 export function BottomBar(props: BottomBarProps): JSX.Element {
   const store = () => props.store
   const [renaming, setRenaming] = createSignal<string | null>(null)
@@ -82,12 +92,17 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
               fallback={
                 <button
                   class="bar-ws"
-                  classList={{ on: ws().id === activeId(), target: props.dropTarget === ws().id }}
+                  classList={{
+                    on: ws().id === activeId(),
+                    target: props.dropTarget === ws().id,
+                    remote: ws().remote !== undefined,
+                  }}
                   style={{ '--dot': WORKSPACE_COLORS[ws().color] }}
                   data-ws={ws().id}
+                  data-remote={ws().remote?.id}
                   role="tab"
                   aria-selected={ws().id === activeId()}
-                  title={`${ws().name} · ${tabCount(store(), ws().id)} tabs`}
+                  title={chipTitle(ws(), tabCount(store(), ws().id))}
                   onClick={() => {
                     if (ws().id !== activeId())
                       void api.send({ type: 'workspace.activate', id: ws().id })
@@ -96,7 +111,13 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
                   onContextMenu={(e) => openMenu(e, ws().id)}
                 >
                   <i class="bar-ws-dot" />
+                  <Show when={ws().remote}>
+                    <Icon name="monitor" class="bar-ws-remote" />
+                  </Show>
                   <span class="bar-ws-name">{ws().name}</span>
+                  <Show when={viaLabel(ws())}>
+                    {(via) => <span class="bar-ws-via">{via()}</span>}
+                  </Show>
                 </button>
               }
             >
@@ -135,7 +156,10 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
           class="iconbtn iconbtn--sm bar-ws-add"
           title="New workspace"
           aria-label="New workspace"
-          onClick={() => void api.send({ type: 'workspace.create' })}
+          onClick={(e) => {
+            const at = e.currentTarget.getBoundingClientRect()
+            void api.send({ type: 'workspace.new', x: at.left, y: at.top })
+          }}
         >
           <Icon name="plus" />
         </button>

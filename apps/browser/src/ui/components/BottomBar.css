@@ -81,6 +81,23 @@
   text-overflow: ellipsis;
 }
 
+.bar-ws-remote {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+  color: var(--text-muted);
+}
+
+.bar-ws.on .bar-ws-remote {
+  color: var(--text-secondary);
+}
+
+.bar-ws-via {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+}
+
 .bar-ws.editing {
   max-width: none;
   padding-right: var(--space-xxs);

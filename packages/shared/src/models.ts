@@ -1,5 +1,6 @@
 import { DEFAULT_GESTURE_SETTINGS, type GestureSettings } from './input'
 import { DEFAULT_PRIVACY_SETTINGS, type PrivacySettings } from './privacy'
+import type { RemoteBinding } from './remote-workspace'
 import { DEFAULT_SAFE_SETTINGS, type SafeSettings } from './safe'
 import type { ShortcutMap } from './shortcuts'
 
@@ -32,6 +33,7 @@ export interface Workspace {
   id: string
   name: string
   color: WorkspaceColor
+  remote?: RemoteBinding | undefined
 }
 
 export interface TabState {
@@ -223,6 +225,7 @@ export interface DownloadEntry {
   status: DownloadStatus
   started: number
   ended: number | null
+  via?: string | undefined
 }
 
 export interface Account {

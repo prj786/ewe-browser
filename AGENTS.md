@@ -77,6 +77,8 @@ packages/shared/src/
                                   permission kinds, labels and asks, PermissionPrompt, SiteInfo, origins
   sites.ts                        SITES (the site search table), siteByName/siteByHost, domainOf,
                                   fill/withLocale, parseSiteQuery (@site), learnSearchTemplate
+  remote-workspace.ts             RemoteBinding / RemoteComputer / RemoteChoice, isRemoteId, remotePartition,
+                                  cleanRemoteName, remoteChoices, matchComputer, canBrowseFrom
 apps/browser/
   electron.vite.config.ts         main/preload/renderer builds, seven HTML inputs, devCsp plugin, @ewe/shared alias
   electron-builder.yml            dir target, castlabs runtime from node_modules/electron/dist, app.asar
@@ -113,6 +115,10 @@ apps/browser/
                                   server.ts (socket, JSON lines), host.ts (main side), index.ts (CLI entry)
   src/main/ewe-account.ts         reads identity fields from ~/.config/ewe/cloud.json
   src/main/ewe-sync.ts            runEweSync(): `ewe-sync --pane <id>` / `--add-folder <path>` (argv, detached)
+  src/main/remote/                cli.ts (`ewe-remote` binary, argv runner, status/tunnel parsers, proxy config,
+                                  tunnel error codes), service.ts (RemoteService: status cache, pick, the
+                                  `persist:remote-<id>` sessions, the request gate, ensure/single-flight
+                                  tunnels), favicon.ts (remote tab icons inlined through their own session)
   src/main/privacy/               service.ts (permission request/check handlers, HTTPS-Only webRequest,
                                   Secure DNS, GPC header, site info, clear site data), permissions.ts
                                   (PermissionStore, kindsFor, verdict), https-only.ts, window.ts
@@ -167,6 +173,8 @@ apps/browser/
   tests/e2e/history.spec.ts       the history page, clear browsing data, opening history, sync between two profiles
   tests/e2e/input.spec.ts         page menus, find, the wave-2 shortcuts, swipe, side buttons, Safe only,
                                   password-manager extensions
+  tests/e2e/remote.spec.ts        remote workspaces against a stub ewe-remote, an in-test SOCKS5 server and a
+                                  trap server for direct connections
 docs/CLI.md                       the command line reference (contract, verbs, Companion registry, socket)
 docs/PLAN.md                      roadmap, status, open bugs
 docs/DESIGN.md                    Ewe design mapping and browser-specific tokens
@@ -181,9 +189,11 @@ docs/screenshots/                 generated, untracked
 - `win.contentView` children: one `WebContentsView` per tab (only the active one visible), the
   sidebar view (created on first open, `SidebarController`), and the overlay view added last. Every
   tab attach re-raises the sidebar and then the overlay, so the order is pages < sidebar < overlay.
-- Every tab lives on `session.fromPartition('persist:default')`. The default session gets the same
-  identity and permission handlers (`PrivacyService.install`, see Privacy and security).
-  `will-attach-webview` is denied everywhere.
+- Every tab lives on the session of its workspace: `session.fromPartition('persist:default')`, or
+  `persist:remote-<id>` for a remote workspace (see Remote workspaces). `setupWebSession` in
+  `index.ts` gives every web session the same identity, `app://` protocol, privacy and permission
+  handlers (`PrivacyService.install`) and download tracking; the default session gets identity and
+  permissions too. `will-attach-webview` is denied everywhere.
 - Identity (`identity.ts`, `preload/chrome-version.ts`): pages are told the major Chrome stable is
   on today, not the engine's. Since 153 (2026-09-08) Chrome ships a major every two weeks and
   Electron's newest stable still carries Chromium 152, so Gmail, which supports the two newest
@@ -308,7 +318,10 @@ ignored, menus open through `menu.open`), `menu.open {menu: {kind: 'tab' | 'work
 shifted by the overlay view origin in main, so the peek can send its own client coords),
 `workspace.rename {id}` (activates the workspace and starts the inline rename in the bottom bar;
 nothing to rename in fullscreen, where the bar is hidden),
-`overlay.pin {pinned}`, `workspace.create {name?, color?}`, `workspace.activate {id}`,
+`overlay.pin {pinned}`, `workspace.create {name?, color?, remote?}` (`remote`: a computer id; main
+checks it against `ewe-remote status` and toasts why not), `workspace.new {x, y}` (the bar's `+`,
+shell only: opens the new-workspace menu when there are paired computers, else creates one),
+`workspace.activate {id}`,
 `workspace.update {id, name?, color?}`, `workspace.remove {id}`, `workspace.mergeInto {from, to}` (moves every tab of `from` into `to`,
 keeps `from` as an empty workspace), `settings.update {patch}`, `find.query {text}`,
 `find.step {forward}`, `find.close`, `page.menu.run {menuId, action}` (the last four from the
@@ -340,6 +353,8 @@ UiEvent types (main → a renderer): `focus-address`, `overlay.show {part}`, `ov
 `sidebar.focus`, `workspace.rename {id}`, `music.play {path}` (to the music tab), `find.open
 {query}`, `find.result {result: {matches, active} | null}`, `swipe {dir, progress, done?}`,
 `page.menu {menu}` (sent just before `menu.open {menu: {kind: 'page', id}}`),
+`workspace.choices {menuId, choices}` (sent just before `menu.open {menu: {kind: 'workspace-new',
+id}}`; renderers cannot open that kind themselves),
 `permission.prompt {prompt}`, `siteinfo.open {info, x, y}`, `siteinfo.update {info}`.
 
 State: `WindowSnapshot { windowId, tabs: TabState[], activeTabId, workspaces, activeWorkspaceId,
@@ -1030,6 +1045,9 @@ settings load and installed on both sessions.
   from `app://sad` only), which allows that host until quit and navigates the tab. Any committed
   navigation (`did-navigate`) forgets the upgrade. Not handled: a site whose port 443 hangs waits
   for Chromium's own timeout before the interstitial.
+- **DNS prefetching** is off for every page (`--blink-settings=dnsPrefetchingEnabled=false` in
+  `bootstrap()`): Electron resolves `dns-prefetch` hints locally even behind a proxy, which
+  leaked remote workspaces' hosts (see Remote workspaces).
 - **Third-party cookies**: Chromium's own blocking, the `ForceThirdPartyCookieBlockingEnabled`
   feature (`net::features::kForceThirdPartyCookieBlocking`, present in the Electron 44 binary),
   appended to `--enable-features` in `bootstrap()` from `settings.json` read synchronously
@@ -1088,6 +1106,102 @@ microphone, location, notifications, clipboard, midi, local-network, windows, id
   toast) and Site settings (`app://settings/#privacy`). The settings list shows every decided site
   with its kinds (select Allow / Block / Ask) and Forget, live through `ewe:permissions-changed`.
 
+## Remote workspaces (RFC-009 in the ewe-map vault, 2026-11-01)
+
+The owner: "a new workspace like remote-hostName; from there I could open any website restricted
+from the work PC". ewe Remote pairs the owner's computers; a paired computer that shares itself
+can be reached over SSH. A remote workspace is bound to one computer (`Workspace.remote {id,
+name}`) and every request of its tabs leaves from that computer.
+
+- Contract (`main/remote/cli.ts`): `$EWE_REMOTE_BIN` (a missing file = not installed), else
+  `ewe-remote` from the ewe bin dir or `PATH` (`toolPath`), run with `execFile` (argv only, no
+  shell, `ELECTRON_RUN_AS_NODE` removed), JSON on stdout. `status` (5 s timeout) →
+  `parseStatus`: `this.id` and computers with a safe id (`isRemoteId`: `[a-z0-9][a-z0-9-]{0,63}`,
+  it becomes a partition name and an argv word), names without control or direction characters,
+  `online`, `sharing`, `paired`. A computer can be browsed from when `paired && sharing` and it is
+  not this computer (`canBrowseFrom`; `online` is only a hint, shown as "Offline").
+  `tunnel <id>` (30 s) → `parseTunnel`: only `127.0.0.1:<port>` or `[::1]:<port>` is accepted;
+  `{ok: false, error, message}` keeps a cleaned message (300 characters) for the error page.
+  Not installed or failing = no computers, quietly.
+- `RemoteService` (`main/remote/service.ts`, one per app): status cached 15 s
+  (`STATUS_TTL_MS`, single-flight), `choices()` for the menu, `pick(key)` (id, name in any case,
+  4+ character id prefix) with the reasons `no-remote`, `not-found`, `this-computer`,
+  `not-paired`, `not-sharing`. `sessionFor(id)` creates `persist:remote-<id>` once and runs the
+  same `setupWebSession` as the default session with a **request gate**: its
+  `webRequest.onBeforeRequest` (http, https, ws, wss; composed with HTTPS-Only in
+  `PrivacyService.install(session, gate)`, because a session has one such listener) cancels
+  everything until a tunnel has been set once. `ensure(id, force?)` (single-flight per id) runs
+  `tunnel`, then `setProxy({mode: 'fixed_servers', proxyRules: 'socks5://127.0.0.1:<port>',
+proxyBypassRules: '<-loopback>'})`, `closeAllConnections()` when the port moved, and opens
+  the gate. It is never closed again, and Chromium never falls back to direct when the only
+  proxy fails, so the session fails closed: a dead tunnel is `ERR_PROXY_CONNECTION_FAILED`, not
+  a direct request. `ensure` refuses this computer's own id before running anything.
+- Names resolve on the far side: Chromium's `socks5://` sends host names to the proxy (the e2e
+  test sees ATYP 3), so Secure DNS and the local resolver are not involved for page loads.
+  Loopback goes through the tunnel too (`<-loopback>` removes Chromium's implicit
+  localhost/loopback/link-local bypass): in a remote workspace `localhost` is the remote
+  computer's (its dev servers), and a remote page cannot reach this computer's local services.
+- DNS prefetch leaked (found by the e2e net log): Electron's network-hints handler resolves
+  `<link rel="dns-prefetch">` hints with the session's resolver directly, ignoring the proxy, so
+  a remote page made this computer look up its hosts. `bootstrap()` turns Blink's DNS
+  prefetching off for every renderer (`--blink-settings=dnsPrefetchingEnabled=false`,
+  `blinkSettingSwitch` in `privacy/startup.ts`); Electron already ignores preconnect hints (it
+  only emits the session's `preconnect` event), so nothing else of the kind is left.
+- WebRTC: `app.on('web-contents-created')` gives every webContents of a remote session
+  `setWebRTCIPHandlingPolicy('disable_non_proxied_udp')` before it loads (tabs and popups), so no
+  local address leaks and nothing goes around the proxy; calls may not connect there.
+- Favicons leaked too (found by the e2e trap): the shell, overlay and sidebar run on the default
+  session, so a remote tab's favicon url was fetched directly by the bar and the rail. A remote
+  tab's icon is now fetched in main through its own session (`inlineFavicon`: http(s), 8 s,
+  64 KiB, `image/*` only) and handed to the renderers as a `data:` url. For the same reason a
+  remote workspace records **no history** (every history surface — palette, Home, sidebar, the
+  history page — loads `<origin>/favicon.ico` directly) and its tabs are left out of the synced
+  `tabs-<id>.json` (`ownTabs`). Bookmarks of remote-only sites still load their icon directly;
+  not solved.
+- Sync: the binding lives only in `session.json` (local). Workspaces never sync, `ownTabs` skips
+  remote workspaces, and the settings that sync carry nothing remote, so sync cannot create a
+  remote workspace on another computer, nor one bound to the computer itself. A session copied
+  onto the bound computer fails closed (`this-computer` on the error page) rather than going
+  direct.
+- Tabs (`tab-manager.ts`): `TabManagerHost.sessionFor(workspace)` picks the session at
+  creation (a webContents cannot change session). Every load goes through `TabManager.load`
+  (create, lazy activation, reload of a pending tab, navigate, popups): for a remote workspace
+  that is not ready and an http(s)/ws url, `beforeLoad` shows the tab loading, waits for
+  `ensure`, then loads the url or the error page (a load ticket drops stale waits). Moving a tab
+  across egress (`moveToWorkspace`, `mergeWorkspace`, the move shortcuts) re-creates it in the
+  target workspace (`transplant`: same url, title, pinned, active state; not put on the
+  closed-tab stack) because the session cannot change. "Move to new workspace", the page menu's
+  "Open link in new workspace" and "in new window" keep the remote binding. Popups and
+  `window.open` tabs use the opener's session and land in the opener's workspace (they used the
+  active one). Reopen (`Ctrl+Shift+T`) goes back to the tab's workspace, else one with the same
+  egress, else a new workspace with that binding. Extensions' `chrome.tabs.create` uses a local
+  workspace (`localWorkspace()`).
+- Failures (`WindowController.remoteLoadFailed`): a main-frame load in a remote workspace that
+  fails with a tunnel error (`isTunnelError`: -20 blocked by the gate, -111, -115, -120, -121,
+  -127, -130, -131, -336) runs `ensure(id, true)` once (the port may have moved → `setProxy`
+  again) and loads the url again; a second tunnel error within 60 s for that url, or a failed
+  `tunnel`, loads `app://sad/?kind=remote&url=&name=&error=` ("work-pc can't be reached", the
+  reason, Try again → `tab.navigate`, Go back). A site that work-pc itself cannot open is the
+  ordinary sad page (ssh answers the SOCKS request, then closes).
+- Activating a remote workspace warms its tunnel (`onWorkspaceActivated` → `ensure`).
+- UI: the bar's `+` sends `workspace.new {x, y}`; with no paired computers it creates a
+  workspace as before, else main sends `workspace.choices` and opens the `workspace-new` menu:
+  New workspace, then "Browse from <name>" per paired computer other than this one ("Offline"
+  hint, or disabled with "Not sharing"). Picking one sends `workspace.create {remote: id}`; the
+  workspace is named after the computer and activated (on Home). The chip shows the `monitor`
+  glyph, "via <computer>" when renamed, and "· browses from <computer>" in its title. The rail
+  hides extension buttons while a remote workspace is active (`ExtensionHost` ignores tabs of
+  other sessions: electron-chrome-extensions throws for them, and extensions load per session).
+- Everything else follows the session or the webContents and works the same there: Safe (page
+  preload + IPC), find, the page menu, permissions and site info, identity and client hints,
+  HTTPS-Only, GPC, downloads (`DownloadManager.attach(session, via)`; the entry keeps `via` and a
+  retry goes through `ensure` and that session, never direct), Clear browsing data
+  (`knownSessions()`: the open remote sessions plus `<userData>/Partitions/remote-*`), OpenSearch
+  discovery (the tab's own session).
+- Command line: `workspace create --remote <id|name>` (`pick` with a fresh status, then
+  `WindowController.createRemoteWorkspace`); `workspaces` lists `remote` (`null` for local ones),
+  also offline from `session.json`.
+
 ## Site search (wave 2)
 
 `search --site`, `site` and `@site words` in the palette and address field resolve a site in
@@ -1145,9 +1259,11 @@ panels, shortcuts, safe, gestures: { swipe }, privacy }` with `DEFAULT_SETTINGS`
   on; local, not synced: it depends on the machine's touchpad).
   Changes broadcast to every renderer and sync `nativeTheme.themeSource`.
 - `session.json`: windows with `bounds`, `tabs [{ url, title, workspace, pinned }]`, `activeIndex`,
-  `workspaces [{ id, name, color }]`, `activeWorkspace`. The exact validator is `isSessionFile` in
-  `session-store.ts`; `sanitizeWindows` drops unrestorable URLs, clamps indexes and name length,
-  and turns a missing `pinned` (files written before tab pinning) into `false`.
+  `workspaces [{ id, name, color, remote? }]`, `activeWorkspace`. The exact validator is
+  `isSessionFile` in `session-store.ts`; `sanitizeWindows` drops unrestorable URLs, clamps indexes
+  and name length, and turns a missing `pinned` (files written before tab pinning) into `false`.
+  A `remote` binding with a bad id makes the whole file invalid (fail closed: a remote workspace
+  never comes back as a local one); its name is cleaned, or becomes the id.
   Saved 1s after any change, on window close and on quit.
 - `history.db` (SQLite through `node:sqlite`, WAL, written through on every change; not JSON):
   `urls (id, url UNIQUE, title, host, count, last)`, `visits (id, url_id, time)`, `clears (id,
@@ -1189,7 +1305,8 @@ hidden: [{ key, time }] }`, 300 entries and 500 hidden keys at most, writes debo
   flushed on quit. Only paths with a `recentKindOf` are recorded (`FsRequest {op: 'recent'}`,
   the files `open`/`mpv` ops, `MusicRequest {op: 'played'}` for library tracks, home `open`/`mpv`).
 - `downloads.json`: `{ version: 1, entries: DownloadEntry[] }` (`id, url, filename, path, mime,
-received, total, speed, status, started, ended`, times in epoch ms), newest first, at most 200,
+received, total, speed, status, started, ended`, times in epoch ms, and `via`, the computer id,
+  for downloads made in a remote workspace), newest first, at most 200,
   writes **throttled** to once a second (the first change at once, the latest never lost —
   `throttle` in `json-file.ts`), flushed on quit; a failed write is retried by the next change.
   Entries that were running at quit load as `interrupted`. ewe's dock (Dock 1.2.0+) watches this
@@ -1404,6 +1521,28 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   local origins in two launches) and `tests/e2e/cli-browser.spec.ts` (every new verb against a
   launched browser, history-learned and OpenSearch templates, `@site`, download show/open with
   `shell.openPath` stubbed, offline `workspaces`/`site`). Helpers in `tests/e2e/wave2-support.ts`.
+- Remote workspaces: `tests/unit/remote.test.ts` (the binary lookup, the argv runner on a real
+  script with shell metacharacters, status and tunnel parsing, the proxy config, tunnel errors,
+  `RemoteService` against fake sessions: the status cache, choices, pick reasons, the gate
+  closed until the tunnel and open after, single-flight, forced re-runs moving the proxy, a failed
+  tunnel staying closed, this computer never tunnelled to, partitions on disk; `session.json`
+  bindings, `ownTabs` leaving remote workspaces out, favicon rules, download `via`),
+  `packages/shared/src/remote-workspace.test.ts` and the `--remote` argv case in `cli.test.ts`.
+  `tests/e2e/remote.spec.ts` (2 tests; a stub `ewe-remote` on `EWE_REMOTE_BIN` logging its argv,
+  a SOCKS5 server written in the test, an origin server, and a trap server that
+  `--host-resolver-rules=MAP *.remote.test` points every direct lookup at): the `+` menu (this
+  computer hidden, a not-sharing one disabled), the chip, a page through SOCKS with its host name
+  (ATYP 3), `localhost` through the tunnel, cookies only in `persist:remote-<id>`, the WebRTC
+  policy, no direct connection at all (the trap stays empty — it caught the favicon leak), the
+  default workspace going direct and not through SOCKS, and no `HOST_RESOLVER` event for a remote
+  page's hosts in a net log (it caught the DNS prefetch leak), also after a preferences update;
+  then the command line (`this-computer`, `not-sharing`, `not-found`, create by name in any case,
+  `workspaces`), a killed tunnel → one more `tunnel` call → the error page with
+  `ERR_PROXY_CONNECTION_FAILED` and nothing sent, a new port picked up by the retry, a refused
+  tunnel's message on the page, Try again, and the binding after a restart.
+  `EWE_REMOTE_SHOTS=<dir>` saves the menu, the chip and the error page. The global e2e setup sets
+  `EWE_REMOTE_BIN` to a missing file, so a real ewe-remote on the machine never turns the bar's
+  `+` into a menu in other tests.
 - ewe sync: `tests/unit/ewe-link.test.ts` (managed mode, `effectiveSync`, `sync.browser`, the
   sign-in test, `EweLink` change events, `DirWatch`, the snapshot validator, `eweSyncArgs`, and a
   `SyncService` that follows a fake ewe source and runs on the nudge against the mock WebDAV),

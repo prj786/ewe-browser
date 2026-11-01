@@ -566,6 +566,38 @@ shared with ewe and ewe-sync (the ewe-map vault holds it); this repo's half:
 - [ ] Not tried against the real ewe-sync yet: its `--pane`, `--add-folder` and the snapshot
       land in the same wave.
 
+## Remote workspace (RFC-009, asked 2026-11-01, branch `feat/remote-workspace`)
+
+The owner: "in ewe browser I will also have the power to have a new workspace like
+remote-hostName; from there I could open any website restricted from the work PC". ewe Remote
+(RFC-009 in the ewe-map vault) pairs the owner's computers over SSH; `ewe-remote tunnel <id>`
+keeps an `ssh -D` SOCKS port per computer. This repo's half (details in AGENTS.md, "Remote
+workspaces"):
+
+- [x] **A workspace bound to a computer.** `Workspace.remote {id, name}`, saved in
+      `session.json` only. The bar's `+` offers "Browse from <name>" for paired computers
+      (this one hidden, not-sharing ones disabled); the chip shows a screen glyph.
+- [x] **Its own session.** `persist:remote-<id>`, set up by the same `setupWebSession` as the
+      default one (identity, `app://`, privacy and permissions, downloads), so Safe, find, the
+      page menu, site info and downloads work there. Extensions do not.
+- [x] **Through the tunnel, never around it.** `socks5://` (names resolve on the far side),
+      loopback included (`<-loopback>`: `localhost` is the remote computer's), a request gate
+      until the first tunnel, no direct fallback, WebRTC `disable_non_proxied_udp`. Two leaks
+      the e2e test found and closed: favicons fetched directly by the browser's own UI (now
+      inlined through the tab's session; remote workspaces keep no history and publish no
+      synced tabs, because every history surface loads favicons directly) and DNS prefetch
+      hints resolved locally (now off for every page).
+- [x] **Fails closed and recovers.** A tunnel error re-runs `ewe-remote tunnel` once (a new
+      port is picked up), then shows "work-pc can't be reached" with the reason and Try again.
+- [x] **Command line.** `workspace create --remote <id|name>`; `workspaces` lists `remote`.
+- [x] Tests: `tests/unit/remote.test.ts`, `packages/shared/src/remote-workspace.test.ts`, and
+      `tests/e2e/remote.spec.ts` (stub `ewe-remote`, an in-test SOCKS5 server, a trap server for
+      direct connections, a net log for local lookups).
+- [ ] Not tried against the real `ewe-remote` and `ssh -D` yet (the CLI lands in the same wave).
+- [ ] Bookmarks of remote-only sites still load their icon from this computer.
+- [ ] A history of its own for remote workspaces (with icons fetched through the tunnel), if the
+      owner wants one.
+
 ## Bottom bar (asked 2026-10-17, 0.3.0-beta)
 
 The owner: workspaces and the tool buttons (bookmarks, downloads, …) do not fit in the rail's

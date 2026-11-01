@@ -534,7 +534,9 @@ export function Rail(props: RailProps): JSX.Element {
         )}
       </Show>
 
-      <ExtensionActions state={extensions()} />
+      <Show when={props.store.activeWorkspace()?.remote === undefined}>
+        <ExtensionActions state={extensions()} />
+      </Show>
     </nav>
   )
 }

@@ -1,5 +1,7 @@
 import { join } from 'node:path'
 import {
+  cleanRemoteName,
+  isRemoteId,
   isRestorableUrl,
   isSidebarSection,
   isWorkspaceColor,
@@ -37,8 +39,16 @@ function isWorkspace(value: unknown): value is Workspace {
     isObject(value) &&
     typeof value.id === 'string' &&
     typeof value.name === 'string' &&
-    isWorkspaceColor(value.color)
+    isWorkspaceColor(value.color) &&
+    (value.remote === undefined || (isObject(value.remote) && isRemoteId(value.remote.id)))
   )
+}
+
+function cleanWorkspace(w: Workspace): Workspace {
+  const base = { id: w.id, name: w.name.slice(0, 40), color: w.color }
+  if (w.remote === undefined) return base
+  const name = cleanRemoteName(w.remote.name) ?? w.remote.id
+  return { ...base, remote: { id: w.remote.id, name } }
 }
 
 function isSessionWindow(value: unknown): value is SessionWindow {
@@ -64,7 +74,7 @@ export function isSessionFile(value: unknown): value is SessionFile {
 export function sanitizeWindows(windows: SessionWindow[]): SessionWindow[] {
   return windows
     .map((win) => {
-      const workspaces = (win.workspaces ?? []).map((w) => ({ ...w, name: w.name.slice(0, 40) }))
+      const workspaces = (win.workspaces ?? []).map(cleanWorkspace)
       const lastWorkspace = Math.max(0, workspaces.length - 1)
       const tabs = win.tabs
         .filter((t) => isRestorableUrl(t.url))

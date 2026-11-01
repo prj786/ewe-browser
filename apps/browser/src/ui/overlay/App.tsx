@@ -14,6 +14,7 @@ import {
   type MenuTarget,
   type OverlayPart,
   type Point,
+  type RemoteChoice,
   type ToastIcon,
 } from '@ewe/shared'
 import { Icon, type IconName } from '../components/Icon'
@@ -23,7 +24,7 @@ import { Rail } from '../components/Rail'
 import { api } from '../lib/api'
 import { applyTheme, createBrowserStore } from '../lib/store'
 import { tabMenuItems } from './tab-menu'
-import { workspaceMenuItems } from './workspace-menu'
+import { newWorkspaceMenuItems, workspaceMenuItems } from './workspace-menu'
 import { extensionMenuItems } from './extension-menu'
 import { SafeLayer } from './SafeLayer'
 import { PrivacyLayer } from './PrivacyLayer'
@@ -65,6 +66,9 @@ export function OverlayApp(): JSX.Element {
   const extensions = createExtensions()
   const pageMenu = createPageMenus()
   const [install, setInstall] = createSignal<ExtensionInstallRequest | null>(null)
+  const [choices, setChoices] = createSignal<{ menuId: string; choices: RemoteChoice[] } | null>(
+    null,
+  )
   let entered = false
 
   createEffect(() => applyTheme(store.settings, store.theme))
@@ -89,6 +93,12 @@ export function OverlayApp(): JSX.Element {
       const page = pageMenu()
       return page?.menuId === target.id ? { kind: 'page' as const, page } : undefined
     }
+    if (target.kind === 'workspace-new') {
+      const offer = choices()
+      return offer?.menuId === target.id
+        ? { kind: 'workspace-new' as const, choices: offer.choices }
+        : undefined
+    }
     const workspace = s.workspaces.find((w) => w.id === target.id)
     return workspace === undefined
       ? undefined
@@ -100,6 +110,7 @@ export function OverlayApp(): JSX.Element {
     if (target.kind === 'tab') return tabMenuItems(target.tab, target.snapshot)
     if (target.kind === 'extension') return extensionMenuItems(target.info)
     if (target.kind === 'page') return pageMenuEntries(target.page)
+    if (target.kind === 'workspace-new') return newWorkspaceMenuItems(target.choices)
     const id = target.workspace.id
     return workspaceMenuItems(target.workspace, target.snapshot, () => {
       pendingRename = id
@@ -153,6 +164,8 @@ export function OverlayApp(): JSX.Element {
         setLeaving(true)
       } else if (event.type === 'extension.install') {
         setInstall(event.request)
+      } else if (event.type === 'workspace.choices') {
+        setChoices({ menuId: event.menuId, choices: event.choices })
       } else if (event.type === 'palette.open') {
         setPaletteQuery(event.query ?? '')
         setPaletteNewTab(event.newTab ?? false)

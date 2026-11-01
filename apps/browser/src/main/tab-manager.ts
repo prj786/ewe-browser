@@ -17,6 +17,7 @@ import {
   resolveInput,
   tabKindOf,
   type Rect,
+  type RemoteBinding,
   type SessionTab,
   type SessionWindow,
   type Settings,
@@ -26,13 +27,23 @@ import {
   type WorkspaceColor,
 } from '@ewe/shared'
 import { ownsFind } from './find'
+import { inlineFavicon } from './remote/favicon'
 import { shownUrl } from './page-menu-model'
 import { isPageFirst, matchShortcut, type ShortcutAction } from './shortcuts'
 import type { Point } from './layout'
 
 export interface TabManagerHost {
   window: BrowserWindow
-  session: Session
+  sessionFor(workspace: Workspace | undefined): Session
+  beforeLoad?(workspace: Workspace, url: string): Promise<string | null> | null
+  loadFailed?(
+    tab: Tab,
+    workspace: Workspace,
+    code: number,
+    url: string,
+    description: string,
+  ): boolean
+  onWorkspaceActivated?(workspace: Workspace): void
   preload: string
   getSettings(): Settings
   onChange(): void
@@ -57,6 +68,8 @@ export class Tab {
   state: TabState
   lastGoodUrl = ''
   pending = false
+  loadTicket = 0
+  retry: { url: string; at: number } | null = null
 
   constructor(view: WebContentsView, url: string, workspaceId: string) {
     this.view = view
@@ -91,6 +104,11 @@ export interface CreateTabOptions {
   pinned?: boolean
 }
 
+interface ClosedTab extends SessionTab {
+  workspaceId: string
+  remote: RemoteBinding | undefined
+}
+
 interface TabGroup {
   start: number
   pinnedEnd: number
@@ -101,14 +119,20 @@ function isMouseEvent(input: Electron.InputEvent): input is Electron.MouseInputE
   return 'x' in input && 'y' in input
 }
 
-function newWorkspace(name: string, color: WorkspaceColor): Workspace {
-  return { id: randomUUID(), name, color }
+function newWorkspace(name: string, color: WorkspaceColor, remote?: RemoteBinding): Workspace {
+  return remote === undefined
+    ? { id: randomUUID(), name, color }
+    : { id: randomUUID(), name, color, remote: { ...remote } }
+}
+
+function sameEgress(a: Workspace | undefined, b: Workspace | undefined): boolean {
+  return a?.remote?.id === b?.remote?.id
 }
 
 export class TabManager {
   private readonly tabs: Tab[] = []
   private activeId: TabId | null = null
-  private readonly closed: SessionTab[] = []
+  private readonly closed: ClosedTab[] = []
   private bounds: Rect = { x: 0, y: 0, width: 0, height: 0 }
   private radius = 0
   private readonly host: TabManagerHost
@@ -152,6 +176,21 @@ export class TabManager {
     return this.workspaces
   }
 
+  workspace(id: string): Workspace | undefined {
+    return this.workspaces.find((w) => w.id === id)
+  }
+
+  workspaceOf(tab: Tab): Workspace | undefined {
+    return this.workspace(tab.state.workspaceId)
+  }
+
+  localWorkspace(): string {
+    const active = this.workspace(this.activeWorkspaceId)
+    if (active !== undefined && active.remote === undefined) return active.id
+    const local = this.workspaces.find((w) => w.remote === undefined)
+    return local?.id ?? this.createWorkspace(undefined, undefined, false).id
+  }
+
   get activeWorkspace(): string {
     return this.activeWorkspaceId
   }
@@ -167,11 +206,17 @@ export class TabManager {
     this.activeWorkspaceId = active?.id ?? this.activeWorkspaceId
   }
 
-  createWorkspace(name?: string, color?: WorkspaceColor, activate = true): Workspace {
+  createWorkspace(
+    name?: string,
+    color?: WorkspaceColor,
+    activate = true,
+    remote?: RemoteBinding,
+  ): Workspace {
     const trimmed = name?.trim() ?? ''
     const workspace = newWorkspace(
       trimmed === '' ? defaultWorkspaceName(this.workspaces) : trimmed.slice(0, 40),
       color ?? nextWorkspaceColor(this.workspaces.map((w) => w.color)),
+      remote,
     )
     this.workspaces.push(workspace)
     if (activate) this.activateWorkspace(workspace.id)
@@ -183,6 +228,7 @@ export class TabManager {
     const workspace = this.workspaces.find((w) => w.id === id)
     if (workspace === undefined) return
     this.activeWorkspaceId = id
+    this.host.onWorkspaceActivated?.(workspace)
     const remembered = this.lastActive.get(id)
     const tab = (remembered === undefined ? undefined : this.get(remembered)) ?? this.tabsIn(id)[0]
     if (tab?.state.workspaceId === id) this.activate(tab.id)
@@ -231,10 +277,17 @@ export class TabManager {
 
   mergeWorkspace(from: string, to: string): void {
     if (from === to) return
-    if (!this.workspaces.some((w) => w.id === from)) return
-    if (!this.workspaces.some((w) => w.id === to)) return
+    const source = this.workspace(from)
+    const target = this.workspace(to)
+    if (source === undefined || target === undefined) return
     const moving = this.tabsIn(from)
     if (moving.length === 0) return
+    if (!sameEgress(source, target)) {
+      for (const tab of moving) this.transplant(tab, to)
+      this.lastActive.delete(from)
+      this.host.onChange()
+      return
+    }
     for (const tab of moving) {
       this.tabs.splice(this.indexOf(tab.id), 1)
       tab.state = { ...tab.state, workspaceId: to }
@@ -251,7 +304,7 @@ export class TabManager {
     const workspaceId = options.workspaceId ?? this.activeWorkspaceId
     const view = new WebContentsView({
       webPreferences: {
-        session: this.host.session,
+        session: this.host.sessionFor(this.workspace(workspaceId)),
         preload: this.host.preload,
         additionalArguments: [`${LAYER_ARG}page`],
         nodeIntegrationInSubFrames: true,
@@ -271,10 +324,38 @@ export class TabManager {
     view.setVisible(false)
     const activate = options.activate ?? true
     if (options.lazy === true && !activate) tab.pending = true
-    else void tab.webContents.loadURL(url).catch(() => undefined)
+    else this.load(tab, url)
     if (activate) this.activate(tab.id)
     this.host.onChange()
     return tab
+  }
+
+  load(tab: Tab, url: string): void {
+    const ticket = ++tab.loadTicket
+    const workspace = this.workspaceOf(tab)
+    const wait = workspace === undefined ? null : (this.host.beforeLoad?.(workspace, url) ?? null)
+    if (wait === null) {
+      void tab.webContents.loadURL(url).catch(() => undefined)
+      return
+    }
+    this.update(tab, { url, kind: tabKindOf(url), loading: true })
+    void wait.then((target) => {
+      if (tab.webContents.isDestroyed() || tab.loadTicket !== ticket) return
+      void tab.webContents.loadURL(target ?? url).catch(() => undefined)
+    })
+  }
+
+  private transplant(tab: Tab, workspaceId: string): Tab {
+    const active = this.activeId === tab.id
+    const moved = this.create(this.urlOf(tab), {
+      workspaceId,
+      activate: active,
+      lazy: !active,
+      title: tab.state.title,
+      pinned: tab.state.pinned,
+    })
+    this.close(tab.id, false)
+    return moved
   }
 
   private groupOf(workspaceId: string): TabGroup {
@@ -330,29 +411,35 @@ export class TabManager {
     next.view.setVisible(true)
     if (next.pending) {
       next.pending = false
-      void next.webContents.loadURL(next.state.url).catch(() => undefined)
+      this.load(next, next.state.url)
     }
     next.webContents.focus()
     this.host.onTabActivated(next.webContents)
     this.host.onChange()
   }
 
-  close(id: TabId): void {
+  close(id: TabId, remember = true): void {
     const tab = this.get(id)
     if (tab === undefined) return
-    this.remove(tab)
+    this.remove(tab, remember)
     if (!tab.webContents.isDestroyed()) tab.webContents.close()
   }
 
-  private remove(tab: Tab): void {
+  private remove(tab: Tab, remember = true): void {
     const index = this.indexOf(tab.id)
     if (index === -1) return
     const workspaceId = tab.state.workspaceId
     const siblings = this.tabsIn(workspaceId)
     const position = siblings.indexOf(tab)
     this.tabs.splice(index, 1)
-    if (tab.state.kind === 'page')
-      this.closed.push({ url: tab.state.url, title: tab.state.title, pinned: tab.state.pinned })
+    if (remember && tab.state.kind === 'page')
+      this.closed.push({
+        url: tab.state.url,
+        title: tab.state.title,
+        pinned: tab.state.pinned,
+        workspaceId,
+        remote: this.workspace(workspaceId)?.remote,
+      })
     if (this.closed.length > 25) this.closed.shift()
     this.host.detachView(tab.view)
     if (this.lastActive.get(workspaceId) === tab.id) this.lastActive.delete(workspaceId)
@@ -401,9 +488,14 @@ export class TabManager {
     if (tab === undefined) return
     const target =
       workspaceId === undefined
-        ? this.createWorkspace(undefined, undefined, false)
+        ? this.createWorkspace(undefined, undefined, false, this.workspaceOf(tab)?.remote)
         : this.workspaces.find((w) => w.id === workspaceId)
     if (target === undefined || target.id === tab.state.workspaceId) return
+    if (!sameEgress(this.workspaceOf(tab), target)) {
+      this.transplant(tab, target.id)
+      this.host.onChange()
+      return
+    }
     const source = tab.state.workspaceId
     this.tabs.splice(this.indexOf(id), 1)
     tab.state = { ...tab.state, workspaceId: target.id }
@@ -424,7 +516,7 @@ export class TabManager {
     if (tab === undefined || tab.webContents.isDestroyed()) return
     if (tab.pending) {
       tab.pending = false
-      void tab.webContents.loadURL(tab.state.url).catch(() => undefined)
+      this.load(tab, tab.state.url)
       return
     }
     tab.webContents.reload()
@@ -464,7 +556,8 @@ export class TabManager {
     const resolved = resolveInput(input, this.host.getSettings().searchEngine)
     if (resolved.url === '' || tab.webContents.isDestroyed()) return
     tab.pending = false
-    void tab.webContents.loadURL(resolved.url).catch(() => undefined)
+    tab.retry = null
+    this.load(tab, resolved.url)
   }
 
   open(input: string): Tab | undefined {
@@ -476,7 +569,21 @@ export class TabManager {
   reopen(): Tab | undefined {
     const last = this.closed.pop()
     if (last === undefined) return undefined
-    return this.create(last.url, { activate: true, pinned: last.pinned === true })
+    return this.create(last.url, {
+      activate: true,
+      pinned: last.pinned === true,
+      workspaceId: this.reopenTarget(last),
+    })
+  }
+
+  private reopenTarget(last: ClosedTab): string {
+    if (this.workspace(last.workspaceId) !== undefined) return last.workspaceId
+    const egress = last.remote?.id
+    const active = this.workspace(this.activeWorkspaceId)
+    if (active !== undefined && active.remote?.id === egress) return active.id
+    const same = this.workspaces.find((w) => w.remote?.id === egress)
+    if (same !== undefined) return same.id
+    return this.createWorkspace(last.remote?.name, undefined, false, last.remote).id
   }
 
   cycle(delta: number): void {
@@ -575,6 +682,7 @@ export class TabManager {
       this.recording.delete(wc.id)
       const sad = url.startsWith(SAD_TAB_URL)
       if (!sad) tab.lastGoodUrl = url
+      if (/^https?:/i.test(url)) tab.retry = null
       this.update(tab, {
         url,
         kind: tabKindOf(url),
@@ -583,7 +691,7 @@ export class TabManager {
         title: tab.state.title === '' ? hostOf(url) : tab.state.title,
       })
       this.syncNavigation(tab)
-      this.host.onVisit(url, '')
+      if (this.workspaceOf(tab)?.remote === undefined) this.host.onVisit(url, '')
     })
     wc.on('did-navigate-in-page', (_event, url, isMainFrame) => {
       if (!isMainFrame) return
@@ -592,15 +700,28 @@ export class TabManager {
     })
     wc.on('page-title-updated', (_event, title) => {
       this.update(tab, { title })
-      this.host.onTitle(tab.state.url, title)
+      if (this.workspaceOf(tab)?.remote === undefined) this.host.onTitle(tab.state.url, title)
     })
     wc.on('page-favicon-updated', (_event, favicons) => {
       const favicon = favicons.at(-1) ?? null
-      this.update(tab, { favicon })
+      if (favicon === null || this.workspaceOf(tab)?.remote === undefined) {
+        this.update(tab, { favicon })
+        return
+      }
+      const page = tab.state.url
+      void inlineFavicon(wc.session, favicon).then((inlined) => {
+        if (!wc.isDestroyed() && tab.state.url === page) this.update(tab, { favicon: inlined })
+      })
     })
     wc.on('audio-state-changed', (event) => this.update(tab, { audible: event.audible }))
     wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
       if (!isMainFrame || code === -3 || code === 0) return
+      const workspace = this.workspaceOf(tab)
+      if (
+        workspace !== undefined &&
+        this.host.loadFailed?.(tab, workspace, code, url, description) === true
+      )
+        return
       const target =
         this.host.failedLoad?.(wc, url, description) ??
         `${SAD_TAB_URL}?url=${encodeURIComponent(url)}&error=${encodeURIComponent(description)}`
@@ -646,7 +767,7 @@ export class TabManager {
           overrideBrowserWindowOptions: {
             autoHideMenuBar: true,
             webPreferences: {
-              session: this.host.session,
+              session: wc.session,
               preload: this.host.preload,
               additionalArguments: [`${LAYER_ARG}page`],
               nodeIntegrationInSubFrames: true,
@@ -668,7 +789,7 @@ export class TabManager {
             ...(guest === undefined ? {} : { webContents: guest }),
             webPreferences: {
               ...options.webPreferences,
-              session: this.host.session,
+              session: wc.session,
               preload: this.host.preload,
               additionalArguments: [`${LAYER_ARG}page`],
               nodeIntegrationInSubFrames: true,
@@ -677,15 +798,15 @@ export class TabManager {
               nodeIntegration: false,
             },
           })
-          const tab = new Tab(view, details.url, tab0WorkspaceOf(this, this.activeId))
-          this.wire(tab)
-          this.insert(tab, index)
+          const opened = new Tab(view, details.url, openerWorkspace(this, tab))
+          this.wire(opened)
+          this.insert(opened, index)
           this.host.attachView(view)
           view.setVisible(false)
-          if (guest === undefined) void tab.webContents.loadURL(details.url).catch(() => undefined)
-          if (activate) this.activate(tab.id)
+          if (guest === undefined) this.load(opened, details.url)
+          if (activate) this.activate(opened.id)
           this.host.onChange()
-          return tab.webContents
+          return opened.webContents
         },
       }
     })
@@ -695,7 +816,6 @@ export class TabManager {
   }
 }
 
-function tab0WorkspaceOf(manager: TabManager, activeId: TabId | null): string {
-  const active = activeId === null ? undefined : manager.get(activeId)
-  return active?.state.workspaceId ?? manager.activeWorkspace
+function openerWorkspace(manager: TabManager, opener: Tab): string {
+  return manager.get(opener.id)?.state.workspaceId ?? manager.activeWorkspace
 }
