@@ -152,6 +152,11 @@ export function SidebarApp(): JSX.Element {
     void api.send({ type: 'sidebar.resize', width: d.width, commit: true })
   }
 
+  const clearSearch = () => {
+    setQuery('')
+    search?.focus()
+  }
+
   return (
     <aside
       class="sidebar"
@@ -299,15 +304,21 @@ export function SidebarApp(): JSX.Element {
                   query={query()}
                   newFolderRequest={newFolder()}
                   onOpen={open}
+                  onClearSearch={clearSearch}
                 />
               )}
             </Show>
           </Match>
           <Match when={section() === 'downloads'}>
-            <DownloadsPane downloads={downloads()} query={query()} />
+            <DownloadsPane downloads={downloads()} query={query()} onClearSearch={clearSearch} />
           </Match>
           <Match when={section() === 'history'}>
-            <HistoryPane tabs={store.tabs()} query={query()} onOpen={open} />
+            <HistoryPane
+              tabs={store.tabs()}
+              query={query()}
+              onOpen={open}
+              onClearSearch={clearSearch}
+            />
           </Match>
         </Switch>
       </div>
@@ -321,7 +332,7 @@ export function SidebarApp(): JSX.Element {
               onClick={() => void api.send({ type: 'bookmark.toggle' })}
             >
               <Icon name="star" class={isBookmarked() ? 'filled' : undefined} />
-              {isBookmarked() ? 'Remove this tab' : 'Bookmark this tab'}
+              {isBookmarked() ? 'Remove bookmark' : 'Bookmark this page'}
             </button>
             <button
               class="btn btn--ghost btn--sm sb-new-folder"

@@ -13,6 +13,7 @@ import { displayUrl, hostOf, type HistoryVisit, type Point, type TabState } from
 import { api } from '../../lib/api'
 import { faviconFor } from '../../lib/favicon'
 import { clockTime, dayLabel } from '../../lib/format'
+import { EmptyState } from '../EmptyState'
 import { Favicon } from '../Favicon'
 import { Icon } from '../Icon'
 import { Menu, type MenuEntry } from '../Menu'
@@ -24,6 +25,7 @@ export interface HistoryPaneProps {
   tabs: TabState[]
   query: string
   onOpen: (url: string, newTab: boolean) => void
+  onClearSearch: () => void
 }
 
 interface Group {
@@ -134,12 +136,44 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
         when={groups().length > 0}
         fallback={
           <Show when={loaded()}>
-            <div class="sb-empty">
-              <Icon name="history" size={24} />
-              <span class="sb-empty-title">
-                {props.query.trim() === '' ? 'No history yet' : 'No matching pages'}
-              </span>
-            </div>
+            <Show
+              when={props.query.trim() === ''}
+              fallback={
+                <EmptyState
+                  compact
+                  class="sb-empty"
+                  icon="search"
+                  title="No matching pages"
+                  actions={
+                    <button
+                      class="btn btn--secondary btn--sm"
+                      onClick={() => props.onClearSearch()}
+                    >
+                      Clear search
+                    </button>
+                  }
+                >
+                  Nothing in your history matches “{props.query.trim()}”.
+                </EmptyState>
+              }
+            >
+              <EmptyState
+                compact
+                class="sb-empty"
+                icon="history"
+                title="No history yet"
+                actions={
+                  <button
+                    class="btn btn--secondary btn--sm sb-start"
+                    onClick={() => void api.send({ type: 'tab.create' })}
+                  >
+                    Start browsing
+                  </button>
+                }
+              >
+                Sites you visit show up here, grouped by day.
+              </EmptyState>
+            </Show>
           </Show>
         }
       >

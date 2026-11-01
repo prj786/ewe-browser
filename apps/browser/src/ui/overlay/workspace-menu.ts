@@ -61,7 +61,7 @@ export function workspaceMenuItems(
       swatches: WORKSPACE_COLOR_ORDER.map((color) => ({
         value: color,
         color: WORKSPACE_COLORS[color],
-        label: color,
+        label: `${color.charAt(0).toUpperCase()}${color.slice(1)}`,
       })),
       pick: (value) => {
         if (isWorkspaceColor(value))
@@ -81,7 +81,7 @@ export function workspaceMenuItems(
     {
       type: 'item',
       id: 'remove',
-      label: 'Remove',
+      label: 'Remove workspace',
       icon: 'x',
       danger: true,
       disabled: snapshot.workspaces.length <= 1,

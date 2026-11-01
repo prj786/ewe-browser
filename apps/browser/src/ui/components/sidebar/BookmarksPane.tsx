@@ -1,4 +1,14 @@
-import { For, Show, createEffect, createMemo, createSignal, on, onMount, type JSX } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  type JSX,
+} from 'solid-js'
 import {
   BOOKMARKS_ROOT_ID,
   countBookmarks,
@@ -13,6 +23,7 @@ import {
 } from '@ewe/shared'
 import { api } from '../../lib/api'
 import { faviconFor } from '../../lib/favicon'
+import { EmptyState } from '../EmptyState'
 import { Favicon } from '../Favicon'
 import { Icon } from '../Icon'
 import { Menu, type MenuEntry } from '../Menu'
@@ -39,6 +50,7 @@ export interface BookmarksPaneProps {
   query: string
   newFolderRequest: number
   onOpen: (url: string, newTab: boolean) => void
+  onClearSearch: () => void
 }
 
 function loadExpanded(): Set<string> {
@@ -136,6 +148,24 @@ export function BookmarksPane(props: BookmarksPaneProps): JSX.Element {
   const [ctx, setCtx] = createSignal<Ctx | null>(null)
   const [dragId, setDragId] = createSignal<string | null>(null)
   const [drop, setDrop] = createSignal<Drop | null>(null)
+  const [importing, setImporting] = createSignal(false)
+  const [imported, setImported] = createSignal<string | null>(null)
+  let awaitingImport = false
+  onMount(() => {
+    const off = api.onUi((event) => {
+      if (event.type !== 'toast' || !awaitingImport) return
+      awaitingImport = false
+      setImporting(false)
+      setImported(event.message)
+    })
+    onCleanup(off)
+  })
+  const importChrome = () => {
+    awaitingImport = true
+    setImporting(true)
+    setImported(null)
+    void api.send({ type: 'bookmarks.importChrome' })
+  }
 
   const words = createMemo(() =>
     props.query
@@ -214,6 +244,13 @@ export function BookmarksPane(props: BookmarksPaneProps): JSX.Element {
           label: 'Open in new tab',
           icon: 'external-link',
           run: () => props.onOpen(node.url, true),
+        },
+        {
+          type: 'item',
+          id: 'copy',
+          label: 'Copy link',
+          icon: 'link',
+          run: () => void navigator.clipboard.writeText(node.url).catch(() => undefined),
         },
         { type: 'separator' },
         {
@@ -503,13 +540,23 @@ export function BookmarksPane(props: BookmarksPaneProps): JSX.Element {
           <Show
             when={props.root.children.length > 0 || form() !== null}
             fallback={
-              <div class="sb-empty">
-                <Icon name="bookmark" size={24} />
-                <span class="sb-empty-title">No bookmarks yet</span>
-                <span class="sb-empty-desc">
-                  Press Ctrl+D on a page, or import from Chrome in Settings.
-                </span>
-              </div>
+              <EmptyState
+                compact
+                class="sb-empty"
+                icon="bookmark"
+                title="No bookmarks yet"
+                actions={
+                  <button
+                    class="btn btn--secondary btn--sm sb-import"
+                    disabled={importing()}
+                    onClick={importChrome}
+                  >
+                    {importing() ? 'Importing…' : 'Import from Chrome'}
+                  </button>
+                }
+              >
+                {imported() ?? 'Press Ctrl+D or the star in the address field to keep a page here.'}
+              </EmptyState>
             }
           >
             <Tree folder={props.root} depth={0} />
@@ -520,9 +567,19 @@ export function BookmarksPane(props: BookmarksPaneProps): JSX.Element {
           <Show
             when={list().length > 0}
             fallback={
-              <div class="sb-empty">
-                <span class="sb-empty-title">No matching bookmarks</span>
-              </div>
+              <EmptyState
+                compact
+                class="sb-empty"
+                icon="search"
+                title="No matching bookmarks"
+                actions={
+                  <button class="btn btn--secondary btn--sm" onClick={() => props.onClearSearch()}>
+                    Clear search
+                  </button>
+                }
+              >
+                Nothing in your bookmarks matches “{props.query.trim()}”.
+              </EmptyState>
             }
           >
             <For each={list()}>

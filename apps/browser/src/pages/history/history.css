@@ -67,8 +67,6 @@
   font-size: var(--font-size-xs);
   line-height: var(--line-height-xs);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
 }
 
 .hp-ws-dot {
@@ -88,7 +86,7 @@
   min-height: var(--control-xl);
   margin-top: calc(var(--space-md) + var(--space-s));
   padding: var(--space-s) 0;
-  background: var(--surface-base);
+  background: var(--surface-raised);
 }
 
 .hp-search {
@@ -241,8 +239,7 @@
   flex: none;
   width: calc(var(--control-2xl) + var(--space-xs));
   color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-s);
   font-variant-numeric: tabular-nums;
 }
 
@@ -316,7 +313,6 @@ button.hp-host:hover {
 }
 
 .hp-empty {
-  align-self: center;
   margin-top: var(--space-lg);
 }
 

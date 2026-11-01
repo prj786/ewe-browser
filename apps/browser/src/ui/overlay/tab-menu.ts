@@ -67,7 +67,7 @@ export function tabMenuItems(tab: TabState, snapshot: WindowSnapshot): MenuEntry
     {
       type: 'item',
       id: 'copy-url',
-      label: 'Copy url',
+      label: 'Copy link',
       icon: 'link',
       disabled: tab.kind === 'newtab',
       run: () => send({ type: 'tab.copyUrl', id: tab.id }),
