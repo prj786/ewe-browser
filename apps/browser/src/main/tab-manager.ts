@@ -62,6 +62,10 @@ export interface TabManagerHost {
   failedLoad?(contents: WebContents, url: string, description: string): string | undefined
 }
 
+function startUrl(url: string): string {
+  return url.startsWith(NEW_TAB_URL) ? HOME_URL : url
+}
+
 export class Tab {
   readonly id: TabId = randomUUID()
   readonly view: WebContentsView
@@ -300,7 +304,8 @@ export class TabManager {
     this.host.onChange()
   }
 
-  create(url = NEW_TAB_URL, options: CreateTabOptions = {}): Tab {
+  create(target = HOME_URL, options: CreateTabOptions = {}): Tab {
+    const url = startUrl(target)
     const workspaceId = options.workspaceId ?? this.activeWorkspaceId
     const view = new WebContentsView({
       webPreferences: {
@@ -330,7 +335,8 @@ export class TabManager {
     return tab
   }
 
-  load(tab: Tab, url: string): void {
+  load(tab: Tab, target: string): void {
+    const url = startUrl(target)
     const ticket = ++tab.loadTicket
     const workspace = this.workspaceOf(tab)
     const wait = workspace === undefined ? null : (this.host.beforeLoad?.(workspace, url) ?? null)
@@ -449,7 +455,7 @@ export class TabManager {
       const neighbour = remaining[Math.min(position, remaining.length - 1)]
       if (neighbour !== undefined) this.activate(neighbour.id)
       else if (this.tabs.length > 0 && this.workspaces.some((w) => w.id === workspaceId))
-        this.create(NEW_TAB_URL, { workspaceId })
+        this.create(HOME_URL, { workspaceId })
     }
     this.host.onChange()
   }

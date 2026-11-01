@@ -237,7 +237,7 @@ export function Rail(props: RailProps): JSX.Element {
     }
   }
 
-  const newTab = () => void api.send({ type: 'overlay.request', part: 'palette', newTab: true })
+  const newTab = () => void api.send({ type: 'tab.create' })
   const toggleRail = () => {
     const next = props.mode === 'expanded' ? 'collapsed' : 'expanded'
     void api.send({ type: 'settings.update', patch: { rail: next } })

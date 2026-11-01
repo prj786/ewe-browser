@@ -395,7 +395,7 @@ export class WindowController {
     if (initial?.workspaces !== undefined && initial.workspaces.length > 0)
       this.tabs.setWorkspaces(initial.workspaces, initial.activeWorkspace ?? 0)
     const workspaces = this.tabs.workspaceList()
-    if (tabs.length === 0) this.tabs.create(NEW_TAB_URL)
+    if (tabs.length === 0) this.tabs.create(HOME_URL)
     else {
       const created = tabs.map((tab) => {
         const workspace = workspaces[tab.workspace ?? 0] ?? workspaces[0]
@@ -409,7 +409,7 @@ export class WindowController {
       })
       for (const workspace of workspaces) {
         if (this.tabs.tabsIn(workspace.id).length === 0)
-          this.tabs.create(NEW_TAB_URL, { activate: false, workspaceId: workspace.id })
+          this.tabs.create(HOME_URL, { activate: false, workspaceId: workspace.id })
       }
       const active = created[Math.min(initial?.activeIndex ?? 0, created.length - 1)]
       if (active !== undefined) this.tabs.activate(active.id)
@@ -586,7 +586,6 @@ export class WindowController {
       if (
         (command.type === 'settings.update' ||
           command.type === 'shortcuts.recording' ||
-          command.type === 'bookmarks.importChrome' ||
           command.type === 'panel.add' ||
           command.type === 'panel.remove' ||
           command.type === 'extension.options' ||
@@ -597,6 +596,13 @@ export class WindowController {
       )
         return
       if (command.type === 'music.play' && !frameUrl.startsWith(HOME_URL)) return
+      if (command.type === 'downloads.openFolder' && !frameUrl.startsWith(HOME_URL)) return
+      if (
+        command.type === 'bookmarks.importChrome' &&
+        !frameUrl.startsWith(SETTINGS_URL) &&
+        !frameUrl.startsWith(HOME_URL)
+      )
+        return
       if (
         (command.type === 'permission.set' || command.type === 'permission.forget') &&
         !frameUrl.startsWith(SETTINGS_URL)
@@ -610,7 +616,7 @@ export class WindowController {
       command = { ...command, input: this.deps.siteInput(command.input) ?? command.input }
     switch (command.type) {
       case 'tab.create': {
-        const url = command.url ?? NEW_TAB_URL
+        const url = command.url ?? HOME_URL
         const allowed = layer === 'page' ? isOpenableUrl(url) : isRestorableUrl(url)
         if (!allowed) return
         this.tabs.create(url, { activate: command.activate ?? true })
@@ -788,6 +794,13 @@ export class WindowController {
       case 'downloads.clear':
         this.deps.downloads.clear()
         break
+      case 'downloads.openFolder': {
+        const url = filesUrl(this.deps.downloads.directory())
+        const tab = layer === 'page' ? this.tabs.byWebContents(sender) : undefined
+        if (tab !== undefined) this.tabs.navigate(tab.id, url)
+        else this.tabs.create(url)
+        break
+      }
       case 'history.remove':
         this.deps.history.remove(command.url)
         break
@@ -1205,7 +1218,7 @@ export class WindowController {
     const active = this.tabs.active
     switch (action.action) {
       case 'tab.new':
-        this.openPalette(true)
+        this.tabs.create(HOME_URL)
         break
       case 'tab.close':
         if (active !== undefined)

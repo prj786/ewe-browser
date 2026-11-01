@@ -120,6 +120,7 @@ export type ShellCommand =
   | { type: 'sidebar.resize'; width: number; commit?: boolean }
   | { type: 'download'; id: string; action: DownloadAction }
   | { type: 'downloads.clear' }
+  | { type: 'downloads.openFolder' }
   | { type: 'history.remove'; url: string }
   | { type: 'passwords.open' }
   | { type: 'safe.choose'; requestId: string; id: string }
@@ -280,6 +281,7 @@ const PAGE_COMMANDS = new Set<ShellCommand['type']>([
   'music.play',
   'shortcuts.recording',
   'bookmarks.importChrome',
+  'downloads.openFolder',
   'panel.add',
   'panel.remove',
   'extension.options',
@@ -498,6 +500,7 @@ export function isShellCommand(value: unknown): value is ShellCommand {
     case 'passwords.open':
     case 'sidebar.close':
     case 'downloads.clear':
+    case 'downloads.openFolder':
     case 'bookmarks.importChrome':
     case 'tab.reopen':
     case 'nav.back':

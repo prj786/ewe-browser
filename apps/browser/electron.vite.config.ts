@@ -63,7 +63,6 @@ export default defineConfig({
           overlay: resolve(__dirname, 'src/ui/overlay/index.html'),
           sidebar: resolve(__dirname, 'src/ui/sidebar/index.html'),
           home: resolve(__dirname, 'src/pages/home/index.html'),
-          newtab: resolve(__dirname, 'src/pages/newtab/index.html'),
           settings: resolve(__dirname, 'src/pages/settings/index.html'),
           files: resolve(__dirname, 'src/pages/files/index.html'),
           music: resolve(__dirname, 'src/pages/music/index.html'),
