@@ -9,14 +9,7 @@ import {
   type WebContents,
 } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
-import {
-  FILES_PAGE_URL,
-  HOME_URL,
-  IPC,
-  MUSIC_PAGE_URL,
-  NEW_TAB_URL,
-  type SessionWindow,
-} from '@ewe/shared'
+import { FILES_PAGE_URL, HOME_URL, IPC, MUSIC_PAGE_URL, type SessionWindow } from '@ewe/shared'
 import { chromeBookmarkPaths, readChromeBookmarks } from './chrome-bookmarks'
 import { createCliHost } from './cli/host'
 import { listenCli, type CliServer } from './cli/server'
@@ -239,7 +232,7 @@ async function main(): Promise<void> {
     createTab: (url, active, window): Electron.WebContents | null => {
       const target = windows.controllerOf(window) ?? windows.focused() ?? windows.all()[0]
       if (target === undefined) return null
-      return target.tabs.create(url === '' ? NEW_TAB_URL : url, {
+      return target.tabs.create(url === '' ? HOME_URL : url, {
         activate: active,
         workspaceId: target.tabs.localWorkspace(),
       }).webContents

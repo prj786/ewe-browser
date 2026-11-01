@@ -69,7 +69,7 @@ export function PrivacyLayer(props: { part: OverlayPart; leaving: boolean }): JS
               }
               onClear={() => void api.send({ type: 'site.clearData', origin: s().info.origin })}
               onSettings={() => {
-                void api.send({ type: 'tab.create', url: 'app://settings/#privacy' })
+                void api.send({ type: 'tab.create', url: 'app://settings/#permissions' })
               }}
             />
           </div>

@@ -387,7 +387,7 @@ s.on('data', (d) => { b += d; const i = b.indexOf('\\n'); if (i >= 0) { process.
       (window as unknown as { register(): Promise<unknown> }).register(),
     )
     const card = await sheet(app)
-    await expect(card).toContainText('Save a passkey for localhost in Safe?')
+    await expect(card).toContainText('Save a passkey for localhost in ewe Safe?')
     await expect(card).toContainText('Sam')
     expect((await overlayState(app)).focused).toBe(true)
     await card.locator('.safe-sheet-primary').click()
@@ -497,7 +497,7 @@ s.on('data', (d) => { b += d; const i = b.indexOf('\\n'); if (i >= 0) { process.
       }),
     )
     let card = await sheet(app)
-    await expect(card).toContainText('Safe is locked')
+    await expect(card).toContainText('ewe Safe is locked')
     await card.locator('.safe-sheet-primary').click()
     await expect.poll(() => fake.locked, { timeout: 15_000 }).toBe(false)
     card = await sheet(app)
@@ -520,7 +520,7 @@ s.on('data', (d) => { b += d; const i = b.indexOf('\\n'); if (i >= 0) { process.
   test('the inline list opens under the field and keeps the focus in it', async () => {
     const page = await open(app, shell, `${rp.served.origin}/plain`)
     await page.click('#user')
-    expect(await waitRows(app)).toEqual(['Test RP\nbob', 'Test RP\nsam', 'Open Safe'])
+    expect(await waitRows(app)).toEqual(['Test RP\nbob', 'Test RP\nsam', 'Open ewe Safe'])
     expect(await activeId(page)).toBe('user')
     const state = await overlayState(app)
     expect(state.visible).toBe(true)
@@ -536,7 +536,7 @@ s.on('data', (d) => { b += d; const i = b.indexOf('\\n'); if (i >= 0) { process.
 
     await page.keyboard.type('bo')
     expect(await page.inputValue('#user')).toBe('bo')
-    await expect.poll(() => suggestRows(app)).toEqual(['Test RP\nbob', 'Open Safe'])
+    await expect.poll(() => suggestRows(app)).toEqual(['Test RP\nbob', 'Open ewe Safe'])
     await page.keyboard.press('ArrowDown')
     await expect((await overlayOf(app)).locator('.safe-row.active')).toContainText('bob')
     expect(await activeId(page)).toBe('user')

@@ -146,7 +146,7 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   bookmark: 'Bookmark this page',
   'rail.toggle': 'Collapse or expand the tab rail',
   files: 'Open files',
-  passwords: 'Fill from Safe',
+  passwords: 'Fill from ewe Safe',
   'sidebar.bookmarks': 'Bookmarks sidebar',
   'sidebar.downloads': 'Downloads sidebar',
   'sidebar.history': 'History sidebar',

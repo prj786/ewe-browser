@@ -323,7 +323,8 @@ function editItems(edit: PageMenuEdit): PageMenuEntry[] {
   }
   if (edit.safe === 'new-password')
     out.push(item('safe.generate', 'Use a strong password'), { type: 'separator' })
-  else if (edit.safe !== null) out.push(item('safe.fill', 'Fill from Safe'), { type: 'separator' })
+  else if (edit.safe !== null)
+    out.push(item('safe.fill', 'Fill from ewe Safe'), { type: 'separator' })
   out.push(
     item('edit.undo', 'Undo', { hint: 'Ctrl+Z', disabled: !edit.undo }),
     item('edit.redo', 'Redo', { hint: 'Ctrl+Shift+Z', disabled: !edit.redo }),
@@ -437,7 +438,7 @@ export const PASSWORD_MANAGER_EXTENSIONS: Readonly<Record<string, string>> = {
   kmbjcfefmceiibhnddbeenklcmpehmdd: 'TweakPass',
 }
 
-export const SAFE_ONLY_MESSAGE = 'ewe browser fills passwords with Safe'
+export const SAFE_ONLY_MESSAGE = 'ewe Browser fills passwords with ewe Safe'
 
 export function passwordManagerName(id: string): string | null {
   return Object.hasOwn(PASSWORD_MANAGER_EXTENSIONS, id)

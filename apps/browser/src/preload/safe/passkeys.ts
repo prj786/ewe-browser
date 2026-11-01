@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@ewe/shared'
 import { pageScript, type PageBridge } from './page-script'
 
-const REFUSED = { ok: false, name: 'NotAllowedError', message: 'Safe could not be reached.' }
+const REFUSED = { ok: false, name: 'NotAllowedError', message: 'ewe Safe could not be reached.' }
 
 function invoke(request: Record<string, unknown>): Promise<unknown> {
   return ipcRenderer.invoke(IPC.safePasskey, request).catch(() => REFUSED)

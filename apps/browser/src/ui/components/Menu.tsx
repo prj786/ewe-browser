@@ -274,6 +274,8 @@ function MenuPanel(props: PanelProps): JSX.Element {
                           }}
                           style={{ '--swatch': s().color }}
                           aria-label={s().label}
+                          title={s().label}
+                          data-value={s().value}
                           aria-pressed={row().selected === s().value}
                           tabindex="-1"
                           onMouseEnter={() => setSwatch(j)}

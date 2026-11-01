@@ -387,7 +387,7 @@ export class SafeService {
     const field = t.request.kind === 'otp' ? 'otp' : 'password'
     const reply = await this.client.call('reveal', { id, field }, STATUS_TIMEOUT_MS)
     if (!reply.ok || typeof reply.value !== 'string')
-      return { ok: false, message: reply.message ?? 'Safe could not open that login.' }
+      return { ok: false, message: reply.message ?? 'ewe Safe could not open that login.' }
     const again = this.target(requestId)
     if (again === null) return { ok: false, message: 'The page changed. Try again.' }
     this.requests.delete(requestId)
@@ -406,7 +406,7 @@ export class SafeService {
     if (t === null) return { ok: false, message: 'The page changed. Try again.' }
     const reply = await this.client.call('generate', { length: GENERATE_LENGTH }, STATUS_TIMEOUT_MS)
     if (!reply.ok || typeof reply.value !== 'string')
-      return { ok: false, message: reply.message ?? 'Safe could not make a password.' }
+      return { ok: false, message: reply.message ?? 'ewe Safe could not make a password.' }
     const again = this.target(requestId)
     if (again === null) return { ok: false, message: 'The page changed. Try again.' }
     this.requests.delete(requestId)
@@ -594,18 +594,18 @@ export class SafeService {
       this.drop(promptId)
       return {
         kind: 'done',
-        outcome: { ok: false, message: 'Safe is still locked. The login was not saved.' },
+        outcome: { ok: false, message: 'ewe Safe is still locked. The login was not saved.' },
       }
     }
     const decision = await this.decide(c)
     if (decision === null || !this.captures.has(promptId)) {
       this.drop(promptId)
-      return { kind: 'done', outcome: { ok: false, message: 'Safe could not save the login.' } }
+      return { kind: 'done', outcome: { ok: false, message: 'ewe Safe could not save the login.' } }
     }
     c.decision = decision
     if (decision.mode === 'none') {
       this.drop(promptId)
-      return { kind: 'done', outcome: { ok: true, message: 'This login is already in Safe' } }
+      return { kind: 'done', outcome: { ok: true, message: 'This login is already in ewe Safe' } }
     }
     if (decision.mode === 'update')
       return { kind: 'prompt', prompt: this.promptOf(promptId, c, false) }
@@ -626,7 +626,7 @@ export class SafeService {
       const safe = this.settings()
       if (!safe.neverSave.includes(neverHost))
         this.store.update({ safe: { ...safe, neverSave: [...safe.neverSave, neverHost] } })
-      return { ok: true, message: `Safe won't offer to save on ${host}` }
+      return { ok: true, message: `ewe Safe won't offer to save on ${host}` }
     }
     const decision = c.decision
     if (decision === null || decision.mode === 'none') return null
@@ -637,8 +637,8 @@ export class SafeService {
         UNLOCK_TIMEOUT_MS,
       )
       return reply.ok
-        ? { ok: true, message: 'Password updated in Safe' }
-        : { ok: false, message: reply.message ?? 'Safe could not update the login.' }
+        ? { ok: true, message: 'Password updated in ewe Safe' }
+        : { ok: false, message: reply.message ?? 'ewe Safe could not update the login.' }
     }
     if (action === 'save' && decision.mode === 'save') {
       const args: Record<string, unknown> = {
@@ -650,8 +650,8 @@ export class SafeService {
       if (c.username !== '') args.username = c.username
       const reply = await this.client.call('add', args, UNLOCK_TIMEOUT_MS)
       return reply.ok
-        ? { ok: true, message: 'Saved to Safe' }
-        : { ok: false, message: reply.message ?? 'Safe could not save the login.' }
+        ? { ok: true, message: 'Saved to ewe Safe' }
+        : { ok: false, message: reply.message ?? 'ewe Safe could not save the login.' }
     }
     return null
   }

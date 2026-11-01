@@ -443,8 +443,8 @@ export class SyncService extends EventEmitter<{ status: [SyncStatus]; tabs: [Rem
         state: 'error',
         account: null,
         error: this.current.managed
-          ? 'Your ewe account is not available here. Open ewe-sync to sign in again.'
-          : 'Sign in to your ewe account in ewe-sync first',
+          ? 'Your ewe account is not available here. Open ewe Sync to sign in again.'
+          : 'Sign in to your ewe account in ewe Sync first',
       })
       return
     }

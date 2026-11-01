@@ -14,9 +14,13 @@ import {
   type PrivacyStatus,
   type Settings,
 } from '@ewe/shared'
-import { Icon, type IconName } from '../../ui/components/Icon'
+import { EmptyState } from '../../ui/components/EmptyState'
+import { Icon } from '../../ui/components/Icon'
+import { Segmented } from '../../ui/components/Segmented'
+import { Switch } from '../../ui/components/Switch'
 import { api } from '../../ui/lib/api'
 import { PERMISSION_ICONS } from '../../ui/lib/permissions'
+import { Divider, Group, Row, Select } from './controls'
 import './privacy.css'
 
 const PROVIDERS: DohProvider[] = ['cloudflare', 'quad9', 'mullvad', 'adguard', 'nextdns', 'custom']
@@ -26,46 +30,10 @@ function dnsChoice(p: PrivacySettings): string {
 }
 
 function dnsDescription(p: PrivacySettings): string {
-  if (p.secureDns === 'off')
-    return 'Off: your system looks up site names (systemd-resolved, your router or your VPN).'
-  if (p.secureDns === 'automatic')
-    return 'Encrypts lookups when your network’s DNS provider supports it, and uses it as is when not.'
-  const name = DOH_PROVIDERS[p.dnsProvider].name
-  return `Every lookup goes encrypted to ${p.dnsProvider === 'custom' ? 'your server' : name}. There is no fallback: when it cannot be reached, sites do not load.`
-}
-
-function Choice(props: {
-  icon: IconName
-  title: string
-  description: JSX.Element
-  label: string
-  class: string
-  value: string
-  options: { value: string; label: string }[]
-  onChange(value: string): void
-}): JSX.Element {
-  return (
-    <div class="row">
-      <span class="row-tile">
-        <Icon name={props.icon} />
-      </span>
-      <span class="row-text">
-        <span class="row-title">{props.title}</span>
-        <span class="row-desc">{props.description}</span>
-      </span>
-      <span class="select">
-        <select
-          aria-label={props.label}
-          class={props.class}
-          value={props.value}
-          onChange={(e) => props.onChange(e.currentTarget.value)}
-        >
-          <For each={props.options}>{(o) => <option value={o.value}>{o.label}</option>}</For>
-        </select>
-        <Icon name="chevron-down" />
-      </span>
-    </div>
-  )
+  if (p.secureDns === 'off') return 'Your network looks up site names, as usual'
+  if (p.secureDns === 'automatic') return 'Encrypted when your network’s DNS supports it'
+  const name = p.dnsProvider === 'custom' ? 'your server' : DOH_PROVIDERS[p.dnsProvider].name
+  return `Always encrypted, through ${name}. If it can’t be reached, sites don’t load.`
 }
 
 function DnsField(props: {
@@ -83,22 +51,18 @@ function DnsField(props: {
     props.update(nextdns() ? { nextdnsId: draft().trim() } : { dnsTemplate: draft().trim() })
   }
   return (
-    <div class="row">
-      <span class="row-tile">
-        <Icon name="server" />
-      </span>
-      <span class="row-text">
-        <span class="row-title">
-          {nextdns() ? 'NextDNS configuration ID' : 'DNS-over-HTTPS address'}
-        </span>
-        <span class="row-desc" classList={{ 'row-warning': draft().trim() !== '' && !valid() }}>
+    <Row
+      title={nextdns() ? 'NextDNS configuration ID' : 'DNS-over-HTTPS address'}
+      description={
+        <span classList={{ 'row-warning': draft().trim() !== '' && !valid() }}>
           {nextdns()
-            ? 'The six letters and digits from my.nextdns.io, like abc123.'
-            : 'An https:// address, like https://dns.example/dns-query (add {?dns} for servers that only take GET).'}
+            ? 'Six letters and digits from my.nextdns.io, like abc123'
+            : 'Like https://dns.example/dns-query'}
         </span>
-      </span>
+      }
+    >
       <input
-        class="settings-ext-link settings-dns-field"
+        class="settings-field settings-dns-field"
         value={draft()}
         placeholder={nextdns() ? 'abc123' : 'https://dns.example/dns-query'}
         spellcheck={false}
@@ -116,70 +80,102 @@ function DnsField(props: {
       >
         Use
       </button>
-    </div>
+    </Row>
   )
 }
 
-function SitePermissions(props: { sites: PermissionSite[] }): JSX.Element {
+const PERMISSION_CHOICES = [
+  { value: 'ask', label: 'Ask' },
+  { value: 'allow', label: 'Allow' },
+  { value: 'block', label: 'Block' },
+]
+
+function SiteRows(props: { sites: PermissionSite[] }): JSX.Element {
   const set = (origin: string, kind: PermissionKind, value: PermissionValue) =>
     void api.send({ type: 'permission.set', origin, kind, value })
   return (
     <For
       each={props.sites}
       fallback={
-        <div class="row">
-          <span class="row-text">
-            <span class="row-desc">No site has been allowed or blocked yet.</span>
-          </span>
-        </div>
+        <EmptyState
+          compact
+          icon="shield-check"
+          title="No site has asked yet"
+          class="settings-sites-empty"
+        >
+          When a site asks for your camera, microphone or location, your answer is kept here.
+        </EmptyState>
       }
     >
-      {(site) => (
-        <div class="settings-site" data-origin={site.origin}>
-          <div class="row">
-            <span class="row-tile">
-              <Icon name={site.origin.startsWith('https:') ? 'lock' : 'lock-open'} />
-            </span>
-            <span class="row-text">
-              <span class="row-title">{originHost(site.origin)}</span>
-              <span class="row-desc">{site.origin}</span>
-            </span>
-            <button
-              class="btn btn--ghost btn--sm settings-site-forget"
-              onClick={() => void api.send({ type: 'permission.forget', origin: site.origin })}
-            >
-              Forget
-            </button>
+      {(site, i) => (
+        <>
+          <Show when={i() > 0}>
+            <Divider />
+          </Show>
+          <div class="settings-site" data-origin={site.origin}>
+            <div class="row settings-site-head">
+              <span class="settings-site-icon">
+                <Icon name={site.origin.startsWith('https:') ? 'lock' : 'lock-open'} />
+              </span>
+              <span class="row-text">
+                <span class="row-title">{originHost(site.origin)}</span>
+                <span class="row-desc">{site.origin}</span>
+              </span>
+              <span class="row-trail">
+                <button
+                  class="btn btn--ghost btn--sm settings-site-forget"
+                  onClick={() => void api.send({ type: 'permission.forget', origin: site.origin })}
+                >
+                  Forget
+                </button>
+              </span>
+            </div>
+            <For each={PERMISSION_KINDS.filter((k) => site.permissions[k] !== undefined)}>
+              {(kind) => (
+                <div class="row settings-site-perm" data-kind={kind}>
+                  <span class="settings-site-icon">
+                    <Icon name={PERMISSION_ICONS[kind]} />
+                  </span>
+                  <span class="row-text">
+                    <span class="row-title">{PERMISSION_LABELS[kind]}</span>
+                  </span>
+                  <span class="row-trail">
+                    <Segmented
+                      small
+                      label={`${PERMISSION_LABELS[kind]} for ${originHost(site.origin)}`}
+                      value={site.permissions[kind] ?? 'ask'}
+                      options={PERMISSION_CHOICES}
+                      onChange={(value) => set(site.origin, kind, value as PermissionValue)}
+                    />
+                  </span>
+                </div>
+              )}
+            </For>
           </div>
-          <For each={PERMISSION_KINDS.filter((k) => site.permissions[k] !== undefined)}>
-            {(kind) => (
-              <div class="row settings-site-perm" data-kind={kind}>
-                <span class="settings-site-icon">
-                  <Icon name={PERMISSION_ICONS[kind]} />
-                </span>
-                <span class="row-text">
-                  <span class="row-title">{PERMISSION_LABELS[kind]}</span>
-                </span>
-                <span class="select">
-                  <select
-                    aria-label={`${PERMISSION_LABELS[kind]} for ${originHost(site.origin)}`}
-                    value={site.permissions[kind] ?? 'ask'}
-                    onChange={(e) =>
-                      set(site.origin, kind, e.currentTarget.value as PermissionValue)
-                    }
-                  >
-                    <option value="allow">Allow</option>
-                    <option value="block">Block</option>
-                    <option value="ask">Ask</option>
-                  </select>
-                  <Icon name="chevron-down" />
-                </span>
-              </div>
-            )}
-          </For>
-        </div>
+        </>
       )}
     </For>
+  )
+}
+
+export function SitePermissions(): JSX.Element {
+  const [sites, setSites] = createSignal<PermissionSite[]>([])
+  const load = () =>
+    void api.permissions<PermissionSite[]>({ op: 'list' }).then((list) => setSites(list ?? []))
+  onMount(() => {
+    load()
+    onCleanup(api.onPermissions(load))
+  })
+  return (
+    <>
+      <Group class="settings-permissions">
+        <SiteRows sites={sites()} />
+      </Group>
+      <p class="settings-note">
+        The lock in the address field changes them for the site you have open.{' '}
+        {PERMISSION_NOTES.location}
+      </p>
+    </>
   )
 }
 
@@ -187,24 +183,13 @@ export function Privacy(props: {
   settings: () => Settings
   update: (patch: Partial<Settings>) => void
 }): JSX.Element {
-  const [sites, setSites] = createSignal<PermissionSite[]>([])
   const [status, setStatus] = createSignal<PrivacyStatus | null>(null)
-  let section: HTMLHeadingElement | undefined
   const privacy = () => props.settings().privacy
   const update = (patch: Partial<PrivacySettings>) =>
     props.update({ privacy: { ...privacy(), ...patch } })
-  const loadSites = () =>
-    void api.permissions<PermissionSite[]>({ op: 'list' }).then((list) => setSites(list ?? []))
   const loadStatus = () => void api.permissions<PrivacyStatus>({ op: 'status' }).then(setStatus)
 
-  onMount(() => {
-    loadSites()
-    loadStatus()
-    const off = api.onPermissions(loadSites)
-    onCleanup(off)
-    if (location.hash === '#privacy')
-      queueMicrotask(() => section?.scrollIntoView({ block: 'start' }))
-  })
+  onMount(loadStatus)
   createEffect(on(privacy, loadStatus, { defer: true }))
 
   const restart = () => {
@@ -213,24 +198,21 @@ export function Privacy(props: {
   }
 
   return (
-    <>
-      <h2 class="section-header" id="privacy" ref={section}>
-        Privacy and security
-      </h2>
-      <div class="list settings-privacy">
-        <Choice
-          icon="server"
-          title="Secure DNS"
+    <Group class="settings-privacy">
+      <Row
+        title="Secure DNS"
+        description={
+          <>
+            {dnsDescription(privacy())}
+            <Show when={status()?.dnsError}>
+              {(error) => <span class="row-warning settings-dns-error">{error()}</span>}
+            </Show>
+          </>
+        }
+      >
+        <Select
           label="Secure DNS"
           class="settings-secure-dns"
-          description={
-            <>
-              {dnsDescription(privacy())}
-              <Show when={status()?.dnsError}>
-                {(error) => <span class="row-warning settings-dns-error">{error()}</span>}
-              </Show>
-            </>
-          }
           value={dnsChoice(privacy())}
           options={[
             { value: 'off', label: 'Off' },
@@ -242,43 +224,43 @@ export function Privacy(props: {
             else update({ secureDns: 'secure', dnsProvider: value as DohProvider })
           }}
         />
-        <Show
-          when={
-            privacy().secureDns === 'secure' &&
-            (privacy().dnsProvider === 'nextdns' || privacy().dnsProvider === 'custom')
-          }
-        >
-          <DnsField privacy={privacy()} update={update} />
-        </Show>
-        <div class="list-divider" />
-        <Choice
-          icon="lock"
-          title="HTTPS-Only"
+      </Row>
+      <Show
+        when={
+          privacy().secureDns === 'secure' &&
+          (privacy().dnsProvider === 'nextdns' || privacy().dnsProvider === 'custom')
+        }
+      >
+        <DnsField privacy={privacy()} update={update} />
+      </Show>
+      <Divider />
+      <Row
+        title="HTTPS-Only"
+        description="Opens sites over https:// and warns you before an http one. Local addresses are left alone."
+      >
+        <Switch
           label="HTTPS-Only"
           class="settings-https-only"
-          description="Opens every site over https://. When a site has no secure version, a warning page lets you continue over http for that site until ewe browser closes. Local addresses (localhost, 192.168.x.x, .local) are left alone."
-          value={privacy().httpsOnly ? 'on' : 'off'}
-          options={[
-            { value: 'on', label: 'On' },
-            { value: 'off', label: 'Off' },
-          ]}
-          onChange={(value) => update({ httpsOnly: value === 'on' })}
+          checked={privacy().httpsOnly}
+          onChange={(on) => update({ httpsOnly: on })}
         />
-        <div class="list-divider" />
-        <Choice
-          icon="eye-off"
-          title="Third-party cookies"
+      </Row>
+      <Divider />
+      <Row
+        title="Third-party cookies"
+        description={
+          <>
+            Blocking stops trackers embedded in pages. A few embedded sign-ins need them.
+            <Show when={restart()}>
+              <span class="row-warning settings-restart">Restart ewe Browser to apply.</span>
+            </Show>
+          </>
+        }
+      >
+        <Segmented
+          small
           label="Third-party cookies"
           class="settings-third-party"
-          description={
-            <>
-              Blocked: sites embedded in the page you visit (ads, trackers, like buttons) cannot
-              read or set their cookies. A few embedded sign-ins and comment boxes need them.
-              <Show when={restart()}>
-                <span class="row-warning settings-restart">Restart ewe browser to apply.</span>
-              </Show>
-            </>
-          }
           value={privacy().blockThirdPartyCookies ? 'block' : 'allow'}
           options={[
             { value: 'block', label: 'Block' },
@@ -286,39 +268,19 @@ export function Privacy(props: {
           ]}
           onChange={(value) => update({ blockThirdPartyCookies: value === 'block' })}
         />
-        <div class="list-divider" />
-        <Choice
-          icon="shield-check"
-          title="Ask sites not to sell or share your data"
-          label="Global Privacy Control"
+      </Row>
+      <Divider />
+      <Row
+        title="Ask sites not to sell or share your data"
+        description="Sends Global Privacy Control with every request"
+      >
+        <Switch
+          label="Ask sites not to sell or share your data"
           class="settings-gpc"
-          description="Global Privacy Control: sends Sec-GPC: 1 with every request and tells page scripts. Sites under privacy laws such as the CCPA must honour it."
-          value={privacy().gpc ? 'on' : 'off'}
-          options={[
-            { value: 'on', label: 'On' },
-            { value: 'off', label: 'Off' },
-          ]}
-          onChange={(value) => update({ gpc: value === 'on' })}
+          checked={privacy().gpc}
+          onChange={(on) => update({ gpc: on })}
         />
-      </div>
-      <h2 class="section-header">Site permissions</h2>
-      <div class="list settings-permissions">
-        <div class="row">
-          <span class="row-tile">
-            <Icon name="camera" />
-          </span>
-          <span class="row-text">
-            <span class="row-title">Sites ask first</span>
-            <span class="row-desc">
-              Camera, microphone, location, notifications, clipboard, MIDI and devices on your
-              network: a site asks, and your answer is kept here. The lock in the address field
-              changes them for the open site. {PERMISSION_NOTES.location}
-            </span>
-          </span>
-        </div>
-        <div class="list-divider" />
-        <SitePermissions sites={sites()} />
-      </div>
-    </>
+      </Row>
+    </Group>
   )
 }

@@ -39,7 +39,7 @@ function send(path: string, tool: string, args: Args): Promise<Sent> {
       done(value)
     }
     let timer = setTimeout(
-      () => finish({ reply: failure('busy', 'ewe browser does not accept the connection') }),
+      () => finish({ reply: failure('busy', 'ewe Browser does not accept the connection') }),
       CONNECT_MS,
     )
     socket.setEncoding('utf8')
@@ -47,7 +47,7 @@ function send(path: string, tool: string, args: Args): Promise<Sent> {
       connected = true
       clearTimeout(timer)
       timer = setTimeout(
-        () => finish({ reply: failure('timeout', 'ewe browser did not answer in time') }),
+        () => finish({ reply: failure('timeout', 'ewe Browser did not answer in time') }),
         REPLY_MS,
       )
       const request: CliRequest = { v: PROTOCOL_VERSION, id: randomUUID(), tool, args }
@@ -62,7 +62,7 @@ function send(path: string, tool: string, args: Args): Promise<Sent> {
         delete reply.id
         finish({ reply })
       } catch {
-        finish({ reply: failure('bad-reply', 'ewe browser sent something that is not JSON') })
+        finish({ reply: failure('bad-reply', 'ewe Browser sent something that is not JSON') })
       }
     })
     socket.on('error', (error: NodeJS.ErrnoException) => {
@@ -72,7 +72,7 @@ function send(path: string, tool: string, args: Args): Promise<Sent> {
       else finish({ reply: failure('failed', error.message) })
     })
     socket.on('close', () => {
-      if (connected) finish({ reply: failure('failed', 'ewe browser closed the connection') })
+      if (connected) finish({ reply: failure('failed', 'ewe Browser closed the connection') })
     })
   })
 }
@@ -99,7 +99,7 @@ function listening(path: string): Promise<boolean> {
 async function launch(path: string): Promise<CliReply | null> {
   const [bin, ...rest] = appCommand()
   if (bin === undefined || !existsSync(bin))
-    return failure('not-installed', 'the ewe browser binary was not found', 'set EWE_BROWSER_BIN')
+    return failure('not-installed', 'the ewe Browser binary was not found', 'set EWE_BROWSER_BIN')
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
   let exitedAt: number | null = null
@@ -114,11 +114,11 @@ async function launch(path: string): Promise<CliReply | null> {
     if (exitedAt !== null && Date.now() - exitedAt > HANDOFF_MS)
       return failure(
         'no-socket',
-        'ewe browser is running but does not answer the command line (an older version?)',
-        'restart ewe browser',
+        'ewe Browser is running but does not answer the command line (an older version?)',
+        'restart ewe Browser',
       )
   }
-  return failure('timeout', 'ewe browser did not start in time')
+  return failure('timeout', 'ewe Browser did not start in time')
 }
 
 async function run(argv: readonly string[]): Promise<{ reply: CliReply; pretty: boolean }> {
@@ -153,7 +153,7 @@ async function run(argv: readonly string[]): Promise<{ reply: CliReply; pretty: 
       return { reply: await offlineBookmark(spec.name, args, userData), pretty }
     case 'live':
       return {
-        reply: failure('not-running', 'ewe browser is not running', 'ewe-browser focus starts it'),
+        reply: failure('not-running', 'ewe Browser is not running', 'ewe-browser focus starts it'),
         pretty,
       }
     default: {
@@ -169,7 +169,7 @@ async function run(argv: readonly string[]): Promise<{ reply: CliReply; pretty: 
         reply:
           'reply' in second
             ? { ...second.reply, launched: true }
-            : failure('not-running', 'ewe browser started but does not answer'),
+            : failure('not-running', 'ewe Browser started but does not answer'),
         pretty,
       }
     }

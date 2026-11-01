@@ -15,6 +15,7 @@ import {
   type OverlayPart,
   type Point,
   type RemoteChoice,
+  type ToastAction,
   type ToastIcon,
 } from '@ewe/shared'
 import { Icon, type IconName } from '../components/Icon'
@@ -41,6 +42,7 @@ const TOAST_ICONS: Record<ToastIcon, IconName> = {
   download: 'download',
   check: 'check',
   alert: 'circle-alert',
+  trash: 'trash-2',
 }
 
 interface OpenMenu {
@@ -59,9 +61,14 @@ export function OverlayApp(): JSX.Element {
   const [menu, setMenu] = createSignal<OpenMenu | null>(null)
   const [under, setUnder] = createSignal<'rail' | null>(null)
   let pendingRename: string | null = null
-  const [toast, setToast] = createSignal<{ message: string; icon: ToastIcon }>({
+  const [toast, setToast] = createSignal<{
+    message: string
+    icon: ToastIcon
+    action: ToastAction | undefined
+  }>({
     message: '',
     icon: 'star',
+    action: undefined,
   })
   const extensions = createExtensions()
   const pageMenu = createPageMenus()
@@ -172,7 +179,7 @@ export function OverlayApp(): JSX.Element {
       } else if (event.type === 'menu.open') {
         setMenu({ target: event.menu, at: { x: event.x, y: event.y }, leaving: false })
       } else if (event.type === 'toast') {
-        setToast({ message: event.message, icon: event.icon ?? 'star' })
+        setToast({ message: event.message, icon: event.icon ?? 'star', action: event.action })
       }
     })
     const onMove = () => {
@@ -189,7 +196,8 @@ export function OverlayApp(): JSX.Element {
         p === 'find' ||
         p === 'swipe' ||
         p === 'permission' ||
-        p === 'siteinfo'
+        p === 'siteinfo' ||
+        p === 'toast'
       if (!entered || held || editing()) return
       if (p === 'rail' && e.clientX <= EDGE_LEAVE_ZONE) return
       close()
@@ -281,12 +289,29 @@ export function OverlayApp(): JSX.Element {
       <PrivacyLayer part={part()} leaving={leaving()} />
       <Show when={part() === 'toast'}>
         <div class="toast-host">
-          <div class="toast" classList={{ leaving: leaving() }} role="status">
+          <div
+            class="toast"
+            classList={{ leaving: leaving(), 'has-action': toast().action !== undefined }}
+            role="status"
+          >
             <Icon
               name={TOAST_ICONS[toast().icon]}
               class={toast().icon === 'star' ? 'filled' : `toast-${toast().icon}`}
             />
-            <span>{toast().message}</span>
+            <span class="toast-text">{toast().message}</span>
+            <Show when={toast().action}>
+              {(action) => (
+                <>
+                  <span class="toast-sep" aria-hidden="true" />
+                  <button
+                    class="toast-action"
+                    onClick={() => void api.send({ type: 'toast.action', id: action().id })}
+                  >
+                    {action().label}
+                  </button>
+                </>
+              )}
+            </Show>
           </div>
         </div>
       </Show>

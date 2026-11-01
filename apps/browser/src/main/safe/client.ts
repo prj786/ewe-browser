@@ -33,7 +33,7 @@ export function safeSocketPath(env: NodeJS.ProcessEnv = process.env): string | n
 export const UNAVAILABLE: SafeReply = {
   ok: false,
   error: 'daemon-unavailable',
-  message: 'Safe is not running.',
+  message: 'ewe Safe is not running.',
 }
 
 export function parseLine(line: string): Record<string, unknown> | null {
@@ -124,7 +124,7 @@ export class SafeClient extends EventEmitter<{ event: [SafeEvent] }> {
         resolve(reply)
       }
       const timer = setTimeout(
-        () => finish({ ok: false, error: 'timeout', message: 'Safe did not answer.' }),
+        () => finish({ ok: false, error: 'timeout', message: 'ewe Safe did not answer.' }),
         timeout,
       )
       const feed = lines((line) => {
@@ -136,7 +136,8 @@ export class SafeClient extends EventEmitter<{ event: [SafeEvent] }> {
       socket.setEncoding('utf8')
       socket.on('connect', () => socket.write(`${JSON.stringify({ v: 1, id, verb, args })}\n`))
       socket.on('data', (chunk: string) => {
-        if (!feed(chunk)) finish({ ok: false, error: 'internal', message: 'Safe answered badly.' })
+        if (!feed(chunk))
+          finish({ ok: false, error: 'internal', message: 'ewe Safe answered badly.' })
       })
       socket.on('error', () => finish(UNAVAILABLE))
       socket.on('close', () => finish(UNAVAILABLE))

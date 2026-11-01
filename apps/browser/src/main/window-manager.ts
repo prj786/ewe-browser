@@ -24,6 +24,7 @@ import {
   MUSIC_PAGE_URL,
   HISTORY_URL,
   SAD_TAB_URL,
+  TOAST_ACTION_MS,
   TOAST_MS,
   filesUrl,
   viewerUrl,
@@ -171,6 +172,8 @@ export class WindowController {
   private broadcastQueued = false
   private destroyed = false
   private toastTimer: NodeJS.Timeout | null = null
+  private toastAction: { id: string; run: () => void } | null = null
+  private pendingToast: { stop: () => void; timer: NodeJS.Timeout } | null = null
   private remoteMenu: { menuId: string; choices: RemoteChoice[] } | null = null
   readonly openedAt = Date.now()
   private pendingKey: {
@@ -199,7 +202,7 @@ export class WindowController {
       titleBarStyle: 'hidden',
       show: false,
       backgroundColor: windowBackground(),
-      title: 'ewe browser',
+      title: 'ewe Browser',
       webPreferences: {
         preload: deps.preload,
         additionalArguments: [`${LAYER_ARG}shell`],
@@ -376,6 +379,7 @@ export class WindowController {
     this.win.on('closed', () => {
       this.destroyed = true
       if (this.toastTimer !== null) clearTimeout(this.toastTimer)
+      this.dropPendingToast()
       try {
         this.safeUi?.dispose()
         this.privacyUi?.dispose()
@@ -395,7 +399,7 @@ export class WindowController {
     if (initial?.workspaces !== undefined && initial.workspaces.length > 0)
       this.tabs.setWorkspaces(initial.workspaces, initial.activeWorkspace ?? 0)
     const workspaces = this.tabs.workspaceList()
-    if (tabs.length === 0) this.tabs.create(NEW_TAB_URL)
+    if (tabs.length === 0) this.tabs.create(HOME_URL)
     else {
       const created = tabs.map((tab) => {
         const workspace = workspaces[tab.workspace ?? 0] ?? workspaces[0]
@@ -409,7 +413,7 @@ export class WindowController {
       })
       for (const workspace of workspaces) {
         if (this.tabs.tabsIn(workspace.id).length === 0)
-          this.tabs.create(NEW_TAB_URL, { activate: false, workspaceId: workspace.id })
+          this.tabs.create(HOME_URL, { activate: false, workspaceId: workspace.id })
       }
       const active = created[Math.min(initial?.activeIndex ?? 0, created.length - 1)]
       if (active !== undefined) this.tabs.activate(active.id)
@@ -586,7 +590,6 @@ export class WindowController {
       if (
         (command.type === 'settings.update' ||
           command.type === 'shortcuts.recording' ||
-          command.type === 'bookmarks.importChrome' ||
           command.type === 'panel.add' ||
           command.type === 'panel.remove' ||
           command.type === 'extension.options' ||
@@ -597,6 +600,13 @@ export class WindowController {
       )
         return
       if (command.type === 'music.play' && !frameUrl.startsWith(HOME_URL)) return
+      if (command.type === 'downloads.openFolder' && !frameUrl.startsWith(HOME_URL)) return
+      if (
+        command.type === 'bookmarks.importChrome' &&
+        !frameUrl.startsWith(SETTINGS_URL) &&
+        !frameUrl.startsWith(HOME_URL)
+      )
+        return
       if (
         (command.type === 'permission.set' || command.type === 'permission.forget') &&
         !frameUrl.startsWith(SETTINGS_URL)
@@ -610,7 +620,7 @@ export class WindowController {
       command = { ...command, input: this.deps.siteInput(command.input) ?? command.input }
     switch (command.type) {
       case 'tab.create': {
-        const url = command.url ?? NEW_TAB_URL
+        const url = command.url ?? HOME_URL
         const allowed = layer === 'page' ? isOpenableUrl(url) : isRestorableUrl(url)
         if (!allowed) return
         this.tabs.create(url, { activate: command.activate ?? true })
@@ -723,9 +733,25 @@ export class WindowController {
           ...(command.color === undefined ? {} : { color: command.color }),
         })
         break
-      case 'workspace.remove':
-        this.tabs.removeWorkspace(command.id)
+      case 'workspace.remove': {
+        const removed = this.tabs.removeWorkspace(command.id)
+        if (removed !== null)
+          this.toast('Workspace removed', 'trash', {
+            label: 'Undo',
+            run: () => void this.tabs.restoreWorkspace(removed),
+          })
         break
+      }
+      case 'toast.action': {
+        const action = this.toastAction
+        if (layer !== 'overlay' || action?.id !== command.id) return
+        this.toastAction = null
+        if (this.toastTimer !== null) clearTimeout(this.toastTimer)
+        this.toastTimer = null
+        if (this.overlay.part === 'toast') this.overlay.hide()
+        action.run()
+        break
+      }
       case 'workspace.mergeInto':
         this.tabs.mergeWorkspace(command.from, command.to)
         break
@@ -788,6 +814,13 @@ export class WindowController {
       case 'downloads.clear':
         this.deps.downloads.clear()
         break
+      case 'downloads.openFolder': {
+        const url = filesUrl(this.deps.downloads.directory())
+        const tab = layer === 'page' ? this.tabs.byWebContents(sender) : undefined
+        if (tab !== undefined) this.tabs.navigate(tab.id, url)
+        else this.tabs.create(url)
+        break
+      }
       case 'history.remove':
         this.deps.history.remove(command.url)
         break
@@ -1147,22 +1180,56 @@ export class WindowController {
     if (added !== undefined) this.toast(added ? 'Bookmark added' : 'Bookmark removed')
   }
 
-  toast(message: string, icon: ToastIcon = 'star'): void {
+  toast(
+    message: string,
+    icon: ToastIcon = 'star',
+    action?: { label: string; run: () => void },
+  ): void {
+    this.dropPendingToast()
     const part = this.overlay.part
+    if (part === 'menu' && action !== undefined) {
+      const stop = this.overlay.watch((next) => {
+        if (next !== 'none') return
+        this.dropPendingToast()
+        setTimeout(() => {
+          if (!this.destroyed) this.toast(message, icon, action)
+        }, 0)
+      })
+      this.pendingToast = { stop, timer: setTimeout(() => this.dropPendingToast(), 2_000) }
+      return
+    }
     if (part !== 'none' && part !== 'toast') return
-    this.overlay.show('toast', this.contentSize(), { type: 'toast', message, icon })
+    const id = randomUUID()
+    this.toastAction = action === undefined ? null : { id, run: action.run }
+    this.overlay.show('toast', this.contentSize(), {
+      type: 'toast',
+      message,
+      icon,
+      ...(action === undefined ? {} : { action: { id, label: action.label } }),
+    })
     if (this.toastTimer !== null) clearTimeout(this.toastTimer)
-    this.toastTimer = setTimeout(() => {
-      this.toastTimer = null
-      if (this.overlay.part === 'toast') this.overlay.hide()
-    }, TOAST_MS)
+    this.toastTimer = setTimeout(
+      () => {
+        this.toastTimer = null
+        this.toastAction = null
+        if (this.overlay.part === 'toast') this.overlay.hide()
+      },
+      action === undefined ? TOAST_MS : TOAST_ACTION_MS,
+    )
+  }
+
+  private dropPendingToast(): void {
+    if (this.pendingToast === null) return
+    this.pendingToast.stop()
+    clearTimeout(this.pendingToast.timer)
+    this.pendingToast = null
   }
 
   openSafeKey(): void {
     const contents = this.tabs.active?.webContents
     if (contents === undefined || contents.isDestroyed()) return
     if (this.safeUi === null) {
-      this.toast('Safe is not available', 'alert')
+      this.toast('ewe Safe is not available', 'alert')
       return
     }
     if (this.overlay.part !== 'none' && this.overlay.part !== 'toast') this.showOverlay('none')
@@ -1205,7 +1272,7 @@ export class WindowController {
     const active = this.tabs.active
     switch (action.action) {
       case 'tab.new':
-        this.openPalette(true)
+        this.tabs.create(HOME_URL)
         break
       case 'tab.close':
         if (active !== undefined)

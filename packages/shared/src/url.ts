@@ -1,5 +1,5 @@
 import { filesUrl, isLocalPathInput } from './files'
-import type { SearchEngineId } from './models'
+import { SETTINGS_SECTIONS, type SearchEngineId } from './models'
 
 export interface ResolvedInput {
   kind: 'url' | 'search' | 'tabs' | 'bookmarks'
@@ -66,6 +66,28 @@ export function displayUrl(url: string): string {
     return `${host}${path}${u.search}`
   } catch {
     return url
+  }
+}
+
+const INTERNAL_NAMES: Record<string, string> = {
+  home: 'Home',
+  settings: 'Settings',
+  history: 'History',
+  music: 'Music',
+}
+
+export function internalAddress(url: string): { page: string; section: string } | null {
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'app:') return null
+    const page = INTERNAL_NAMES[u.host]
+    if (page === undefined) return null
+    const id = u.hash.replace(/^#/, '')
+    const section =
+      u.host === 'settings' ? (SETTINGS_SECTIONS.find((s) => s.id === id)?.label ?? '') : ''
+    return { page: `ewe › ${page}`, section: section === '' ? '' : ` › ${section}` }
+  } catch {
+    return null
   }
 }
 

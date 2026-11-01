@@ -26,6 +26,7 @@ export interface PaletteProps {
   large?: boolean
   hero?: boolean
   placeholder?: string
+  hint?: string
   autofocus?: boolean
   initial?: string
   newTab?: boolean
@@ -296,6 +297,9 @@ export function Palette(props: PaletteProps): JSX.Element {
         />
         <Show when={props.onClose !== undefined}>
           <span class="kbd">Esc</span>
+        </Show>
+        <Show when={props.hint !== undefined && value() === '' && !focused()}>
+          <span class="kbd palette-hint-key">{props.hint}</span>
         </Show>
       </div>
       <Show when={rows().length > 0 && (props.hero !== true || focused())}>

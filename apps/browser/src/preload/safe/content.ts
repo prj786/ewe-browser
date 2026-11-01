@@ -207,8 +207,8 @@ function ensureIcon(): HTMLElement {
   style.textContent = ICON_CSS
   const button = document.createElement('button')
   button.type = 'button'
-  button.title = 'Fill from Safe'
-  button.setAttribute('aria-label', 'Fill from Safe')
+  button.title = 'Fill from ewe Safe'
+  button.setAttribute('aria-label', 'Fill from ewe Safe')
   button.innerHTML = KEY_SVG
   button.addEventListener('mousedown', (event) => {
     event.preventDefault()

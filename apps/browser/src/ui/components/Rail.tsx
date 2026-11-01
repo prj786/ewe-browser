@@ -4,6 +4,7 @@ import {
   WORKSPACE_COLORS,
   displayUrl,
   hostOf,
+  internalAddress,
   isBookmarkableUrl,
   pathFromFilesUrl,
   type TabState,
@@ -236,7 +237,7 @@ export function Rail(props: RailProps): JSX.Element {
     }
   }
 
-  const newTab = () => void api.send({ type: 'overlay.request', part: 'palette', newTab: true })
+  const newTab = () => void api.send({ type: 'tab.create' })
   const toggleRail = () => {
     const next = props.mode === 'expanded' ? 'collapsed' : 'expanded'
     void api.send({ type: 'settings.update', patch: { rail: next } })
@@ -272,8 +273,14 @@ export function Rail(props: RailProps): JSX.Element {
       if (slash <= 0) return { host: filesPath, rest: '' }
       return { host: filesPath.slice(0, slash + 1), rest: filesPath.slice(slash + 1) }
     }
+    const internal = internalAddress(tab.url)
+    if (internal !== null) return { host: internal.page, rest: internal.section }
     try {
       const u = new URL(tab.url)
+      if (u.protocol === 'app:' && u.host === 'sad') {
+        const failed = u.searchParams.get('url') ?? ''
+        if (failed !== '') return { host: hostOf(failed) || failed, rest: '' }
+      }
       if (u.protocol === 'app:') return { host: u.host, rest: '' }
       const rest = `${u.pathname === '/' ? '' : u.pathname}${u.search}`
       return { host: hostOf(tab.url), rest }
@@ -456,8 +463,8 @@ export function Rail(props: RailProps): JSX.Element {
         <Show when={/^https?:/i.test(active()?.url ?? '')}>
           <button
             class="iconbtn iconbtn--sm rail-key"
-            title="Fill from Safe (Ctrl+Shift+L)"
-            aria-label="Fill from Safe"
+            title="Fill from ewe Safe (Ctrl+Shift+L)"
+            aria-label="Fill from ewe Safe"
             tabindex="-1"
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
@@ -529,7 +536,7 @@ export function Rail(props: RailProps): JSX.Element {
             onClick={() => void api.send({ type: 'extension.install', source: id() })}
           >
             <Icon name="puzzle" />
-            <span>Add to ewe browser</span>
+            <span>Add to ewe Browser</span>
           </button>
         )}
       </Show>

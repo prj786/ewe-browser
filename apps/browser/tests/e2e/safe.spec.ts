@@ -349,8 +349,8 @@ test.describe('Safe in ewe browser', () => {
     expect(cli(sb, ['lock']).ok).toBe(true)
     const page = await open(app, shell, `${a.origin}/login`)
     await page.click('#user')
-    expect((await menuItems(app)).some((t) => t.includes('Unlock Safe'))).toBe(true)
-    await pick(app, 'Unlock Safe')
+    expect((await menuItems(app)).some((t) => t.includes('Unlock ewe Safe'))).toBe(true)
+    await pick(app, 'Unlock ewe Safe')
     await expect
       .poll(async () => (await menuItems(app)).some((t) => t.includes('Fixture A')), {
         timeout: 20_000,
@@ -403,7 +403,7 @@ test.describe('Safe in ewe browser', () => {
     const plain = await open(app, shell, `${a.origin}/card`)
     await plain.click('#num')
     await plain.keyboard.press('ArrowDown')
-    expect(await menuItems(app)).toEqual(['Safe fills cards only on secure (https) pages'])
+    expect(await menuItems(app)).toEqual(['ewe Safe fills cards only on secure (https) pages'])
     expect(await plain.inputValue('#num')).toBe('')
   })
 })

@@ -247,6 +247,25 @@ export const SETTINGS_URL = 'app://settings/'
 export const FILES_PAGE_URL = 'app://files/'
 export const SAD_TAB_URL = 'app://sad/'
 
+export const SETTINGS_SECTIONS = [
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'browsing', label: 'Browsing' },
+  { id: 'privacy', label: 'Privacy and security' },
+  { id: 'permissions', label: 'Site permissions' },
+  { id: 'passwords', label: 'Passwords' },
+  { id: 'sync', label: 'Sync' },
+  { id: 'files', label: 'Files and music' },
+  { id: 'extensions', label: 'Extensions' },
+  { id: 'shortcuts', label: 'Shortcuts' },
+] as const
+
+export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id']
+
+export function settingsSectionOf(hash: string): SettingsSectionId {
+  const id = hash.replace(/^#/, '')
+  return SETTINGS_SECTIONS.find((s) => s.id === id)?.id ?? 'appearance'
+}
+
 export const RAIL_WIDTH = 264
 export const RAIL_PEEK_SHADOW = 24
 export const PAGE_GAP = 8
@@ -259,6 +278,7 @@ export const PROMPT_HEIGHT = 168
 export const PROMPT_MARGIN = 12
 export const SIDEBAR_HEADER = 44
 export const TOAST_MS = 1800
+export const TOAST_ACTION_MS = 6000
 export const SIDEBAR_MIN = 280
 export const SIDEBAR_MAX = 640
 export const EDGE_ZONE = 12

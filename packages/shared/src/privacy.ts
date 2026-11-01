@@ -144,7 +144,7 @@ export const PERMISSION_ASKS: Record<PermissionKind, string> = {
 
 export const PERMISSION_NOTES: Partial<Record<PermissionKind, string>> = {
   location:
-    'ewe browser has no location service on Linux, so a site gets no position even when you allow it.',
+    'ewe Browser has no location service on Linux, so a site gets no position even when you allow it.',
 }
 
 export const PERMISSION_HINTS: Partial<Record<PermissionKind, string>> = {

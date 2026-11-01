@@ -326,7 +326,7 @@ test('sync: a deletion and the open tabs travel between two computers', async ()
   const shared = async (shell: Page) =>
     (await historyUrls(shell)).filter((u) => u.startsWith('https://shared.test/'))
   const syncNow = async (app: ElectronApplication, shell: Page) => {
-    await send(shell, { type: 'open.internal', page: 'settings' })
+    await send(shell, { type: 'tab.create', url: 'app://settings/#sync' })
     const settings = await windowWith(app, 'app://settings')
     await expect(settings.locator('.settings-sync-now')).toBeEnabled()
     await settings.locator('.settings-sync-now').click()

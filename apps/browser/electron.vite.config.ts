@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
 import solid from 'vite-plugin-solid'
 
 const shared = resolve(__dirname, '../../packages/shared/src/index.ts')
+const { version } = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as {
+  version: string
+}
 
 function devCsp(): Plugin {
   return {
@@ -49,6 +53,7 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, 'src'),
     plugins: [solid(), devCsp()],
+    define: { __APP_VERSION__: JSON.stringify(version) },
     resolve: { alias: { '@ewe/shared': shared, '@ui': resolve(__dirname, 'src/ui') } },
     server: { hmr: { host: 'localhost' } },
     build: {
@@ -58,7 +63,6 @@ export default defineConfig({
           overlay: resolve(__dirname, 'src/ui/overlay/index.html'),
           sidebar: resolve(__dirname, 'src/ui/sidebar/index.html'),
           home: resolve(__dirname, 'src/pages/home/index.html'),
-          newtab: resolve(__dirname, 'src/pages/newtab/index.html'),
           settings: resolve(__dirname, 'src/pages/settings/index.html'),
           files: resolve(__dirname, 'src/pages/files/index.html'),
           music: resolve(__dirname, 'src/pages/music/index.html'),

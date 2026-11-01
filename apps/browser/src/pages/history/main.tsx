@@ -30,10 +30,12 @@ import {
   type HistorySummary,
   type Point,
   type RemoteMachine,
+  HOME_URL,
 } from '@ewe/shared'
 import '../../ui/styles/base.css'
 import '../pages.css'
 import './history.css'
+import { EmptyState } from '../../ui/components/EmptyState'
 import { Favicon } from '../../ui/components/Favicon'
 import { Icon } from '../../ui/components/Icon'
 import { Menu, type MenuEntry } from '../../ui/components/Menu'
@@ -211,14 +213,14 @@ function OtherComputers(props: {
               <span class="row-text">
                 <span class="row-title">Tabs from your other computers</span>
                 <span class="row-desc">
-                  Turn on sync in Settings to see the tabs that are open on your other computers.
+                  Turn on sync to see the tabs that are open on your other computers.
                 </span>
               </span>
               <button
-                class="btn btn--secondary btn--sm"
-                onClick={() => void api.send({ type: 'open.internal', page: 'settings' })}
+                class="btn btn--secondary btn--sm hp-sync-on"
+                onClick={() => void api.send({ type: 'tab.create', url: 'app://settings/#sync' })}
               >
-                Settings
+                Turn on sync
               </button>
             </div>
           </div>
@@ -228,7 +230,7 @@ function OtherComputers(props: {
           when={props.machines.length > 0}
           fallback={
             <p class="hp-muted">
-              No other computer has shared its tabs yet. They show up here after ewe browser syncs
+              No other computer has shared its tabs yet. They show up here after ewe Browser syncs
               on them.
             </p>
           }
@@ -676,7 +678,7 @@ function HistoryPage(): JSX.Element {
               class="btn btn--secondary btn--sm hp-clear-open"
               onClick={() => setDialog({ kind: 'clear' })}
             >
-              Clear…
+              Clear browsing data…
             </button>
           </div>
         </div>
@@ -759,19 +761,33 @@ function HistoryPage(): JSX.Element {
           when={groups().length > 0}
           fallback={
             <Show when={loaded()}>
-              <div class="empty hp-empty">
-                <span class="empty-icon">
-                  <Icon name="history" />
-                </span>
-                <h2 class="empty-title">
-                  {query().trim() === '' && site() === undefined
-                    ? 'No history yet'
-                    : 'No matching pages'}
-                </h2>
-                <Show when={query().trim() !== '' || site() !== undefined}>
-                  <div class="empty-actions">
+              <Show
+                when={query().trim() !== '' || site() !== undefined}
+                fallback={
+                  <EmptyState
+                    class="hp-empty"
+                    icon="history"
+                    title="No history yet"
+                    actions={
+                      <button
+                        class="btn btn--secondary hp-empty-home"
+                        onClick={() => void api.send({ type: 'tab.navigate', input: HOME_URL })}
+                      >
+                        <Icon name="search" /> Start browsing
+                      </button>
+                    }
+                  >
+                    Sites you visit show up here, grouped by day.
+                  </EmptyState>
+                }
+              >
+                <EmptyState
+                  class="hp-empty"
+                  icon="search"
+                  title="No matching pages"
+                  actions={
                     <button
-                      class="btn btn--secondary"
+                      class="btn btn--secondary hp-show-all"
                       onClick={() => {
                         setQuery('')
                         setSite(undefined)
@@ -779,9 +795,13 @@ function HistoryPage(): JSX.Element {
                     >
                       Show all history
                     </button>
-                  </div>
-                </Show>
-              </div>
+                  }
+                >
+                  {query().trim() === ''
+                    ? `No pages from ${site() ?? 'this site'}.`
+                    : `Nothing matches “${query().trim()}”.`}
+                </EmptyState>
+              </Show>
             </Show>
           }
         >
@@ -843,7 +863,7 @@ function HistoryPage(): JSX.Element {
                             {row.title === '' ? displayUrl(row.url) : row.title}
                           </a>
                           <Show when={row.visits > 1}>
-                            <span class="hp-count" title={`${row.visits} visits that day`}>
+                            <span class="hp-count" title={`Visited ${row.visits} times that day`}>
                               {row.visits}×
                             </span>
                           </Show>

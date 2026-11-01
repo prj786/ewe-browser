@@ -357,13 +357,15 @@ export class SafeWindow {
     const state = this.safe.pageState()
     if (!state.enabled) {
       this.host.toast(
-        this.safe.settings().fill ? 'Safe is not running' : 'Fill from Safe is off in Settings',
+        this.safe.settings().fill
+          ? 'ewe Safe is not running'
+          : 'Fill from ewe Safe is off in Settings',
         'alert',
       )
       return
     }
     if (!/^https?:/i.test(contents.getURL())) {
-      this.host.toast('Safe fills sign-in fields on websites', 'alert')
+      this.host.toast('ewe Safe fills sign-in fields on websites', 'alert')
       return
     }
     const focused = contents.focusedFrame
@@ -518,7 +520,7 @@ export class SafeWindow {
       case 'safe.openApp':
         this.closeSuggest()
         if (this.host.overlay.part !== 'none') this.host.hideOverlay()
-        if (!this.safe.openApp()) this.host.toast('Safe is not installed', 'alert')
+        if (!this.safe.openApp()) this.host.toast('ewe Safe is not installed', 'alert')
         return
       case 'safe.prompt':
         this.settlePrompt(command.promptId, command.action, report)
@@ -536,7 +538,7 @@ export class SafeWindow {
     this.closeSuggest()
     void this.safe.unlock().then((ok) => {
       if (!ok) {
-        this.host.toast('Safe is still locked', 'alert')
+        this.host.toast('ewe Safe is still locked', 'alert')
         return
       }
       if (session === null || target === null) return
@@ -623,7 +625,7 @@ export class SafeWindow {
     const rp = checkRpId(ref.origin, parsed.value.rpId)
     if (!rp.ok) return rp
     if (parsed.value.mediation === 'silent')
-      return fail('NotAllowedError', 'Safe needs a click to use a passkey.')
+      return fail('NotAllowedError', 'ewe Safe needs a click to use a passkey.')
     if (parsed.value.mediation === 'conditional') {
       const options = parsed.value
       return new Promise((resolve) => {
@@ -749,7 +751,7 @@ export class SafeWindow {
         this.host.hideOverlay()
         const ok = await this.safe.unlock()
         if (this.sheet !== sheet) return
-        if (!ok) this.host.toast('Safe is still locked', 'alert')
+        if (!ok) this.host.toast('ewe Safe is still locked', 'alert')
         await this.showSheet(sheet)
         return
       }
@@ -769,7 +771,7 @@ export class SafeWindow {
         )
         if (this.sheet !== sheet) return
         this.finish(sheet, reply)
-        this.reportPasskey(reply, 'Passkey saved in Safe')
+        this.reportPasskey(reply, 'Passkey saved in ewe Safe')
         return
       }
       case 'pick': {

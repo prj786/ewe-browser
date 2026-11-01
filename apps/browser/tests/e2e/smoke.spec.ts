@@ -252,6 +252,13 @@ function workspaceNames(shell: Page): Promise<string[] | undefined> {
   return shell.evaluate(async () => (await window.ewe.getState())?.workspaces.map((w) => w.name))
 }
 
+function activeTabIndex(shell: Page): Promise<number> {
+  return shell.evaluate(async () => {
+    const s = await window.ewe.getState()
+    return s === null ? -1 : s.tabs.findIndex((t) => t.id === s.activeTabId)
+  })
+}
+
 function tabUrls(shell: Page): Promise<string[] | undefined> {
   return shell.evaluate(async () => (await window.ewe.getState())?.tabs.map((t) => t.url))
 }
@@ -365,17 +372,26 @@ test.describe('browser', () => {
     await expect.poll(() => tabCount(shell)).toBe(before)
   })
 
-  test('ctrl+t opens the new-tab palette over the page and enter creates the tab', async () => {
+  test('ctrl+t opens Home in a new tab and its search navigates that tab', async () => {
     const before = await tabCount(shell)
     await sendKey(app, 't', ['control'])
-    await expect.poll(() => overlayVisible(app)).toBe(true)
-    const overlay = await windowWith(app, '/ui/overlay/')
-    await overlay.waitForSelector('.palette-chip')
-    await overlay.keyboard.type('example.com')
-    await overlay.keyboard.press('Enter')
+    await expect.poll(() => tabCount(shell)).toBe(before + 1)
+    await expect.poll(() => activeUrl(shell)).toBe('app://home/')
+    await expect.poll(() => overlayVisible(app)).toBe(false)
+    await expect
+      .poll(() => app.windows().filter((w) => w.url().startsWith('app://home/')).length)
+      .toBeGreaterThan(1)
+    const home = app
+      .windows()
+      .filter((w) => w.url().startsWith('app://home/'))
+      .at(-1)
+    if (home === undefined) throw new Error('no new home page')
+    await home.waitForLoadState('domcontentloaded')
+    await expect(home.locator('.palette.hero input')).toBeFocused()
+    await home.locator('.palette.hero input').fill('example.com')
+    await home.locator('.palette.hero input').press('Enter')
     await expect.poll(() => tabCount(shell)).toBe(before + 1)
     await expect.poll(() => activeUrl(shell)).toBe('https://example.com/')
-    await expect.poll(() => overlayVisible(app)).toBe(false)
     await expect.poll(() => activeLoading(shell), { timeout: 15_000 }).toBe(false)
     await sendKey(app, 'w', ['control'])
     await expect.poll(() => tabCount(shell)).toBe(before)
@@ -556,7 +572,7 @@ test.describe('browser', () => {
       'Pin',
       'Mute',
       'Move to workspace',
-      'Copy url',
+      'Copy link',
       'Close',
       'Close others',
       'Close to the right',
@@ -748,11 +764,11 @@ test('workspaces in the bottom bar: + opens home, menu, inline rename, move tabs
   expect(await overlay.locator('.menu-item .menu-label').allTextContents()).toEqual([
     'Rename',
     'Move tabs here',
-    'Remove',
+    'Remove workspace',
   ])
   expect(await overlay.locator('.menu-swatch').count()).toBe(8)
-  expect(await overlay.locator('.menu-swatch.selected').getAttribute('aria-label')).toBe('sky')
-  await overlay.locator('.menu-swatch[aria-label="rose"]').click()
+  expect(await overlay.locator('.menu-swatch.selected').getAttribute('data-value')).toBe('sky')
+  await overlay.locator('.menu-swatch[data-value="rose"]').click()
   await expect
     .poll(() => shell.evaluate(async () => (await window.ewe.getState())?.workspaces[1]?.color))
     .toBe('rose')
@@ -826,7 +842,7 @@ test('workspaces in the bottom bar: + opens home, menu, inline rename, move tabs
   await openWorkspaceMenu(app, shell, overlay, 0)
   expect(await overlay.locator('.menu-item.disabled .menu-label').allTextContents()).toEqual([
     'Move tabs here',
-    'Remove',
+    'Remove workspace',
   ])
   await overlay.keyboard.press('Escape')
   await expect.poll(() => overlay.locator('.menu').count()).toBe(0)
@@ -875,19 +891,20 @@ test('keyboard movement selects tabs and workspaces, opens home and follows rema
   await send({ type: 'tab.create', url: 'app://settings/', activate: false })
   await send({ type: 'tab.create', url: 'app://newtab/', activate: false })
   await expect.poll(() => tabCount(shell)).toBe(3)
+  expect(await tabUrls(shell)).toEqual(['app://home/', 'app://settings/', 'app://home/'])
   await settle()
 
   await sendKey(app, '2', ['alt'])
   await expect.poll(() => activeUrl(shell)).toBe('app://settings/')
   await settle()
   await sendKey(app, '3', ['control'])
-  await expect.poll(() => activeUrl(shell)).toBe('app://newtab/')
+  await expect.poll(() => activeTabIndex(shell)).toBe(2)
   await settle()
   await sendKey(app, '1', ['alt'])
   await expect.poll(() => activeUrl(shell)).toBe('app://home/')
   await settle()
   await sendKey(app, '9', ['alt'])
-  await expect.poll(() => activeUrl(shell)).toBe('app://newtab/')
+  await expect.poll(() => activeTabIndex(shell)).toBe(2)
 
   await send({ type: 'workspace.create', name: 'Second' })
   await expect
@@ -957,6 +974,8 @@ test('recording on the settings page keeps shortcuts from firing', async () => {
   await expect.poll(() => activeUrl(shell)).toBe('app://settings/')
   await expect.poll(() => activeLoading(shell), { timeout: 15_000 }).toBe(false)
   const settings = await windowWith(app, 'app://settings')
+  await settings.locator('.settings-nav-item[data-section="shortcuts"]').click()
+  await expect.poll(() => activeUrl(shell)).toBe('app://settings/#shortcuts')
   await settings.getByText('New tab', { exact: true }).first().waitFor()
   const row = settings.locator('.shortcut', { hasText: 'Reopen closed tab' })
   await row.getByRole('button', { name: 'Edit' }).click()
@@ -970,7 +989,7 @@ test('recording on the settings page keeps shortcuts from firing', async () => {
     .toEqual({ 'tab.reopen': ['Ctrl+Shift+J'] })
   expect(await tabCount(shell)).toBe(count)
   await sendKey(app, 't', ['control'])
-  await expect.poll(() => overlayVisible(app)).toBe(true)
+  await expect.poll(() => tabCount(shell)).toBe(count + 1)
   await app.close()
 })
 
@@ -1127,6 +1146,7 @@ test('bookmarks: Ctrl+D, the star, b: in the palette, Chrome import, the sidebar
   await expect.poll(() => activeUrl(shell)).toBe('app://settings/')
   await settle()
   const settings = await windowWith(first, 'app://settings')
+  await settings.locator('.settings-nav-item[data-section="browsing"]').click()
   await settings.getByRole('button', { name: 'Import' }).click()
   await expect(settings.locator('.row-desc', { hasText: 'Imported 6 bookmarks' })).toBeVisible()
   await expect.poll(() => bookmarkUrls(shell).then((u) => u.length)).toBe(7)
@@ -1158,6 +1178,7 @@ test('bookmarks: Ctrl+D, the star, b: in the palette, Chrome import, the sidebar
   expect(await sidebar.locator('.menu-item .menu-label').allTextContents()).toEqual([
     'Open',
     'Open in new tab',
+    'Copy link',
     'Edit',
     'Delete',
   ])
@@ -1255,18 +1276,19 @@ test('downloads and history live in the sidebar', async () => {
     expect(existsSync(join(downloadsDir, 'report (1).txt'))).toBe(true)
     await sidebar.locator('.sb-clear').click()
     await expect(sidebar.locator('.sb-download')).toHaveCount(0)
-    await expect(sidebar.locator('.sb-empty-title')).toHaveText('No downloads yet')
+    await expect(sidebar.locator('.sb-empty .empty-title')).toHaveText('No downloads yet')
+    await expect(sidebar.locator('.sb-open-downloads')).toBeVisible()
 
     await sidebar.locator('.sb-tab[data-section="history"]').click()
     await expect.poll(() => sidebarSection(shell)).toBe('history')
     await expect(sidebar.locator('.sb-visit .sb-label')).toHaveText(['Sheep page'])
     await expect(sidebar.locator('.sb-group')).toHaveText(['Today'])
     await sidebar.locator('.sb-search input').fill('nothing here')
-    await expect(sidebar.locator('.sb-empty-title')).toHaveText('No matching pages')
+    await expect(sidebar.locator('.sb-empty .empty-title')).toHaveText('No matching pages')
     await sidebar.locator('.sb-search input').fill('')
     await sidebar.locator('.sb-visit').first().hover()
     await sidebar.locator('.sb-visit .sb-remove').click()
-    await expect(sidebar.locator('.sb-empty-title')).toHaveText('No history yet')
+    await expect(sidebar.locator('.sb-empty .empty-title')).toHaveText('No history yet')
     expect(await shell.evaluate(() => window.ewe.suggest('sheep'))).toEqual([])
 
     await sidebar.keyboard.press('Escape')
@@ -1450,7 +1472,7 @@ test('files: browse, create, rename, copy and paste, trash, address bar and guar
   }
 })
 
-test('settings can hand folders to ewe browser and give them back, in a temp XDG profile', async () => {
+test('settings can hand folders to ewe Browser and give them back, in a temp XDG profile', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'ewe-e2e-mime-'))
   const config = mkdtempSync(join(tmpdir(), 'ewe-e2e-mime-config-'))
   const data = mkdtempSync(join(tmpdir(), 'ewe-e2e-mime-data-'))
@@ -1460,19 +1482,24 @@ test('settings can hand folders to ewe browser and give them back, in a temp XDG
   try {
     const shell = await shellOf(app)
     await shell.evaluate(() => window.ewe.send({ type: 'open.internal', page: 'settings' }))
+    await shell.evaluate(() =>
+      window.ewe.send({ type: 'tab.navigate', input: 'app://settings/#files' }),
+    )
     const settings = await windowWith(app, 'app://settings')
     const button = settings.locator('.settings-default-folders')
-    await expect(button).toHaveText('Use ewe browser')
+    await expect(button).toHaveAttribute('aria-checked', 'false')
+    await expect(button).toBeEnabled()
     await button.click()
-    await expect(button).toHaveText('Give back')
+    await expect(button).toHaveAttribute('aria-checked', 'true')
     expect(
       readFileSync(join(data, 'applications', 'ewe-browser-folders.desktop'), 'utf8'),
     ).toContain('MimeType=inode/directory;')
     expect(readFileSync(join(config, 'mimeapps.list'), 'utf8')).toContain(
       'inode/directory=ewe-browser-folders.desktop',
     )
+    await expect(button).toBeEnabled()
     await button.click()
-    await expect(button).toHaveText('Use ewe browser')
+    await expect(button).toHaveAttribute('aria-checked', 'false')
     const defaults = readFileSync(join(config, 'mimeapps.list'), 'utf8')
       .split('[Default Applications]')[1]
       ?.split('\n[')[0]
@@ -1664,7 +1691,7 @@ test('home: big search, folder shortcuts, recent docs, videos, music and sites',
       /^data:image\/png/,
     )
 
-    await home.locator('.home-seg [data-filter="doc"]').click()
+    await home.locator('.home-seg [data-value="doc"]').click()
     await expect.poll(titles).toEqual(['handbook.pdf', 'notes.md'])
     await expect(home.locator('.rc-snippet')).toContainText('Shearing plan')
     await home.locator('.rc-card', { hasText: 'handbook.pdf' }).click()
@@ -1673,11 +1700,11 @@ test('home: big search, folder shortcuts, recent docs, videos, music and sites',
       .toBe(`app://files/?${new URLSearchParams({ path: docs, select: 'handbook.pdf' })}&view=1`)
     await send({ type: 'nav.back' })
     await expect.poll(() => activeUrl(shell)).toBe('app://home/')
-    await expect(home.locator('.home-seg [data-filter="doc"]')).toHaveAttribute(
-      'aria-selected',
+    await expect(home.locator('.home-seg [data-value="doc"]')).toHaveAttribute(
+      'aria-checked',
       'true',
     )
-    await home.locator('.home-seg [data-filter="all"]').click()
+    await home.locator('.home-seg [data-value="all"]').click()
 
     const tabs = await tabCount(shell)
     await home.locator('.rc-card[data-kind="audio"]').click()
@@ -1850,6 +1877,7 @@ test('extensions: load, button with badge at the rail foot, popup above it, menu
 
   await shell.evaluate(() => window.ewe.send({ type: 'open.internal', page: 'settings' }))
   const settings = await windowWith(app, 'app://settings')
+  await settings.locator('.settings-nav-item[data-section="extensions"]').click()
   const row = settings.locator(`.settings-extension[data-extension="${id}"]`)
   await expect(row).toContainText('Flock Counter')
   await expect(row).toContainText('1.2.0')
@@ -1936,6 +1964,7 @@ test('sync: two profiles merge bookmarks, history and settings through Nextcloud
   const syncNow = async (app: ElectronApplication, shell: Page) => {
     await shell.evaluate(() => window.ewe.send({ type: 'open.internal', page: 'settings' }))
     const settings = await windowWith(app, 'app://settings')
+    await settings.locator('.settings-nav-item[data-section="sync"]').click()
     await expect(settings.locator('.settings-sync-now')).toBeEnabled()
     await settings.locator('.settings-sync-now').click()
     await expect(settings.locator('.settings-sync-status')).toContainText('Synced')

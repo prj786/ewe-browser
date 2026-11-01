@@ -31,10 +31,12 @@ import {
 import '../../ui/styles/base.css'
 import '../pages.css'
 import './home.css'
+import { EmptyState } from '../../ui/components/EmptyState'
 import { Favicon } from '../../ui/components/Favicon'
 import { Icon, type IconName } from '../../ui/components/Icon'
 import { Menu, type MenuEntry } from '../../ui/components/Menu'
 import { Palette } from '../../ui/components/Palette'
+import { Segmented } from '../../ui/components/Segmented'
 import { api } from '../../ui/lib/api'
 import { faviconFor } from '../../ui/lib/favicon'
 import { timeAgo } from '../../ui/lib/format'
@@ -46,20 +48,23 @@ const SHORTCUT_LIMIT = 12
 const SHORTCUTS_PER_ROW = 9
 const PDF_PREVIEW_WIDTH = 160
 
-const FILTERS: { id: RecentFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'doc', label: 'Docs' },
-  { id: 'video', label: 'Videos' },
-  { id: 'audio', label: 'Music' },
-  { id: 'web', label: 'Web' },
+const FILTERS: { value: RecentFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'web', label: 'Sites' },
+  { value: 'doc', label: 'Docs' },
+  { value: 'video', label: 'Videos' },
+  { value: 'audio', label: 'Music' },
 ]
 
-const EMPTY_TEXT: Record<RecentFilter, string> = {
-  all: 'Documents, videos, music and sites you open show up here.',
-  doc: 'Documents you open or download show up here.',
-  video: 'Videos you watch show up here.',
-  audio: 'Songs you play show up here.',
-  web: 'Sites you visit show up here.',
+const EMPTY: Record<RecentFilter, { title: string; text: string }> = {
+  all: {
+    title: 'Nothing here yet',
+    text: 'Sites, documents and music you open show up here.',
+  },
+  doc: { title: 'No documents yet', text: 'Documents you open or download show up here.' },
+  video: { title: 'No videos yet', text: 'Videos you watch show up here.' },
+  audio: { title: 'No music yet', text: 'Songs you play show up here.' },
+  web: { title: 'No sites yet', text: 'Sites you visit show up here.' },
 }
 
 const PLACE_ICON: Record<FsPlaceIcon, IconName> = {
@@ -417,6 +422,15 @@ function Home(): JSX.Element {
     else run({ op: 'open', path })
   }
 
+  const [importing, setImporting] = createSignal(false)
+  let awaitingImport = false
+  const importChrome = () => {
+    awaitingImport = true
+    setImporting(true)
+    void api.send({ type: 'bookmarks.importChrome' })
+  }
+  const openDownloads = () => void api.send({ type: 'downloads.openFolder' })
+
   const forget = (item: RecentItem) =>
     void api.home({ op: 'forget', key: item.key }).then(() => loadRecents())
 
@@ -497,11 +511,18 @@ function Home(): JSX.Element {
     }
     const onChanged = () => void loadRecents()
     const offChanged = api.onHomeChanged(onChanged)
+    const offUi = api.onUi((event) => {
+      if (event.type !== 'toast' || !awaitingImport) return
+      awaitingImport = false
+      setImporting(false)
+      showNotice(event.message, event.icon === 'alert')
+    })
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onFocus)
     window.addEventListener('keydown', onKey)
     onCleanup(() => {
       offChanged()
+      offUi()
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('keydown', onKey)
@@ -529,7 +550,8 @@ function Home(): JSX.Element {
         <div class="home-search">
           <Palette
             hero
-            placeholder="Search the web, type a URL or a ~/folder"
+            placeholder="Search the web, type an address or ~/a folder"
+            hint="Ctrl+K"
             tabs={store.tabs()}
             bookmarks={store.bookmarks()}
             engine={store.settings().searchEngine}
@@ -572,21 +594,16 @@ function Home(): JSX.Element {
         <section class="home-recent" aria-label="Recent">
           <div class="home-section-bar">
             <h2 class="home-section-title">Recent</h2>
-            <div class="home-seg" role="tablist" aria-label="Show">
-              <For each={FILTERS}>
-                {(f) => (
-                  <button
-                    role="tab"
-                    data-filter={f.id}
-                    aria-selected={filter() === f.id}
-                    classList={{ on: filter() === f.id }}
-                    onClick={() => chooseFilter(f.id)}
-                  >
-                    {f.label}
-                  </button>
-                )}
-              </For>
-            </div>
+            <Segmented
+              small
+              class="home-seg"
+              label="Show"
+              value={filter()}
+              options={FILTERS}
+              onChange={(value) => {
+                if (isRecentFilter(value)) chooseFilter(value)
+              }}
+            />
           </div>
           <div class="rc-row">
             <Show
@@ -610,10 +627,40 @@ function Home(): JSX.Element {
                   when={list().length > 0}
                   fallback={
                     <div class="rc-empty">
-                      <Icon
-                        name={filter() === 'all' ? 'history' : KIND_ICON[filter() as RecentKind]}
-                      />
-                      <span>{EMPTY_TEXT[filter()]}</span>
+                      <EmptyState
+                        compact
+                        icon={filter() === 'all' ? 'history' : KIND_ICON[filter() as RecentKind]}
+                        title={EMPTY[filter()].title}
+                        actions={
+                          <Show
+                            when={filter() === 'all'}
+                            fallback={
+                              <button
+                                class="btn btn--secondary btn--sm rc-show-all"
+                                onClick={() => chooseFilter('all')}
+                              >
+                                Show everything
+                              </button>
+                            }
+                          >
+                            <button
+                              class="btn btn--secondary btn--sm rc-import"
+                              disabled={importing()}
+                              onClick={importChrome}
+                            >
+                              {importing() ? 'Importing…' : 'Import from Chrome'}
+                            </button>
+                            <button
+                              class="btn btn--ghost btn--sm rc-downloads"
+                              onClick={openDownloads}
+                            >
+                              Open Downloads
+                            </button>
+                          </Show>
+                        }
+                      >
+                        {EMPTY[filter()].text}
+                      </EmptyState>
                     </div>
                   }
                 >

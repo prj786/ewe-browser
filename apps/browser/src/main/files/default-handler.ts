@@ -20,9 +20,9 @@ export function desktopEntry(command: string[]): string {
   return [
     '[Desktop Entry]',
     'Type=Application',
-    'Name=ewe browser',
+    'Name=ewe Browser',
     'GenericName=File manager',
-    'Comment=Open folders in ewe browser',
+    'Comment=Open folders in ewe Browser',
     `Exec=${command.map(quote).join(' ')} %U`,
     'Icon=ewe-browser',
     'Terminal=false',

@@ -32,7 +32,7 @@ function status(info: SiteInfo): { icon: IconName; title: string; detail: string
         icon: 'triangle-alert',
         title: 'Connection is not secure',
         detail: info.httpAllowed
-          ? 'You chose to continue over http for this site until ewe browser closes.'
+          ? 'You chose to continue over http for this site until ewe Browser closes.'
           : 'Do not enter passwords or card numbers: others on the network can read or change this page.',
         tone: 'insecure',
       }

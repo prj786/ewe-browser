@@ -332,7 +332,7 @@ export class ExtensionHost {
     this.turnedOff.add(id)
     const name = passwordManagerName(id) ?? id
     console.warn(`[ewe] ${what} ${name}: ${SAFE_ONLY_MESSAGE}`)
-    this.deps.onBlocked(`${name} is off: Safe fills passwords`)
+    this.deps.onBlocked(`${name} is off: ewe Safe fills passwords`)
   }
 
   private turnOff(extension: Electron.Extension): void {

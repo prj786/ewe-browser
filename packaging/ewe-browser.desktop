@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=ewe browser
+Name=ewe Browser
 GenericName=Web Browser
 Comment=Browse the web, your files and your music
 Exec=ewe-browser %U

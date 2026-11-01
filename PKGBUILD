@@ -1,6 +1,6 @@
 # Maintainer: scubba
 #
-# ewe browser — the ewe desktop's browser, files and music app. Electron, so the
+# ewe Browser — the ewe desktop's browser, files and music app. Electron, so the
 # package carries its own runtime: Widevine needs castlabs' Electron build
 # (electron-releases +wvcus), which no Arch package provides. electron-builder
 # lays out that runtime plus app.asar; this PKGBUILD installs the directory.
@@ -13,10 +13,10 @@ pkgname=ewe-browser
 # extracts to <repo>-<tag without the leading v>, so the source URL and
 # the directory below follow _tag, never pkgver. The release workflow
 # rewrites both.
-_tag=v0.7.0-beta
-pkgver=0.7.0beta
+_tag=v0.8.0-beta
+pkgver=0.8.0beta
 pkgrel=1
-pkgdesc="ewe browser — the web, your files and your music in one window"
+pkgdesc="ewe Browser — the web, your files and your music in one window"
 arch=('x86_64')
 url="https://github.com/prj786/ewe-browser"
 license=('GPL-3.0-only')

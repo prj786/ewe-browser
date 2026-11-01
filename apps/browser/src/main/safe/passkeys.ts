@@ -109,7 +109,7 @@ export class PasskeyBroker {
     if (!reply.ok) return safeError(reply.error, reply.message)
     const credential = registrationJson(reply, clientData, rpId, options.credProps)
     return credential === null
-      ? fail('UnknownError', 'Safe answered with a passkey that does not fit this site.')
+      ? fail('UnknownError', 'ewe Safe answered with a passkey that does not fit this site.')
       : { ok: true, credential }
   }
 
@@ -133,7 +133,7 @@ export class PasskeyBroker {
     if (!reply.ok) return safeError(reply.error, reply.message)
     const credential = assertionJson(reply, clientData, rpId, credentialId)
     return credential === null
-      ? fail('UnknownError', 'Safe answered with a signature that does not fit this site.')
+      ? fail('UnknownError', 'ewe Safe answered with a signature that does not fit this site.')
       : { ok: true, credential }
   }
 

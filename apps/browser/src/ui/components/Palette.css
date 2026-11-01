@@ -280,38 +280,36 @@
 }
 
 .palette.hero .palette-search {
-  height: calc(var(--control-2xl) + var(--space-s));
-  padding: 0 var(--space-md) 0 calc(var(--space-md) + var(--space-xs));
-  gap: calc(var(--space-s) + var(--space-xs));
-  background: var(--surface-raised);
-  border: var(--border-width-1) solid var(--border-subtle);
-  border-radius: var(--fully-rounded);
-  box-shadow: var(--shadow-float);
-  transition:
-    border-color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out);
+  height: var(--control-xl);
+  padding: 0 calc(var(--space-s) + var(--space-xs));
+  gap: var(--space-s);
+  background: var(--surface-sunken);
+  border: var(--border-width-1) solid var(--border-strong);
+  border-radius: var(--primary);
+  box-shadow: none;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
 .palette.hero .palette-search:hover {
-  border-color: var(--border-strong);
+  border-color: var(--text-muted);
 }
 
 .palette.hero:focus-within .palette-search {
   border-color: var(--focus-ring);
-  box-shadow:
-    var(--shadow-float),
-    0 0 0 calc(3 * var(--border-width-1)) color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .palette.hero .palette-mode .icon {
-  width: var(--icon-xl);
-  height: var(--icon-xl);
+  width: var(--icon-lg);
+  height: var(--icon-lg);
 }
 
 .palette.hero .palette-search input {
-  font-size: var(--font-size-xl);
-  line-height: var(--line-height-xl);
-  letter-spacing: var(--tracking-snug);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-lg);
+}
+
+.palette-hint-key {
+  flex: none;
 }
 
 .palette.hero .palette-results {

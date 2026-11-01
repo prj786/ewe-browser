@@ -62,6 +62,10 @@ export interface TabManagerHost {
   failedLoad?(contents: WebContents, url: string, description: string): string | undefined
 }
 
+function startUrl(url: string): string {
+  return url.startsWith(NEW_TAB_URL) ? HOME_URL : url
+}
+
 export class Tab {
   readonly id: TabId = randomUUID()
   readonly view: WebContentsView
@@ -102,6 +106,13 @@ export interface CreateTabOptions {
   title?: string
   workspaceId?: string
   pinned?: boolean
+}
+
+export interface RemovedWorkspace {
+  workspace: Workspace
+  index: number
+  tabs: { url: string; title: string; pinned: boolean }[]
+  active: number
 }
 
 interface ClosedTab extends SessionTab {
@@ -262,17 +273,56 @@ export class TabManager {
     this.host.onChange()
   }
 
-  removeWorkspace(id: string): void {
+  removeWorkspace(id: string): RemovedWorkspace | null {
     const index = this.workspaces.findIndex((w) => w.id === id)
-    if (index === -1 || this.workspaces.length <= 1) return
+    const workspace = this.workspaces[index]
+    if (workspace === undefined || this.workspaces.length <= 1) return null
+    const tabs = this.tabsIn(id)
+    const remembered = this.lastActive.get(id)
+    const removed: RemovedWorkspace = {
+      workspace: { ...workspace },
+      index,
+      tabs: tabs.map((t) => ({ url: this.urlOf(t), title: t.state.title, pinned: t.state.pinned })),
+      active: Math.max(
+        0,
+        tabs.findIndex(
+          (t) => t.id === (this.activeWorkspaceId === id ? this.activeId : remembered),
+        ),
+      ),
+    }
     this.workspaces.splice(index, 1)
     if (this.activeWorkspaceId === id) {
       const neighbour = this.workspaces[Math.min(index, this.workspaces.length - 1)]
       if (neighbour !== undefined) this.activateWorkspace(neighbour.id)
     }
-    for (const tab of this.tabsIn(id)) this.close(tab.id)
+    for (const tab of tabs) this.close(tab.id)
     this.lastActive.delete(id)
     this.host.onChange()
+    return removed
+  }
+
+  restoreWorkspace(removed: RemovedWorkspace): Workspace | null {
+    const id = removed.workspace.id
+    if (this.workspace(id) !== undefined) return null
+    const workspace = { ...removed.workspace }
+    this.workspaces.splice(Math.min(removed.index, this.workspaces.length), 0, workspace)
+    const created = removed.tabs.map((t) =>
+      this.create(t.url, {
+        workspaceId: id,
+        activate: false,
+        lazy: true,
+        title: t.title,
+        pinned: t.pinned,
+      }),
+    )
+    for (const t of removed.tabs) {
+      const at = this.closed.findLastIndex((c) => c.workspaceId === id && c.url === t.url)
+      if (at !== -1) this.closed.splice(at, 1)
+    }
+    const target = created[removed.active] ?? created[0]
+    if (target !== undefined) this.lastActive.set(id, target.id)
+    this.activateWorkspace(id)
+    return workspace
   }
 
   mergeWorkspace(from: string, to: string): void {
@@ -300,7 +350,8 @@ export class TabManager {
     this.host.onChange()
   }
 
-  create(url = NEW_TAB_URL, options: CreateTabOptions = {}): Tab {
+  create(target = HOME_URL, options: CreateTabOptions = {}): Tab {
+    const url = startUrl(target)
     const workspaceId = options.workspaceId ?? this.activeWorkspaceId
     const view = new WebContentsView({
       webPreferences: {
@@ -330,7 +381,8 @@ export class TabManager {
     return tab
   }
 
-  load(tab: Tab, url: string): void {
+  load(tab: Tab, target: string): void {
+    const url = startUrl(target)
     const ticket = ++tab.loadTicket
     const workspace = this.workspaceOf(tab)
     const wait = workspace === undefined ? null : (this.host.beforeLoad?.(workspace, url) ?? null)
@@ -449,7 +501,7 @@ export class TabManager {
       const neighbour = remaining[Math.min(position, remaining.length - 1)]
       if (neighbour !== undefined) this.activate(neighbour.id)
       else if (this.tabs.length > 0 && this.workspaces.some((w) => w.id === workspaceId))
-        this.create(NEW_TAB_URL, { workspaceId })
+        this.create(HOME_URL, { workspaceId })
     }
     this.host.onChange()
   }
