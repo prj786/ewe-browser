@@ -67,7 +67,11 @@ export type MenuTarget =
   | { kind: 'page'; id: string }
   | { kind: 'workspace-new'; id: string }
 export type DownloadAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'open' | 'show' | 'remove'
-export type ToastIcon = 'star' | 'download' | 'check' | 'alert'
+export type ToastIcon = 'star' | 'download' | 'check' | 'alert' | 'trash'
+export interface ToastAction {
+  id: string
+  label: string
+}
 
 export type ShellCommand =
   | { type: 'tab.create'; url?: string; activate?: boolean }
@@ -157,6 +161,7 @@ export type ShellCommand =
   | { type: 'siteinfo.open'; x: number; y: number }
   | { type: 'site.clearData'; origin: string }
   | { type: 'https.allow'; url: string }
+  | { type: 'toast.action'; id: string }
 
 export type UiEvent =
   | { type: 'focus-address' }
@@ -164,7 +169,7 @@ export type UiEvent =
   | { type: 'overlay.hide' }
   | { type: 'palette.open'; query?: string; newTab?: boolean }
   | { type: 'menu.open'; menu: MenuTarget; x: number; y: number }
-  | { type: 'toast'; message: string; icon?: ToastIcon }
+  | { type: 'toast'; message: string; icon?: ToastIcon; action?: ToastAction }
   | { type: 'sidebar.focus' }
   | { type: 'safe.suggest'; menu: SafeMenu }
   | { type: 'safe.suggest.key'; requestId: string; key: SafeSuggestKey }
@@ -398,6 +403,7 @@ export function isShellCommand(value: unknown): value is ShellCommand {
     case 'workspace.activate':
     case 'workspace.remove':
     case 'workspace.rename':
+    case 'toast.action':
       return isString(c.id)
     case 'workspace.mergeInto':
       return isString(c.from) && isString(c.to)

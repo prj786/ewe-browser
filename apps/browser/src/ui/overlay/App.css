@@ -49,11 +49,54 @@
   line-height: var(--line-height-md);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
+  max-width: 100%;
   animation: ewe-slide-up var(--dur-base) var(--ease-out);
 }
 
 .toast .icon {
+  flex: none;
   color: var(--accent-text);
+}
+
+.toast .icon.toast-trash {
+  color: var(--text-secondary);
+}
+
+.toast-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast.has-action {
+  padding-right: var(--space-xs);
+  pointer-events: auto;
+}
+
+.toast-sep {
+  flex: none;
+  width: var(--border-width-1);
+  height: var(--icon-md);
+  background: var(--border-subtle);
+}
+
+.toast-action {
+  flex: none;
+  height: var(--control-sm);
+  padding: 0 var(--space-s);
+  border-radius: var(--fully-rounded);
+  color: var(--accent-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.toast-action:hover {
+  background: var(--surface-hover);
+}
+
+.toast-action:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-width));
 }
 
 .toast.leaving {

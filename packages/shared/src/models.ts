@@ -278,6 +278,7 @@ export const PROMPT_HEIGHT = 168
 export const PROMPT_MARGIN = 12
 export const SIDEBAR_HEADER = 44
 export const TOAST_MS = 1800
+export const TOAST_ACTION_MS = 6000
 export const SIDEBAR_MIN = 280
 export const SIDEBAR_MAX = 640
 export const EDGE_ZONE = 12
