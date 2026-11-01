@@ -86,7 +86,9 @@ export function parseStatus(raw: unknown): RemoteStatus | null {
       online: c.online === true,
       // null = unknown (paired, but the account listing could not be read):
       // worth trying — `ewe-remote tunnel` answers not-sharing if it is off
-      sharing: c.sharing === true || (c.paired === true && (c.sharing === null || c.sharing === undefined)),
+      sharing:
+        c.sharing === true ||
+        (c.paired === true && (c.sharing === null || c.sharing === undefined)),
       paired: c.paired === true,
     })
     if (computers.length >= MAX_COMPUTERS) break
