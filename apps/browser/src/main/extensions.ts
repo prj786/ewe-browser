@@ -372,13 +372,18 @@ export class ExtensionHost {
     return this.deps.confirmInstall(request, details.browserWindow ?? this.deps.focusedWindow())
   }
 
+  owns(contents: WebContents): boolean {
+    return !contents.isDestroyed() && contents.session === this.deps.session
+  }
+
   addTab(contents: WebContents, window: BrowserWindow): void {
-    this.extensions.addTab(contents, window)
+    if (this.owns(contents)) this.extensions.addTab(contents, window)
   }
 
   selectTab(contents: WebContents): void {
-    this.activeTab = contents
-    if (!contents.isDestroyed()) this.extensions.selectTab(contents)
+    const own = this.owns(contents)
+    this.activeTab = own ? contents : null
+    if (own) this.extensions.selectTab(contents)
     this.deps.onChange()
   }
 

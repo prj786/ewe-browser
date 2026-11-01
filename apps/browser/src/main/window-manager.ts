@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import {
   BrowserWindow,
@@ -32,6 +33,10 @@ import {
   isRestorableUrl,
   type ApiLayer,
   type BookmarkFolder,
+  type RemoteBinding,
+  type RemoteChoice,
+  type Workspace,
+  type WorkspaceColor,
   type InternalPage,
   type MenuTarget,
   type OverlayPart,
@@ -74,11 +79,14 @@ import { SidebarController } from './sidebar'
 import type { BookmarksStore } from './storage/bookmarks-store'
 import type { HistoryStore } from './storage/history-store'
 import { matchShortcut, type ShortcutAction } from './shortcuts'
-import { TabManager } from './tab-manager'
+import { TabManager, type Tab } from './tab-manager'
 import type { SettingsStore } from './storage/settings-store'
+import { isTunnelError, tunnelErrorText } from './remote/cli'
+import type { RemoteService } from './remote/service'
 
 export interface WindowDeps {
   session: Session
+  remote: RemoteService
   settings: SettingsStore
   preload: string
   rendererUrl: (entry: RendererEntry) => string
@@ -115,6 +123,23 @@ const INTERNAL_URLS: Record<InternalPage, string> = {
 const DEFAULT_PAGE_RADIUS = 10
 const PAGE_KEY_MS = 1_000
 const PEEK_HIDE_DELAY_MS = 250
+const REMOTE_RETRY_MS = 60_000
+const TUNNELED = /^(https?|wss?):/i
+
+export type RemoteWorkspaceResult =
+  { ok: true; workspace: Workspace } | { ok: false; error: string; message: string }
+
+function windowFor(url: string, remote: RemoteBinding | undefined): SessionWindow {
+  const tabs = [{ url, title: url, workspace: 0 }]
+  if (remote === undefined) return { bounds: null, tabs, activeIndex: 0 }
+  const workspace = { id: randomUUID(), name: remote.name, color: 'ewellow' as const, remote }
+  return { bounds: null, tabs, activeIndex: 0, workspaces: [workspace], activeWorkspace: 0 }
+}
+
+export function remoteErrorUrl(url: string, name: string, message: string): string {
+  const params = new URLSearchParams({ kind: 'remote', url, name, error: message })
+  return `${SAD_TAB_URL}?${params.toString()}`
+}
 
 const WINDOW_BACKGROUND = { dark: '#0b0a08', light: '#f4f2ee' }
 
@@ -146,6 +171,7 @@ export class WindowController {
   private broadcastQueued = false
   private destroyed = false
   private toastTimer: NodeJS.Timeout | null = null
+  private remoteMenu: { menuId: string; choices: RemoteChoice[] } | null = null
   readonly openedAt = Date.now()
   private pendingKey: {
     contentsId: number
@@ -217,7 +243,17 @@ export class WindowController {
 
     this.tabs = new TabManager({
       window: this.win,
-      session: deps.session,
+      sessionFor: (workspace) =>
+        workspace?.remote === undefined
+          ? deps.session
+          : deps.remote.sessionFor(workspace.remote.id),
+      beforeLoad: (workspace, url) => this.beforeRemoteLoad(workspace, url),
+      loadFailed: (tab, workspace, code, url, description) =>
+        this.remoteLoadFailed(tab, workspace, code, url, description),
+      onWorkspaceActivated: (workspace) => {
+        if (workspace.remote !== undefined)
+          void deps.remote.ensure(workspace.remote.id).catch(() => undefined)
+      },
       preload: deps.preload,
       getSettings: () => deps.settings.get(),
       onChange: () => this.scheduleBroadcast(),
@@ -290,8 +326,7 @@ export class WindowController {
       toggleBookmark: (tab) => this.toggleBookmark(tab),
       openMenu: (target, at) => this.openMenu(target, at),
       hideOverlay: () => this.showOverlay('none'),
-      openWindow: (url) =>
-        deps.openWindow({ bounds: null, tabs: [{ url, title: url }], activeIndex: 0 }),
+      openWindow: (url, remote) => deps.openWindow(windowFor(url, remote)),
       downloadsDir: () => deps.downloads.directory(),
       toast: (message, icon) => this.toast(message, icon),
       safeReady: () => this.safeUi !== null && deps.safe?.pageState().enabled === true,
@@ -667,7 +702,17 @@ export class WindowController {
         )
         break
       case 'workspace.create':
-        this.tabs.createWorkspace(command.name, command.color)
+        if (command.remote === undefined) this.tabs.createWorkspace(command.name, command.color)
+        else
+          void this.createRemoteWorkspace(command.remote, command.name, command.color).then(
+            (result) => {
+              if (!result.ok) this.toast(result.message, 'alert')
+            },
+          )
+        break
+      case 'workspace.new':
+        if (layer !== 'shell') return
+        void this.newWorkspace({ x: command.x, y: command.y })
         break
       case 'workspace.activate':
         this.tabs.activateWorkspace(command.id)
@@ -974,9 +1019,88 @@ export class WindowController {
           ? this.deps.extensions?.state().list.some((e) => e.id === menu.id) === true
           : menu.kind === 'page'
             ? this.pageMenus.has(menu.id)
-            : this.tabs.workspaceList().some((w) => w.id === menu.id)
+            : menu.kind === 'workspace-new'
+              ? this.remoteMenu?.menuId === menu.id
+              : this.tabs.workspaceList().some((w) => w.id === menu.id)
     if (!exists) return
     this.overlay.show('menu', this.contentSize(), { type: 'menu.open', menu, x: at.x, y: at.y })
+  }
+
+  async newWorkspace(at: Point): Promise<void> {
+    const choices = await this.deps.remote.choices().catch(() => [])
+    if (this.destroyed) return
+    if (choices.length === 0) {
+      this.tabs.createWorkspace()
+      return
+    }
+    const menuId = randomUUID()
+    this.remoteMenu = { menuId, choices }
+    this.overlay.sendUi({ type: 'workspace.choices', menuId, choices })
+    this.openMenu({ kind: 'workspace-new', id: menuId }, at)
+  }
+
+  async createRemoteWorkspace(
+    key: string,
+    name?: string,
+    color?: WorkspaceColor,
+  ): Promise<RemoteWorkspaceResult> {
+    let picked = await this.deps.remote.pick(key)
+    if (!picked.ok && picked.error !== 'no-remote') picked = await this.deps.remote.pick(key, 0)
+    if (!picked.ok) return picked
+    if (this.destroyed) return { ok: false, error: 'failed', message: 'the window closed' }
+    const { id, name: computer } = picked.computer
+    const workspace = this.tabs.createWorkspace(name ?? computer, color, true, {
+      id,
+      name: computer,
+    })
+    return { ok: true, workspace }
+  }
+
+  private beforeRemoteLoad(workspace: Workspace, url: string): Promise<string | null> | null {
+    const remote = workspace.remote
+    if (remote === undefined || !TUNNELED.test(url)) return null
+    if (this.deps.remote.ready(remote.id)) return null
+    return this.deps.remote
+      .ensure(remote.id)
+      .then((result) => (result.ok ? null : remoteErrorUrl(url, remote.name, result.message)))
+      .catch(() => remoteErrorUrl(url, remote.name, 'ewe-remote did not answer'))
+  }
+
+  private remoteLoadFailed(
+    tab: Tab,
+    workspace: Workspace,
+    code: number,
+    url: string,
+    description: string,
+  ): boolean {
+    const remote = workspace.remote
+    if (remote === undefined || !isTunnelError(code) || !TUNNELED.test(url)) return false
+    const now = Date.now()
+    const retried = tab.retry
+    const contents = tab.webContents
+    if (retried !== null && retried.url === url && now - retried.at < REMOTE_RETRY_MS) {
+      tab.retry = null
+      void contents
+        .loadURL(remoteErrorUrl(url, remote.name, tunnelErrorText(description)))
+        .catch(() => undefined)
+      return true
+    }
+    tab.retry = { url, at: now }
+    const ticket = ++tab.loadTicket
+    void this.deps.remote
+      .ensure(remote.id, true)
+      .catch(() => null)
+      .then((result) => {
+        if (contents.isDestroyed() || tab.loadTicket !== ticket) return
+        if (result?.ok === true) {
+          void contents.loadURL(url).catch(() => undefined)
+          return
+        }
+        tab.retry = null
+        const message = result?.ok === false ? result.message : 'ewe-remote did not answer'
+        void contents.loadURL(remoteErrorUrl(url, remote.name, message)).catch(() => undefined)
+      })
+    return true
   }
 
   playMusic(path: string): void {

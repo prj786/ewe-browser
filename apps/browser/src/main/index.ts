@@ -1,5 +1,13 @@
 import { basename, dirname, join, resolve } from 'node:path'
-import { app, components, nativeTheme, session, webContents, type WebContents } from 'electron'
+import {
+  app,
+  components,
+  nativeTheme,
+  session,
+  webContents,
+  type Session,
+  type WebContents,
+} from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   FILES_PAGE_URL,
@@ -24,13 +32,20 @@ import { MusicLibraryStore } from './media/library'
 import { openArgs } from './open-args'
 import { readEweAccount } from './ewe-account'
 import { readEweTheme, watchEweTheme } from './ewe-theme'
+import { RemoteService, type RequestGate } from './remote/service'
 import { applyIdentity, applyIdentityToContents } from './identity'
 import { registerIpc } from './ipc'
 import { SafeService } from './safe/service'
 import { PermissionStore } from './privacy/permissions'
 import { registerPrivacyIpc } from './privacy/ipc'
 import { PrivacyService } from './privacy/service'
-import { THIRD_PARTY_COOKIE_FEATURE, featureSwitch, privacyAtStartup } from './privacy/startup'
+import {
+  NO_DNS_PREFETCH,
+  THIRD_PARTY_COOKIE_FEATURE,
+  blinkSettingSwitch,
+  featureSwitch,
+  privacyAtStartup,
+} from './privacy/startup'
 import { SiteSearchStore } from './site-search/opensearch'
 import { SiteSearchService } from './site-search/service'
 import { installAppProtocol, registerAppScheme } from './protocol'
@@ -86,7 +101,6 @@ async function main(): Promise<void> {
   const persistent = session.fromPartition('persist:default')
   let privacy: PrivacyService | null = null
   const privacyHeaders = () => privacy?.extraHeaders() ?? {}
-  applyIdentity(persistent, privacyHeaders)
   applyIdentity(session.defaultSession, privacyHeaders)
 
   const userData = app.getPath('userData')
@@ -96,12 +110,6 @@ async function main(): Promise<void> {
     trashDir: process.env.EWE_TRASH_DIR,
     onOpened: (path) => recentStore.record(path, 'opened'),
   })
-  installAppProtocol(
-    persistent,
-    join(__dirname, '../renderer'),
-    is.dev ? process.env.ELECTRON_RENDERER_URL : undefined,
-    () => files.token,
-  )
 
   const settings = new SettingsStore(userData)
   const sessions = new SessionStore(userData)
@@ -142,7 +150,6 @@ async function main(): Promise<void> {
     },
   })
   privacy = privacyService
-  privacyService.install(persistent)
   privacyService.install(session.defaultSession)
   privacyService.applyDns()
   const siteSearchStore = new SiteSearchStore(userData)
@@ -152,6 +159,12 @@ async function main(): Promise<void> {
     history: () => history.all(),
     bookmarks: () => bookmarks.root(),
     engine: () => settings.get().searchEngine,
+  })
+
+  let remote: RemoteService | null = null
+  app.on('web-contents-created', (_event, contents) => {
+    if ((remote?.remoteOf(contents.session) ?? null) !== null)
+      contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
   })
 
   const onContentsCreated = (contents: WebContents): void => {
@@ -186,6 +199,31 @@ async function main(): Promise<void> {
       onShow: (path) => windows.focused()?.openFiles(dirname(path), basename(path)),
     },
   )
+  const setupWebSession = (ses: Session, gate?: RequestGate, via?: string): void => {
+    applyIdentity(ses, privacyHeaders)
+    installAppProtocol(
+      ses,
+      join(__dirname, '../renderer'),
+      is.dev ? process.env.ELECTRON_RENDERER_URL : undefined,
+      () => files.token,
+    )
+    privacyService.install(ses, gate)
+    if (via !== undefined) downloads.attach(ses, via)
+  }
+  setupWebSession(persistent)
+  const remoteService = new RemoteService({
+    userData,
+    fromPartition: (partition) => session.fromPartition(partition),
+    setup: (ses, gate) => {
+      const id = remoteService.remoteOf(ses)
+      setupWebSession(ses, gate, id ?? undefined)
+    },
+  })
+  remote = remoteService
+  downloads.retryThrough(async (via) => {
+    const result = await remoteService.ensure(via)
+    return result.ok ? remoteService.sessionFor(via) : null
+  })
   let extensionTimer: NodeJS.Timeout | null = null
   const notifyBlocked = (message: string, tries = BLOCKED_TOAST_TRIES): void => {
     const target = windows.focused()
@@ -201,7 +239,10 @@ async function main(): Promise<void> {
     createTab: (url, active, window): Electron.WebContents | null => {
       const target = windows.controllerOf(window) ?? windows.focused() ?? windows.all()[0]
       if (target === undefined) return null
-      return target.tabs.create(url === '' ? NEW_TAB_URL : url, { activate: active }).webContents
+      return target.tabs.create(url === '' ? NEW_TAB_URL : url, {
+        activate: active,
+        workspaceId: target.tabs.localWorkspace(),
+      }).webContents
     },
     selectTab: (contents) => {
       const owner = windows.fromContents(contents)
@@ -249,6 +290,7 @@ async function main(): Promise<void> {
     permissions,
     siteInput: (input) => siteSearch.rewrite(input),
     session: persistent,
+    remote: remoteService,
     settings,
     preload: preloadPath(),
     rendererUrl,
@@ -320,7 +362,7 @@ async function main(): Promise<void> {
     settings,
     downloads: downloadsStore,
     sync,
-    sessions: () => [persistent, session.defaultSession],
+    sessions: () => [persistent, session.defaultSession, ...remoteService.knownSessions()],
     extensionOrigins: () => extensions.state().list.map((e) => `chrome-extension://${e.id}`),
     onHistoryCleared: (from, to) => siteSearchStore.clearRange(from, to),
   })
@@ -438,6 +480,7 @@ async function main(): Promise<void> {
       siteSearch,
       downloadAction: (id, action) => downloads.run(id, action),
       reopen,
+      remote: remoteService,
       lastFocused: () => lastFocused,
       version: app.getVersion(),
       userData,
@@ -482,6 +525,10 @@ function bootstrap(): void {
       featureSwitch(app.commandLine.getSwitchValue('enable-features'), THIRD_PARTY_COOKIE_FEATURE),
     )
 
+  app.commandLine.appendSwitch(
+    'blink-settings',
+    blinkSettingSwitch(app.commandLine.getSwitchValue('blink-settings'), NO_DNS_PREFETCH),
+  )
   app.enableSandbox()
   registerAppScheme()
   app.commandLine.appendSwitch('disable-features', 'FedCm')

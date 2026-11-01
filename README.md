@@ -37,6 +37,26 @@ toasts) and a right sidebar.
   that ask first (camera, microphone, notifications, …) with a site info panel behind the lock.
 - **Site search**: `@zara men's shoes` in the palette opens Zara's own results; sites you search
   on, sites with an OpenSearch description and 66 well-known sites are understood.
+- **Remote workspaces**: browse from another of your ewe computers (see below).
+
+## Remote workspaces
+
+With ewe Remote you can pair your ewe computers. A computer that shares itself can then lend
+its internet connection to a workspace: click **+** in the bottom bar and pick
+**Browse from work-pc**. Every page in that workspace loads through work-pc, as if you were
+sitting at it: sites only work-pc can open work, and sites see work-pc's address, not yours.
+The chip in the bar shows a small screen next to the workspace's name.
+
+- Its own cookies and logins, apart from your other workspaces. Safe still fills passwords.
+- Names are looked up on work-pc too, and `localhost` means work-pc's own localhost, so a
+  dev server running there opens here.
+- If work-pc can't be reached, the page says so and nothing is sent from this computer
+  instead. The browser asks ewe Remote for the connection again once before giving up.
+- What you browse there stays out of this computer's history and out of the tabs other
+  computers see. Downloads land in your Downloads folder as usual.
+- Extensions don't run in a remote workspace, and video calls may not connect (only proxied
+  traffic is allowed, so WebRTC cannot go around it).
+- From the command line: `ewe-browser workspace create --remote work-pc`.
 
 ## Command line
 

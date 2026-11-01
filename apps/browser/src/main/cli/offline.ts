@@ -80,6 +80,7 @@ export async function diskSources(userData: string, tool: string): Promise<Sourc
           color: ws.color,
           active: i === (w.activeWorkspace ?? 0),
           tabs: w.tabs.filter((t) => (t.workspace ?? 0) === i).length,
+          remote: ws.remote ?? null,
         })),
       ),
     currentWindow: () => (windows.length > 0 ? 1 : null),

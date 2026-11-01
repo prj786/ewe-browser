@@ -21,20 +21,29 @@ export class DownloadManager {
   private readonly session: Session
   private readonly dir: () => string
   private readonly events: DownloadEvents
+  private viaSession: ((via: string) => Promise<Session | null>) | null = null
 
   constructor(session: Session, store: DownloadsStore, dir: () => string, events: DownloadEvents) {
     this.session = session
     this.store = store
     this.dir = dir
     this.events = events
-    session.on('will-download', (_event, item, source) => this.track(item, source))
+    this.attach(session)
+  }
+
+  attach(session: Session, via?: string): void {
+    session.on('will-download', (_event, item, source) => this.track(item, source, via))
+  }
+
+  retryThrough(resolve: (via: string) => Promise<Session | null>): void {
+    this.viaSession = resolve
   }
 
   directory(): string {
     return this.dir()
   }
 
-  private track(item: DownloadItem, source: WebContents | null): void {
+  private track(item: DownloadItem, source: WebContents | null, via?: string): void {
     const path = uniquePath(
       this.dir(),
       item.getFilename(),
@@ -54,6 +63,7 @@ export class DownloadManager {
       status: 'progressing',
       started: Math.round(item.getStartTime() * 1000) || Date.now(),
       ended: null,
+      ...(via === undefined ? {} : { via }),
     }
     this.items.set(id, item)
     this.store.add(entry)
@@ -127,8 +137,21 @@ export class DownloadManager {
   }
 
   private retry(entry: DownloadEntry): void {
-    this.store.remove(entry.id)
-    this.session.downloadURL(entry.url)
+    const via = entry.via
+    if (via === undefined) {
+      this.store.remove(entry.id)
+      this.session.downloadURL(entry.url)
+      return
+    }
+    const resolve = this.viaSession ?? (() => Promise.resolve(null))
+    void resolve(via).then((session) => {
+      if (session === null) {
+        this.events.onError(`${entry.filename}: the computer it came through can't be reached`)
+        return
+      }
+      this.store.remove(entry.id)
+      session.downloadURL(entry.url)
+    })
   }
 
   clear(): void {

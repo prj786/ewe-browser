@@ -32,6 +32,7 @@ import {
   type SafeSuggestKey,
 } from './safe'
 import { isWorkspaceColor } from './workspaces'
+import { isRemoteId, type RemoteChoice } from './remote-workspace'
 import {
   isPermissionDecision,
   isPermissionKind,
@@ -64,6 +65,7 @@ export type MenuTarget =
   | { kind: 'workspace'; id: string }
   | { kind: 'extension'; id: string }
   | { kind: 'page'; id: string }
+  | { kind: 'workspace-new'; id: string }
 export type DownloadAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'open' | 'show' | 'remove'
 export type ToastIcon = 'star' | 'download' | 'check' | 'alert'
 
@@ -88,7 +90,8 @@ export type ShellCommand =
   | { type: 'layout.report'; page: Rect | null }
   | { type: 'overlay.request'; part: OverlayPart; newTab?: boolean }
   | { type: 'menu.open'; menu: MenuTarget; x: number; y: number }
-  | { type: 'workspace.create'; name?: string; color?: WorkspaceColor }
+  | { type: 'workspace.create'; name?: string; color?: WorkspaceColor; remote?: string }
+  | { type: 'workspace.new'; x: number; y: number }
   | { type: 'workspace.activate'; id: string }
   | { type: 'workspace.update'; id: string; name?: string; color?: WorkspaceColor }
   | { type: 'workspace.remove'; id: string }
@@ -170,6 +173,7 @@ export type UiEvent =
   | { type: 'safe.prompt'; prompt: SafePrompt }
   | { type: 'extension.install'; request: ExtensionInstallRequest }
   | { type: 'workspace.rename'; id: string }
+  | { type: 'workspace.choices'; menuId: string; choices: RemoteChoice[] }
   | { type: 'music.play'; path: string }
   | { type: 'find.open'; query: string }
   | { type: 'find.result'; result: FindResult | null }
@@ -384,8 +388,11 @@ export function isShellCommand(value: unknown): value is ShellCommand {
     case 'workspace.create':
       return (
         (c.name === undefined || isString(c.name)) &&
-        (c.color === undefined || isWorkspaceColor(c.color))
+        (c.color === undefined || isWorkspaceColor(c.color)) &&
+        (c.remote === undefined || isRemoteId(c.remote))
       )
+    case 'workspace.new':
+      return isFiniteNumber(c.x) && isFiniteNumber(c.y)
     case 'workspace.activate':
     case 'workspace.remove':
     case 'workspace.rename':

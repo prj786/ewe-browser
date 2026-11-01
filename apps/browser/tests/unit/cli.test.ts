@@ -499,6 +499,14 @@ describe('workspaces, navigation, downloads and site search on the command line'
       args: { name: 'Wool shop', color: 'sky' },
     })
     expect(parsed(['workspace', 'create'])).toEqual({ tool: 'workspace_create', args: {} })
+    expect(parsed(['workspace', 'create', '--remote', 'work-pc'])).toEqual({
+      tool: 'workspace_create',
+      args: { remote: 'work-pc' },
+    })
+    expect(parsed(['workspace', 'create', 'Intranet', '--remote=3f9c0a1b2c3d4e5f'])).toEqual({
+      tool: 'workspace_create',
+      args: { name: 'Intranet', remote: '3f9c0a1b2c3d4e5f' },
+    })
     expect(parsed(['workspace', 'rename', 'Work', 'Deep', 'work'])).toEqual({
       tool: 'workspace_rename',
       args: { workspace: 'Work', name: 'Deep work' },
@@ -595,7 +603,15 @@ describe('workspaces, navigation, downloads and site search on the command line'
       workspaces: () => [
         { window: 1, id: 'w1', name: 'Home', color: 'ewellow', active: false, tabs: 2 },
         { window: 2, id: 'w9', name: 'Other', color: 'rose', active: true, tabs: 1 },
-        { window: 1, id: 'w2', name: 'Work', color: 'sky', active: true, tabs: 3 },
+        {
+          window: 1,
+          id: 'w2',
+          name: 'Work',
+          color: 'sky',
+          active: true,
+          tabs: 3,
+          remote: { id: '3f9c0a1b2c3d4e5f', name: 'work-pc' },
+        },
       ],
       currentWindow: () => 1,
       history: () => [],
@@ -609,8 +625,24 @@ describe('workspaces, navigation, downloads and site search on the command line'
       running: true,
       window: 1,
       workspaces: [
-        { id: 'w1', name: 'Home', color: 'ewellow', index: 1, tabs: 2, active: false },
-        { id: 'w2', name: 'Work', color: 'sky', index: 2, tabs: 3, active: true },
+        {
+          id: 'w1',
+          name: 'Home',
+          color: 'ewellow',
+          index: 1,
+          tabs: 2,
+          active: false,
+          remote: null,
+        },
+        {
+          id: 'w2',
+          name: 'Work',
+          color: 'sky',
+          index: 2,
+          tabs: 3,
+          active: true,
+          remote: { id: '3f9c0a1b2c3d4e5f', name: 'work-pc' },
+        },
       ],
     })
   })

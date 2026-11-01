@@ -7,6 +7,7 @@ import {
 } from '@ewe/shared'
 
 export const THIRD_PARTY_COOKIE_FEATURE = 'ForceThirdPartyCookieBlockingEnabled'
+export const NO_DNS_PREFETCH = 'dnsPrefetchingEnabled=false'
 
 export function privacyAtStartup(userData: string): PrivacySettings {
   try {
@@ -22,4 +23,10 @@ export function privacyAtStartup(userData: string): PrivacySettings {
 export function featureSwitch(current: string, feature: string): string {
   const list = current.split(',').filter((f) => f !== '' && f !== feature)
   return [...list, feature].join(',')
+}
+
+export function blinkSettingSwitch(current: string, setting: string): string {
+  const name = setting.split('=')[0] ?? setting
+  const list = current.split(',').filter((s) => s !== '' && s.split('=')[0] !== name)
+  return [...list, setting].join(',')
 }

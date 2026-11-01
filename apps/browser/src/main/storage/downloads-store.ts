@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { basename, extname, join } from 'node:path'
-import type { DownloadEntry, DownloadStatus } from '@ewe/shared'
+import { isRemoteId, type DownloadEntry, type DownloadStatus } from '@ewe/shared'
 import { readJson, throttle, writeJsonAtomic } from './json-file'
 
 const MAX_ENTRIES = 200
@@ -33,7 +33,8 @@ export function isDownloadEntry(value: unknown): value is DownloadEntry {
     typeof value.status === 'string' &&
     STATUSES.has(value.status) &&
     isNumber(value.started) &&
-    (value.ended === null || isNumber(value.ended))
+    (value.ended === null || isNumber(value.ended)) &&
+    (value.via === undefined || isRemoteId(value.via))
   )
 }
 

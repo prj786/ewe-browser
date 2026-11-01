@@ -19,6 +19,7 @@ import type { BookmarksStore } from '../storage/bookmarks-store'
 import type { DownloadsStore } from '../storage/downloads-store'
 import type { HistoryStore } from '../storage/history-store'
 import type { SettingsStore } from '../storage/settings-store'
+import type { RemoteService } from '../remote/service'
 import type { SiteSearchService } from '../site-search/service'
 import type { Tab } from '../tab-manager'
 import type { WindowController, WindowManager } from '../window-manager'
@@ -43,6 +44,7 @@ export interface CliHostDeps {
   music: MusicLibraryStore
   settings: SettingsStore
   siteSearch?: SiteSearchService | undefined
+  remote?: RemoteService | undefined
   downloadAction?: ((id: string, action: 'open' | 'show') => void) | undefined
   lastFocused?: (() => number | null) | undefined
   reopen(): Promise<void>
@@ -106,6 +108,7 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
           color: w.color,
           active: w.id === c.tabs.activeWorkspace,
           tabs: c.tabs.tabsIn(w.id).length,
+          remote: w.remote ?? null,
         })),
       ),
     currentWindow: () => current()?.id ?? null,
@@ -133,6 +136,7 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
       tabs: c.tabs.tabsIn(w.id).length,
       active: c.tabs.activeWorkspace === w.id,
       window: c.id,
+      remote: w.remote ?? null,
     }
   }
   const activeWorkspace = (c: WindowController) =>
@@ -385,12 +389,27 @@ export function createCliHost(deps: CliHostDeps): (tool: string, args: Args) => 
         }
       }
       case 'workspace_create': {
-        const c = await target()
         const color = str('color')
-        const ws = c.tabs.createWorkspace(
-          str('name') === '' ? undefined : str('name'),
-          color === '' ? undefined : (color as WorkspaceColor),
-        )
+        const name = str('name') === '' ? undefined : str('name')
+        const hue = color === '' ? undefined : (color as WorkspaceColor)
+        const via = str('remote')
+        if (via !== '') {
+          const remote = deps.remote
+          if (remote === undefined) return failure('no-remote', 'ewe Remote is not available')
+          const picked = await remote.pick(via, 0)
+          if (!picked.ok) return failure(picked.error, picked.message)
+          const c = await target()
+          const made = await c.createRemoteWorkspace(picked.computer.id, name, hue)
+          if (!made.ok) return failure(made.error, made.message)
+          show(c)
+          return {
+            ok: true,
+            workspace: workspaceOut(c, made.workspace),
+            undo: [['ewe-browser', 'workspace', 'remove', made.workspace.id]],
+          }
+        }
+        const c = await target()
+        const ws = c.tabs.createWorkspace(name, hue)
         show(c)
         return {
           ok: true,

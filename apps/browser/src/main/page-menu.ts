@@ -12,6 +12,7 @@ import {
   type PageAction,
   type PageMenu,
   type Point,
+  type RemoteBinding,
   type SafeFieldKind,
   type Settings,
   type ToastIcon,
@@ -39,7 +40,7 @@ export interface PageMenuHost {
   toggleBookmark(tab: Tab): void
   openMenu(target: MenuTarget, at: Point): void
   hideOverlay(): void
-  openWindow(url: string): void
+  openWindow(url: string, remote: RemoteBinding | undefined): void
   downloadsDir(): string
   toast(message: string, icon: ToastIcon): void
   safeReady(): boolean
@@ -256,12 +257,13 @@ export class PageMenus {
         this.host.tabs.create(s.link, { ...next, activate: false })
         return
       case 'link.workspace': {
-        const workspace = this.host.tabs.createWorkspace(undefined, undefined, false)
+        const remote = this.host.tabs.workspaceOf(tab)?.remote
+        const workspace = this.host.tabs.createWorkspace(undefined, undefined, false, remote)
         this.host.tabs.create(s.link, { workspaceId: workspace.id })
         return
       }
       case 'link.window':
-        this.host.openWindow(s.link)
+        this.host.openWindow(s.link, this.host.tabs.workspaceOf(tab)?.remote)
         return
       case 'link.save':
         contents.downloadURL(s.link)

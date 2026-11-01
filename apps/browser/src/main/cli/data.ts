@@ -37,6 +37,7 @@ export interface CliWorkspace {
   color: string
   active: boolean
   tabs: number
+  remote?: { id: string; name: string } | null | undefined
 }
 
 export interface CliWindow {
@@ -213,6 +214,7 @@ export async function readTool(tool: string, args: Args, src: Sources): Promise<
             index: i + 1,
             tabs: w.tabs,
             active: w.active,
+            remote: w.remote ?? null,
           })),
       }
     }

@@ -133,9 +133,12 @@ export function ownTabs(windows: SessionWindow[]): RemoteWindow[] {
     const workspaces = spaces.map((space, index) => ({
       name: space.name,
       color: isWorkspaceColor(space.color) ? space.color : null,
-      tabs: win.tabs
-        .filter((t) => (t.workspace ?? 0) === index && /^https?:\/\//i.test(t.url))
-        .map((t) => ({ url: t.url, title: t.title, pinned: t.pinned === true })),
+      tabs:
+        space.remote !== undefined
+          ? []
+          : win.tabs
+              .filter((t) => (t.workspace ?? 0) === index && /^https?:\/\//i.test(t.url))
+              .map((t) => ({ url: t.url, title: t.title, pinned: t.pinned === true })),
     }))
     const kept = workspaces
       .map((ws) => {
