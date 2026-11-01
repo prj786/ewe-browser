@@ -181,12 +181,12 @@ test('the lock opens site info: toggles, clear site data and the settings list',
     await shell.locator('.rail-site').click()
     await expect(overlay.locator('.site-info')).toBeVisible()
     await overlay.locator('.site-info-settings').click()
-    await expect.poll(() => activeUrl(shell)).toBe('app://settings/#privacy')
+    await expect.poll(() => activeUrl(shell)).toBe('app://settings/#permissions')
     const settings = await windowWith(app, 'app://settings/')
     const row = settings.locator(`.settings-site[data-origin="${site.url}"]`)
     await expect(row).toBeVisible()
     await expect(row.locator('.settings-site-perm')).toHaveCount(1)
-    await row.locator('.settings-site-perm[data-kind="camera"] select').selectOption('block')
+    await row.locator('.settings-site-perm[data-kind="camera"] [data-value="block"]').click()
     await expect
       .poll(
         () =>
@@ -207,10 +207,10 @@ test('settings: privacy and security apply live; secure DNS is used for lookups'
   const app = await launch(userData)
   try {
     const shell = await shellOf(app)
-    await send(shell, { type: 'open.internal', page: 'settings' })
+    await send(shell, { type: 'tab.create', url: 'app://settings/#privacy' })
     const settings = await windowWith(app, 'app://settings/')
     const privacy = () => shell.evaluate(async () => (await window.ewe.getSettings())?.privacy)
-    await expect(settings.locator('#privacy')).toBeVisible()
+    await expect(settings.locator('.settings-privacy')).toBeVisible()
     await settings.locator('.settings-secure-dns').selectOption('quad9')
     await expect.poll(privacy).toMatchObject({ secureDns: 'secure', dnsProvider: 'quad9' })
     await settings.locator('.settings-secure-dns').selectOption('custom')
@@ -242,15 +242,15 @@ test('settings: privacy and security apply live; secure DNS is used for lookups'
     )
     if (online) expect(await resolve('example.org')).toBe('ok')
 
-    await settings.locator('.settings-https-only').selectOption('on')
+    await settings.locator('.settings-https-only').click()
     await expect.poll(privacy).toMatchObject({ httpsOnly: true })
     await expect(settings.locator('.settings-restart')).toHaveCount(0)
-    await settings.locator('.settings-third-party').selectOption('allow')
+    await settings.locator('.settings-third-party [data-value="allow"]').click()
     await expect.poll(privacy).toMatchObject({ blockThirdPartyCookies: false })
     await expect(settings.locator('.settings-restart')).toBeVisible()
-    await settings.locator('.settings-third-party').selectOption('block')
+    await settings.locator('.settings-third-party [data-value="block"]').click()
     await expect(settings.locator('.settings-restart')).toHaveCount(0)
-    await settings.locator('.settings-gpc').selectOption('off')
+    await settings.locator('.settings-gpc').click()
     await expect.poll(privacy).toMatchObject({ gpc: false })
   } finally {
     await app.close()

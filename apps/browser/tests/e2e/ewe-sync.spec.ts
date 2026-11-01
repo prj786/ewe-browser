@@ -135,12 +135,12 @@ test('under ewe: sync follows the account, ewe-sync gets the buttons, files know
     await shell.waitForFunction(() => typeof window.ewe === 'object')
     const send = (command: ShellCommand) => shell.evaluate((c) => window.ewe.send(c), command)
 
-    await send({ type: 'open.internal', page: 'settings' })
+    await send({ type: 'tab.create', url: 'app://settings/#sync' })
     const settings = await windowWith(app, 'app://settings')
     const account = settings.locator('.settings-sync-account')
     await expect(account).toContainText('Sync with your ewe account')
-    await expect(account).toContainText('sync with your ewe account')
-    await expect(settings.locator('select.settings-sync')).toHaveCount(0)
+    await expect(account).toContainText('On with your ewe account')
+    await expect(settings.locator('.settings-sync')).toHaveCount(0)
     await expect(settings.locator('.settings-sync-now')).toHaveCount(0)
     await expect(settings.locator('.settings-sync-status')).toContainText(/Synced \d/, {
       timeout: 15_000,
@@ -148,7 +148,7 @@ test('under ewe: sync follows the account, ewe-sync gets the buttons, files know
     await account.scrollIntoViewIfNeeded()
     await shot(app, 'sync-01-settings-managed')
     await expect.poll(() => dav.read('bookmarks.json')).not.toBeNull()
-    await settings.getByRole('button', { name: 'Manage in ewe-sync' }).click()
+    await settings.getByRole('button', { name: 'Manage in ewe Sync' }).click()
     await expect.poll(logged).toContain('--pane overview')
 
     const before = dav.requests.length
@@ -193,7 +193,7 @@ test('under ewe: sync follows the account, ewe-sync gets the buttons, files know
       await expect(chip).toBeVisible()
       await shot(app, 'sync-07-files-dark')
       const opened = app.windows().length
-      await send({ type: 'open.internal', page: 'settings' })
+      await send({ type: 'tab.create', url: 'app://settings/#sync' })
       await expect.poll(() => app.windows().length).toBeGreaterThan(opened)
       const dark = app
         .windows()

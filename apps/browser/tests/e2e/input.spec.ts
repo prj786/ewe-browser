@@ -412,7 +412,7 @@ test('right-click menus on a web page: link, image, selection, field, media, pag
     overlay = await menuAt(app, page, '#field')
     const fieldItems = await labels(overlay)
     expect(fieldItems).toEqual(expect.arrayContaining(['Undo', 'Cut', 'Paste', 'Select all']))
-    expect(fieldItems).not.toContain('Fill from Safe')
+    expect(fieldItems).not.toContain('Fill from ewe Safe')
     await pick(overlay, 'Select all')
     await expect
       .poll(() =>
@@ -820,7 +820,9 @@ test('Safe only: Ctrl+Shift+L, the rail key and the right-click menu open Safe',
     const page = await open(app, shell, `${site.origin}/login`)
     await page.evaluate(() => document.getElementById('user')?.focus())
     await key(app, 'L', ['control', 'shift'])
-    await expect.poll(rows, { timeout: 10_000 }).toEqual(['Flock\nbob', 'Flock\nsam', 'Open Safe'])
+    await expect
+      .poll(rows, { timeout: 10_000 })
+      .toEqual(['Flock\nbob', 'Flock\nsam', 'Open ewe Safe'])
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
@@ -840,9 +842,9 @@ test('Safe only: Ctrl+Shift+L, the rail key and the right-click menu open Safe',
     await expect.poll(async () => (await overlayView(app)).visible).toBe(false)
 
     let menu = await menuAt(app, page, '#pass')
-    expect(await labels(menu)).toContain('Fill from Safe')
+    expect(await labels(menu)).toContain('Fill from ewe Safe')
     await menu.waitForTimeout(GUARD_MS)
-    await pick(menu, 'Fill from Safe')
+    await pick(menu, 'Fill from ewe Safe')
     await expect.poll(rows, { timeout: 10_000 }).toContain('Flock\nbob')
     await page.keyboard.press('Escape')
     await expect.poll(async () => (await overlayView(app)).visible).toBe(false)
@@ -858,7 +860,7 @@ test('Safe only: Ctrl+Shift+L, the rail key and the right-click menu open Safe',
 
     await open(app, shell, `${site.origin}/plain`)
     const offer = overlay.locator('.safe-prompt')
-    await expect(offer).toContainText('Save this login to Safe?', { timeout: 10_000 })
+    await expect(offer).toContainText('Save this login to ewe Safe?', { timeout: 10_000 })
     await offer.locator('.safe-prompt-later').click()
     await expect.poll(async () => (await overlayView(app)).visible).toBe(false)
     await key(app, 'L', ['control', 'shift'])
@@ -892,7 +894,7 @@ test('password-manager extensions: an install is refused, an installed one is tu
     const shell = await shellOf(app)
     const overlay = await windowWith(app, '/ui/overlay/')
     await expect(overlay.locator('.toast')).toContainText(
-      'Bitwarden is off: Safe fills passwords',
+      'Bitwarden is off: ewe Safe fills passwords',
       {
         timeout: 15_000,
       },
@@ -912,7 +914,9 @@ test('password-manager extensions: an install is refused, an installed one is tu
       type: 'extension.install',
       source: 'https://chromewebstore.google.com/detail/1password/aeblfdkhhhdcdjpifhhbdiojplfjncoa',
     })
-    await expect(overlay.locator('.toast')).toContainText('ewe browser fills passwords with Safe')
+    await expect(overlay.locator('.toast')).toContainText(
+      'ewe Browser fills passwords with ewe Safe',
+    )
     expect(existsSync(join(extensions, 'aeblfdkhhhdcdjpifhhbdiojplfjncoa'))).toBe(false)
     expect(await loaded()).not.toContain('aeblfdkhhhdcdjpifhhbdiojplfjncoa')
   } finally {
