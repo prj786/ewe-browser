@@ -1,12 +1,6 @@
-.settings-site + .settings-site {
-  margin-top: var(--space-xs);
-  padding-top: var(--space-xs);
-  border-top: var(--border-width-1) solid var(--border-subtle);
-}
-
 .settings-site-perm {
   min-height: var(--control-md);
-  padding-left: calc(var(--space-s) + var(--control-lg) + var(--space-s) + var(--space-xs));
+  padding-left: calc(var(--space-s) + var(--control-sm) + var(--space-md));
 }
 
 .settings-site-icon {
@@ -21,12 +15,6 @@
 .settings-site-icon .icon {
   width: var(--icon-sm);
   height: var(--icon-sm);
-}
-
-.settings-site-perm .select select {
-  height: var(--control-sm);
-  min-width: calc(4 * var(--control-md));
-  font-size: var(--font-size-s);
 }
 
 .settings-privacy .row-warning {

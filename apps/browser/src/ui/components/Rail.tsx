@@ -4,6 +4,7 @@ import {
   WORKSPACE_COLORS,
   displayUrl,
   hostOf,
+  internalAddress,
   isBookmarkableUrl,
   pathFromFilesUrl,
   type TabState,
@@ -272,8 +273,14 @@ export function Rail(props: RailProps): JSX.Element {
       if (slash <= 0) return { host: filesPath, rest: '' }
       return { host: filesPath.slice(0, slash + 1), rest: filesPath.slice(slash + 1) }
     }
+    const internal = internalAddress(tab.url)
+    if (internal !== null) return { host: internal.page, rest: internal.section }
     try {
       const u = new URL(tab.url)
+      if (u.protocol === 'app:' && u.host === 'sad') {
+        const failed = u.searchParams.get('url') ?? ''
+        if (failed !== '') return { host: hostOf(failed) || failed, rest: '' }
+      }
       if (u.protocol === 'app:') return { host: u.host, rest: '' }
       const rest = `${u.pathname === '/' ? '' : u.pathname}${u.search}`
       return { host: hostOf(tab.url), rest }
