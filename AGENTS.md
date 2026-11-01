@@ -9,7 +9,7 @@ been hit. `docs/PLAN.md` holds the roadmap and open bugs; `docs/DESIGN.md` holds
 A Chromium-engine browser built on Electron 44 (Chromium 152, Node 24) for the owner's "ewe"
 Linux desktop (Hyprland, Wayland). The main process owns every tab as a `WebContentsView`. The
 visible chrome is a thin Solid UI in three renderer layers (the base shell with the left tab rail
-and the full-width bottom bar, a transparent overlay and a right sidebar) plus seven internal pages served on `app://` (newtab, home, settings, sad, files, music, history). Styling follows the owner's Ewe design system v3.
+and the full-width bottom bar, a transparent overlay and a right sidebar) plus six internal pages served on `app://` (home, settings, sad, files, music, history; the bare `app://newtab` page is retired, see the UI revamp below). Styling follows the owner's Ewe design system v3. The display name is "ewe Browser" ("ewe + Word", 0.8.0-beta); the binary, package, app id, profile folder and CLI stay `ewe-browser`.
 Phases 0–2 and the history part of phase 4 are implemented and verified; nothing has been
 committed yet, and the first commit waits for the owner's review of the staged diff.
 
@@ -158,7 +158,8 @@ apps/browser/
   src/ui/lib/api.ts               typed access to window.ewe
   src/ui/styles/                  tokens.css (Ewe tokens + browser tokens), base.css, components.css, fonts.css
   src/ui/fonts/                   Geist and Geist Mono (OFL)
-  src/pages/{newtab,settings,sad}  app:// pages (Solid), pages.css
+  src/pages/{settings,sad}        app:// pages (Solid), pages.css; settings/ = main.tsx (section list + sections),
+                                  controls.tsx (Row, Group, Select), privacy.tsx, passwords.tsx, settings.css
   src/pages/home/                 the home page (main.tsx, pdf.ts = pdf.js first-page previews, home.css)
   src/pages/files/                the file manager page (main.tsx, viewer.tsx, textview.tsx, archive.tsx, files.css)
   src/pages/music/                the music app (main.tsx, music.css)
@@ -296,8 +297,9 @@ Main validates every command at runtime (`isShellCommand`), checks the sender fr
 (`senderFrameUrl`: main frame only, `app://` for the page layer), and applies the per-layer policy
 in `WindowController.dispatch`: the page layer may only send `PAGE_COMMANDS`
 (`workspace.activate`, `tab.create`, `tab.activate`, `tab.navigate`, `tab.close`, `nav.reload`,
-`settings.update`, `open.internal`, `music.play`, `shortcuts.recording`, `bookmarks.importChrome`),
-`settings.update`, `shortcuts.recording` and `bookmarks.importChrome` only from `app://settings`,
+`settings.update`, `open.internal`, `music.play`, `shortcuts.recording`, `bookmarks.importChrome`, `downloads.openFolder`, …),
+`settings.update` and `shortcuts.recording` only from `app://settings`, `bookmarks.importChrome`
+from `app://settings` and `app://home`, `downloads.openFolder` only from `app://home`,
 `permission.set` and `permission.forget` only from `app://settings` (and the overlay), `https.allow`
 only from `app://sad`, `music.play` only from `app://home`,
 and `tab.navigate` from a page is pinned to that page's own tab. Pages get no `bookmark.*` editing
@@ -305,8 +307,13 @@ commands yet; a future bookmarks page adds what it needs.
 
 `InternalPage` (`open.internal`): `'newtab' | 'home' | 'settings' | 'files' | 'music' | 'history'`
 (music and history activate their existing tab instead of opening a second one). A fresh profile (no session, or
-`restoreSession` off) opens its first window on `app://home/`; Ctrl+T and new windows after that
-still use the new-tab flow. Home is never recorded in history (http(s) only).
+`restoreSession` off) opens its first window on `app://home/`. Since 0.8.0-beta every new tab
+(Ctrl+T, the rail's New tab, `tab.create` without a url), new window, emptied workspace and closed
+last tab opens Home too: `TabManager.create`/`load` map any `app://newtab/` url to `HOME_URL`
+(`startUrl`), so old sessions and typed addresses land on Home; `'newtab'` stays a valid
+`InternalPage` and tab kind (blank pages) but no page is served for it. The palette is the
+overlay only (Ctrl+K, Ctrl+L with the rail hidden). Home is never recorded in history (http(s)
+only).
 
 ShellCommand types: `tab.create {url?, activate?}`, `tab.close {id}`, `tab.activate {id}`,
 `tab.move {id, index}`, `tab.navigate {id?, input, newTab?}`, `tab.reopen`, `tab.mute {id, muted}`,
@@ -337,7 +344,9 @@ displayed before the move, `folderId` alone appends; cycles are refused),
 `bookmarks.importChrome` (the result comes back as a `toast` UiEvent to the sending webContents),
 `sidebar.toggle {section?}`, `sidebar.close`, `sidebar.resize {width, commit?}`,
 `download {id, action: pause|resume|cancel|retry|open|show|remove}` (`remove` drops the entry,
-never the file), `downloads.clear` (finished entries only), `history.remove {url}`,
+never the file), `downloads.clear` (finished entries only), `downloads.openFolder` (the downloads
+folder in the files page: the sender's own tab from `app://home`, a new tab from the shell or the
+sidebar), `toast.action {id}` (overlay only), `history.remove {url}`,
 `window.new|close|minimize|toggleMaximize`, `devtools.toggle`, `permission.decide {promptId,
 decision: allow | block | dismiss}` and `permission.fit {promptId, height}` (overlay only),
 `permission.set {origin, kind, value: ask | allow | block}`, `permission.forget {origin}`,
@@ -349,7 +358,7 @@ renders its own menus).
 
 UiEvent types (main → a renderer): `focus-address`, `overlay.show {part}`, `overlay.hide`,
 `palette.open {query?, newTab?}` (the palette reacts to a new `query` while mounted),
-`menu.open {menu, x, y}`, `toast {message, icon?: star | download | check | alert}`,
+`menu.open {menu, x, y}`, `toast {message, icon?: star | download | check | alert | trash, action?: {id, label}}`,
 `sidebar.focus`, `workspace.rename {id}`, `music.play {path}` (to the music tab), `find.open
 {query}`, `find.result {result: {matches, active} | null}`, `swipe {dir, progress, done?}`,
 `page.menu {menu}` (sent just before `menu.open {menu: {kind: 'page', id}}`),
@@ -482,6 +491,17 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
 - Palette: `openPalette(newTab)` shows the palette over the whole window and sends
   `palette.open`. Enter navigates (`tab.navigate {input, newTab}`), Escape or a backdrop click
   sends `overlay.request none`.
+- Toast with an action (0.8.0-beta): `toast(message, icon, {label, run})` sends `toast {message,
+icon, action: {id, label}}`, keeps it 6 s (`TOAST_ACTION_MS`), and the overlay renders a
+  separator and the action button (`.toast.has-action` takes pointer events; a toast is not
+  closed by the overlay's mouseleave). The button sends `toast.action {id}` (overlay layer only;
+  main runs it only when the id is the one it holds). Asked while part `menu` is showing (the
+  workspace menu's Remove), it waits for the part to become `none` and shows one tick later
+  (`OverlayController.hide` sets the part synchronously and would hide it again), or drops after
+  2 s. Workspace → Remove workspace: `removeWorkspace` returns a `RemovedWorkspace` (workspace
+  incl. remote binding, its index, tabs' url/title/pinned, the active one) and the toast
+  "Workspace removed · Undo" calls `restoreWorkspace` (same id and place, lazy tabs, activated on
+  the remembered tab, those entries taken off the closed-tab stack).
 - Toast: `WindowController.toast(message)` shows part `toast` (a `TOAST_WIDTH` 360 ×
   `TOAST_HEIGHT` 56 rect centred at the bottom of the page rect, `overlayBounds`), sends `toast
 {message}` and hides again after `TOAST_MS` 1800ms, but only when no other part is showing (with
@@ -492,12 +512,14 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
 - Sidebar UI (`ui/sidebar/App.tsx`): a segmented header (the active section shows its label,
   the others are icons; a count badge on Downloads while something is running), a close button,
   one search field per section (Escape clears it, then closes the sidebar; Ctrl+F focuses it;
-  Enter opens the first row), the pane, and a footer (Bookmarks: "Bookmark this tab" /
-  "Remove this tab", New folder; Downloads: Clear finished). Arrow keys move between rows
+  Enter opens the first row), the pane, and a footer (Bookmarks: "Bookmark this page" /
+  "Remove bookmark", New folder; Downloads: Clear finished). Empty panes and searches with no
+  match use the shared `EmptyState` (class `sb-empty`) with a next step: Import from Chrome,
+  Open Downloads folder (`downloads.openFolder`), Start browsing (`tab.create`), Clear search. Arrow keys move between rows
   (`[data-row]`). Menus open inside the sidebar document (`.sb-menu-backdrop` + `Menu`).
   - `BookmarksPane`: an expandable tree (expanded folder ids in `localStorage`), favicon well, host
     hint on hover, folder counts. Click opens in the current tab, Ctrl/middle click in a new tab.
-    Right-click: Open, Open in new tab, Edit, Delete; on folders Open all, New folder inside,
+    Right-click: Open, Open in new tab, Copy link, Edit, Delete; on folders Open all, New folder inside,
     Rename, Delete folder. Enter/Right/Left/F2/Delete on a focused row. Edit and New folder swap in
     an inline form (`.sb-form`). HTML5 drag and drop: the top quarter of a folder drops before it,
     the middle into it, the bottom quarter after it (into, when the folder is open); bookmarks drop
@@ -520,7 +542,9 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
   raised; the tooltip has the tab count) switches (click), renames inline (double-click) or opens
   the workspace menu (right-click); `+` sends `workspace.create`, which opens "Workspace N" on
   Home. `workspace-menu.ts` builds Rename, the colour swatch row, Move tabs here (submenu of other
-  workspaces with tab counts) and Remove (disabled for the last workspace). The menu's Rename is
+  workspaces with tab counts) and Remove workspace (disabled for the last workspace; Undo in a
+  toast, see Toast with an action). Swatches carry their names (`title`, `aria-label`, and the
+  colour id as `data-value`). The menu's Rename is
   routed through main: the overlay sends `workspace.rename {id}` after the menu closes, main
   activates that workspace, focuses the shell and sends the `workspace.rename` UiEvent to it, rail
   hidden or not (the bar stays). The input replaces the chip and focuses itself from its `ref`.
@@ -679,7 +703,7 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
 - Tile thumbnails keep their loaded/failed state in a signal keyed by the entry path; an earlier
   version added `has-thumb` to the DOM by hand, and `<Index>` reused that node for a folder in the
   next listing, hiding the folder glyph.
-- Default handler: Settings → Files → "Use ewe browser" writes
+- Default handler: Settings → Files and music → the "Open folders with ewe Browser" switch writes
   `$XDG_DATA_HOME/applications/ewe-browser-folders.desktop` (`NoDisplay`, only `inode/directory`,
   `Exec` = this Electron binary, plus the app path in dev) and runs
   `gio mime inode/directory ewe-browser-folders.desktop`, saving the previous default in
@@ -764,7 +788,7 @@ permission | siteinfo` (Safe's save prompt, inline list and passkey sheet, see S
   manifest of the CRX Google still serves; the old 1Password X id answers 204 and is kept
   because an old profile may still carry it). A manager under another id, or a sideloaded copy
   without the store key, is not caught. `installFromStore` refuses them before downloading and
-  `beforeInstall` denies them, both with the toast "ewe browser fills passwords with Safe".
+  `beforeInstall` denies them, both with the toast "ewe Browser fills passwords with ewe Safe".
   `ExtensionHost` wraps `session.extensions.loadExtension` before `installChromeWebStore` scans
   the folder: `storeIdAt(dir)` derives the id from `manifest.key` (sha256 of the key, a–p) or
   the store folder name, and a listed id is refused before Chromium loads it, so none of its
@@ -1012,7 +1036,7 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
   `--background` starts without a window. `second-instance` with no windows flushes and
   reloads the session (or Home) and then opens any targets. `openArgs(argv, cwd, self)` skips
   the app's own path (dev runs `electron <app>`). `Startup` (`main/startup.ts`) reads and
-  writes `apps.startup` through `ewe-conf get/set`, adding `{ name: 'ewe browser', exec:
+  writes `apps.startup` through `ewe-conf get/set`, adding `{ name: 'ewe Browser' (an old 'ewe browser' entry is recognised and replaced), exec:
 '<app> --background' }`; `ewe:startup` (invoke, `app://settings` only, optional boolean)
   returns `{ available, on }`.
 
@@ -1358,7 +1382,7 @@ editRequest?, onEditingChange?, onDropTarget?`), top to bottom:
     drag ends when the button is no longer held or capture is lost. The peek lives in the overlay
     document, so it cannot drop onto chips; its tab menu has Move to workspace. "New tab" opens
     the new-tab palette;
-  - foot: "Add to ewe browser" on store pages, then the extension buttons after a hairline.
+  - foot: "Add to ewe Browser" on store pages, then the extension buttons after a hairline.
 - `Palette`: modes url / search / tabs (`t:`) / bookmarks (`b:`), `w:` forces search, a "New
   tab" chip when opened from Ctrl+T, Kbd hints. `b:` lists `rankBookmarks` matches (title prefix
   4, title 2, host prefix 3, host 1.5, url 1; empty query = everything by recency) with the
@@ -1374,9 +1398,28 @@ dot?, hint?, danger?, disabled?, items? (submenu), run? } | { type: 'separator' 
   Keyboard: arrows, Enter/Space, Right opens a submenu or moves along swatches, Left goes back,
   Escape closes everything; hover sets the active row and opens submenus. The root panel takes
   focus; `window` blur closes. `tab-menu.ts` builds the tab items (Reload, Duplicate, Pin / Unpin,
-  Mute / Unmute | Move to workspace ▸ (other workspaces with colour dots, New workspace), Copy url
+  Mute / Unmute | Move to workspace ▸ (other workspaces with colour dots, New workspace), Copy link
   | Close, Close others, Close to the right; the last two are disabled when only pinned tabs would
   qualify).
+- Shared controls (0.8.0-beta, `ui/components/`, styles in `ui/styles/components.css`):
+  `Switch` (`button role=switch`, `.switch.on`, a check in the thumb), `Segmented`
+  (`.seg role=radiogroup`, items `.seg-item[data-value]` with `aria-checked`, arrow keys) and
+  `EmptyState` (`.empty` / `.empty.compact`, `.empty-title`, `.empty-desc`, `.empty-actions`).
+  Every on/off is a Switch, 2–5 choices a Segmented, a Select only where the mockup keeps one.
+  No `text-transform: uppercase` anywhere (overlines keep their letters, Georgian included).
+  `.page` is `surface-raised` and `.list` wells `surface-overlay`, so internal pages keep the
+  card edge in dark.
+- Settings (0.8.0-beta): a section list (`SETTINGS_SECTIONS` in shared `models.ts`) and one
+  section at a time; the section is the url hash (`settingsSectionOf`, `history.replaceState` on
+  a click, `hashchange` from outside, e.g. Site info's Site settings → `#permissions`). The rail
+  shows internal pages as "ewe › Settings › Browsing" (`internalAddress` in `url.ts`) and an
+  error page as the failed site's host. The version at the foot of the list comes from
+  `__APP_VERSION__` (a renderer `define` from apps/browser/package.json).
+- Error page (`pages/sad`): `explain(code)` turns the Chromium code into a plain-words title and
+  one line (name not found, offline, refused, timed out, reset, unreachable, certificate, too many
+  redirects, blocked, file not found, proxy), Try again / Search instead / Go back, and a
+  collapsed Details with the address, Copy link and the raw code; `document.title` is the
+  plain-words title.
 - Page CSS order: in a built `app://` page the shared `pages.css` chunk is linked AFTER the
   page's own CSS, so a page rule that overrides `.page` (display, background, padding) must be
   `.page.page-<name>`; with a bare `.page-home` the home page stayed `display: grid`, lost its
@@ -1440,6 +1483,15 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
 
 ## Testing and visual verification
 
+- Node: run the unit tests on Node 24 (CI's version). On Node 26 three `safe-save.test.ts` cases
+  (the fake `ewe-safe` CLI's unlock / confirm round trip) fail, on main as well (2026-11-01).
+- Without the live session (2026-11-01, UI revamp): the whole e2e suite runs inside a headless
+  `cage` (`WLR_BACKENDS=headless`, no `HYPRLAND_INSTANCE_SIGNATURE`, so `hyprland.ts` does nothing)
+  with a temp `HOME` / `XDG_*` / `TMPDIR`, no D-Bus, and logging stubs for `ewe-conf`, `ewe-cloud`,
+  `ewe-sync`, `ewe-safe`, `ewe-remote`, `ewe-files`, `ewe-drive`, `mpv`, `xdg-open` first on `PATH`
+  and in `EWE_BIN`. Everything passes there except input.spec's "Ctrl+M does not minimize" check
+  (cage reports `isMinimized()` true; same on main). Screenshots the same way, composited like
+  `scripts/visual.mjs`.
 - Unit: `packages/shared` (url, ipc-contract, workspaces, text, menu incl. clamping, shortcuts,
   bookmarks) and `apps/browser/tests/unit` (layout incl. rail peek and toast rects, shortcuts, stores incl.
   bookmarks-store, chrome-bookmarks against `tests/fixtures/chrome-bookmarks.json`, identity

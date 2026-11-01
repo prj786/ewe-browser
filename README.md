@@ -1,4 +1,4 @@
-# ewe browser
+# ewe Browser
 
 An all-in-one app for the ewe Linux desktop (Hyprland, Wayland): a Chromium-engine web browser,
 file manager, media viewer and music player in one window, styled and themed live by ewe.
@@ -17,7 +17,7 @@ toasts) and a right sidebar.
 - **Files** (`app://files`): a file manager that can replace Nemo, with places, Nextcloud and
   Google Drive through ewe's brokers, the folders ewe-sync keeps in your account (marked with
   their state, and "Keep in your account…" on any folder in your home), GVFS and removable drives, thumbnails, copy, move, trash,
-  drag and drop, compress and extract, and "open folders with ewe browser".
+  drag and drop, compress and extract, and "open folders with ewe Browser".
 - **Viewers**: images, video, audio, text, highlighted code, Markdown and PDF in an overlay that
   steps through the folder; mpv for videos Chromium cannot play.
 - **Music** (`app://music`): a library from your Music folder with albums, artists, songs,
@@ -28,7 +28,7 @@ toasts) and a right sidebar.
   sidebar; an optional resident process and
   "start with ewe" for instant windows.
 
-- **Extensions, DRM, sync**: Chrome Web Store extensions (an "Add to ewe browser" button on
+- **Extensions, DRM, sync**: Chrome Web Store extensions (an "Add to ewe Browser" button on
   store pages), Widevine DRM through castlabs Electron, and sync of bookmarks, history, open
   tabs and settings that follows your ewe account: signed in, it syncs; what syncs is chosen in
   ewe-sync, the one place with sync buttons.
@@ -123,7 +123,7 @@ scripts/visual.mjs <dir>` writes screenshots of every scene from the built app.
 
 ## Install
 
-ewe browser ships with ewe: the `ewe` package depends on it, so `sudo pacman -S ewe` (or
+ewe Browser ships with ewe: the `ewe` package depends on it, so `sudo pacman -S ewe` (or
 `sudo pacman -Syu` on an ewe machine) installs it from the `[ewe]` repository. On its own:
 `sudo pacman -S ewe-browser`, or the `.pkg.tar.zst` from a GitHub release with
 `sudo pacman -U`. It is the desktop's default browser on new installs; an existing machine

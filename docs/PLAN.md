@@ -1,4 +1,4 @@
-# ewe browser — build plan and status
+# ewe Browser — build plan and status
 
 Source plan: "Custom Browser — Build Plan" (Oct 12, 2026). Mockup: top tab strip with settings and user
 circles on the left, slanted tab dividers, a wide active tab showing title and url that becomes an editor on
@@ -597,6 +597,33 @@ workspaces"):
 - [ ] Bookmarks of remote-only sites still load their icon from this computer.
 - [ ] A history of its own for remote workspaces (with icons fetched through the tunnel), if the
       owner wants one.
+
+## UI revamp (approved 2026-11-01, branch `feat/ui-revamp`, 0.8.0-beta)
+
+The owner approved the ewe-wide revamp mockups ("Both are great, start a new release"): polish
+within design system v3, app names "ewe + Word". Mockups `BrowserSettings`, `BrowserHome`, canvas
+note `n_br`; audit `.wt/shots-revamp/browser/AUDIT.md` (ewe workspace).
+
+- [x] Settings: section list, one section at a time (hash), left-aligned rows, every on/off a
+      switch, 2–5 choices segmented, no uppercase headers; ewe Safe's rows in Passwords.
+- [x] One start page: New tab, new windows and empty workspaces open Home; `app://newtab` is
+      retired (mapped to Home); the palette stays on Ctrl+K.
+- [x] Empty states with a next step (Home Recent, History page, sidebar panes, searches,
+      Settings lists); error pages in plain words with the code under Details.
+- [x] Window title "ewe Browser"; Copy link on tabs, bookmarks, downloads and error pages;
+      Undo after removing a workspace (toast with an action).
+- [x] Names: ewe Browser / ewe Safe / ewe Sync in every user-visible string; ids, binary, CLI,
+      profile path and the user agent logic unchanged.
+- [ ] Mockup items not taken, on purpose: "Collapsed keeps a strip of icons" (the rail still
+      hides completely, the owner's 2026-10-14 call; the setting's text says so), the default
+      workspace named "Personal" (still "Home": the CLI, tests and existing sessions use it),
+      Home filters reduced to All · Sites · Files · Music (kept Docs and Videos, Web renamed
+      Sites).
+- [ ] Audit proposals not done in this wave: Safe inline list polish (favicons, a caption, the
+      save prompt's close button and button order), History page "content first", icons for
+      Close others / Close to the right, one Edit per shortcut row, the address field's own
+      suggestion list, keyboard reach for the rail star/key/site button.
+- [ ] Real-device check (pointer, the Undo toast over a real page, light scheme from ewe).
 
 ## Bottom bar (asked 2026-10-17, 0.3.0-beta)
 
