@@ -1489,9 +1489,11 @@ of the resolved profile dir, 12 hex>.sock`, 0600, removed on `will-quit`. `liste
   `cage` (`WLR_BACKENDS=headless`, no `HYPRLAND_INSTANCE_SIGNATURE`, so `hyprland.ts` does nothing)
   with a temp `HOME` / `XDG_*` / `TMPDIR`, no D-Bus, and logging stubs for `ewe-conf`, `ewe-cloud`,
   `ewe-sync`, `ewe-safe`, `ewe-remote`, `ewe-files`, `ewe-drive`, `mpv`, `xdg-open` first on `PATH`
-  and in `EWE_BIN`. Everything passes there except input.spec's "Ctrl+M does not minimize" check
-  (cage reports `isMinimized()` true; same on main). Screenshots the same way, composited like
-  `scripts/visual.mjs`.
+  and in `EWE_BIN`. Everything passes there (73 passed, 12 skipped, 0.8.1-beta). Cage is what
+  exposed the default-menu bug: Electron's default Linux menu (Window → Minimize on Ctrl+M) stayed
+  live in the frameless window, so the page-first Ctrl+M muted AND minimized; `main()` now calls
+  `Menu.setApplicationMenu(null)` and input.spec checks no minimize/close role exists. Screenshots
+  the same way, composited like `scripts/visual.mjs`.
 - Unit: `packages/shared` (url, ipc-contract, workspaces, text, menu incl. clamping, shortcuts,
   bookmarks) and `apps/browser/tests/unit` (layout incl. rail peek and toast rects, shortcuts, stores incl.
   bookmarks-store, chrome-bookmarks against `tests/fixtures/chrome-bookmarks.json`, identity

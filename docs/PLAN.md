@@ -598,6 +598,14 @@ workspaces"):
 - [ ] A history of its own for remote workspaces (with icons fetched through the tunnel), if the
       owner wants one.
 
+## 0.8.1-beta — no application menu (2026-11-01)
+
+Ctrl+M (mute, a page-first key) also reached Electron's default Linux menu, whose Window →
+Minimize carries Ctrl+M (and Close Ctrl+W): the tab muted and the window asked to minimize.
+Found when the e2e suite ran in a headless cage. `main()` sets no application menu; every
+browser shortcut is ours and Chromium handles editing keys in inputs itself on Linux. Full e2e
+in cage: 73 passed, 12 skipped.
+
 ## UI revamp (approved 2026-11-01, branch `feat/ui-revamp`, 0.8.0-beta)
 
 The owner approved the ewe-wide revamp mockups ("Both are great, start a new release"): polish

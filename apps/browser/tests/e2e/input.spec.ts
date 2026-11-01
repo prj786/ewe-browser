@@ -582,11 +582,33 @@ test('the new shortcuts drive workspaces, tabs and pages', async () => {
     await expect.poll(async () => (await active(shell)).pinned).toBe(true)
     await key(app, 'P', ['alt', 'shift'])
     await expect.poll(async () => (await active(shell)).pinned).toBe(false)
+    // Ctrl+M mutes the tab and nothing else. It is a page-first key, so it also
+    // reaches native accelerators; Electron's default Linux menu bound it to
+    // Window → Minimize (cage showed the window minimized after Ctrl+M). The
+    // app sets no menu at all, and a minimize/close role would carry Ctrl+M /
+    // Ctrl+W even without an explicit accelerator.
+    expect(
+      await app.evaluate(({ Menu }) => {
+        const roles: string[] = []
+        const walk = (items: Electron.MenuItem[]) => {
+          for (const it of items) {
+            if (it.role === 'minimize' || it.role === 'close' || it.role === 'windowMenu')
+              roles.push(it.role)
+            if (it.submenu) walk(it.submenu.items)
+          }
+        }
+        walk(Menu.getApplicationMenu()?.items ?? [])
+        return roles
+      }),
+    ).toEqual([])
+    const minimizedBefore = await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.isMinimized(),
+    )
     await key(app, 'M', ['control'])
     await expect.poll(async () => (await active(shell)).muted).toBe(true)
     expect(
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized()),
-    ).toBe(false)
+    ).toBe(minimizedBefore)
     await key(app, 'C', ['alt', 'shift'])
     await expect.poll(() => clip(app)).toBe(`${site.origin}/one`)
     const overlay = await windowWith(app, '/ui/overlay/')
