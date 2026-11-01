@@ -1,5 +1,6 @@
 import { basename, dirname, join, resolve } from 'node:path'
 import {
+  Menu,
   app,
   components,
   nativeTheme,
@@ -85,6 +86,12 @@ function rendererUrl(entry: RendererEntry): string {
 
 async function main(): Promise<void> {
   await app.whenReady()
+  // No application menu. Electron installs a default one on Linux whose
+  // accelerators stay live in a frameless window: Window → Minimize took
+  // Ctrl+M (our mute) whenever the key went to a web page first, Close took
+  // Ctrl+W. Every browser shortcut is ours (shortcuts.ts); editing keys in
+  // inputs are Chromium's own on Linux and need no menu.
+  Menu.setApplicationMenu(null)
   const widevine = components.whenReady().catch((error: unknown) => {
     console.error('[ewe] widevine', error)
     return []
