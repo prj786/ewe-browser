@@ -8,6 +8,7 @@ import {
   isFsRequest,
   isLocalPathInput,
   pathFromFilesUrl,
+  samePlaces,
   sortEntries,
   tildePath,
   type FsEntry,
@@ -201,5 +202,23 @@ describe('synced folders', () => {
     expect(isEweSyncRequest({ op: 'add-folder', path: '/h/a\0b' })).toBe(false)
     expect(isEweSyncRequest({ op: 'run' })).toBe(false)
     expect(isEweSyncRequest(null)).toBe(false)
+  })
+})
+
+describe('samePlaces', () => {
+  const place = (state: 'synced' | 'syncing'): FsPlace => ({
+    id: 'a',
+    label: 'A',
+    path: '/a',
+    group: 'cloud',
+    icon: 'folder',
+    state: 'ready',
+    sync: { state, conflicts: 0, lastSync: null, engine: 'ewe', error: '' },
+  })
+
+  it('tells a refresh that found nothing new from a real change', () => {
+    expect(samePlaces([place('synced')], [place('synced')])).toBe(true)
+    expect(samePlaces([place('synced')], [place('syncing')])).toBe(false)
+    expect(samePlaces([place('synced')], [])).toBe(false)
   })
 })

@@ -517,6 +517,31 @@ test('a dead tunnel fails closed, is asked for again once, and the command line 
         inPage<string>(app, "document.querySelector('.remote-message')?.textContent ?? ''"),
       )
       .toBe('work-pc is offline')
+    const title = () =>
+      inPage<string>(app, "document.querySelector('.empty-title')?.textContent ?? ''")
+    const tabTitle = async () => {
+      const now = await state(shell)
+      return now?.tabs.find((t) => t.id === now.activeTabId)?.title
+    }
+    await expect.poll(title).toBe('work-pc can’t be reached')
+
+    // a failure on this computer is not blamed on the other one, and its error goes to Details
+    stub.tunnel({ ok: false, error: 'internal', message: 'FileNotFoundError: tunnel.log' })
+    await send(shell, { type: 'tab.navigate', input: 'http://intranet.remote.test/later' })
+    await expect.poll(title, { timeout: 20_000 }).toBe('Couldn’t connect to work-pc')
+    await expect.poll(tabTitle).toBe('Couldn’t connect to work-pc')
+    await shot(app, 'remote-internal')
+    expect(
+      await inPage<string>(app, "document.querySelector('.remote-message')?.textContent ?? ''"),
+    ).toBe('')
+    expect(
+      await inPage<string>(app, "document.querySelector('.empty-code')?.textContent ?? ''"),
+    ).toBe('FileNotFoundError: tunnel.log')
+
+    // what the other computer refused is named
+    stub.tunnel({ ok: false, error: 'not-sharing', message: 'work-pc is not shared right now' })
+    await send(shell, { type: 'tab.navigate', input: 'http://intranet.remote.test/later' })
+    await expect.poll(title, { timeout: 20_000 }).toBe('work-pc isn’t sharing')
 
     const third = await socks5(site.port)
     stub.tunnel({ ok: true, socks: `127.0.0.1:${String(third.port)}`, pid: 4444 })

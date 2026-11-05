@@ -14,7 +14,7 @@ import {
   type EweSyncState,
 } from '../../src/main/sync/ewe-link'
 import { SyncService } from '../../src/main/sync/service'
-import { parseSyncSnapshot } from '../../src/main/sync/snapshot'
+import { parseSyncSnapshot, snapshotContent } from '../../src/main/sync/snapshot'
 import { BookmarksStore } from '../../src/main/storage/bookmarks-store'
 import { HistoryStore } from '../../src/main/storage/history-store'
 import { SettingsStore } from '../../src/main/storage/settings-store'
@@ -131,6 +131,33 @@ describe('the browser follows the ewe account', () => {
 })
 
 describe('the folder snapshot', () => {
+  it('compares what a snapshot says, not when it was written', () => {
+    const at = (updated: number, state = 'idle') =>
+      JSON.stringify({ updated_at: updated, state, folders: [{ updated_at: updated, key: 'a' }] })
+    expect(snapshotContent(at(1))).toBe(snapshotContent(at(2)))
+    expect(snapshotContent(at(1))).not.toBe(snapshotContent(at(1, 'syncing')))
+    expect(snapshotContent('not json')).toBe('not json')
+  })
+
+  it('announces folders only when the snapshot says something new', async () => {
+    const stateDir = temp('state')
+    const file = join(stateDir, 'sync-folders.json')
+    const write = (updated: number, state: string) =>
+      writeFileSync(file, JSON.stringify({ updated_at: updated, state, folders: [] }))
+    write(1, 'idle')
+    const link = new EweLink({ managed: false, configDir: temp('cfg'), stateDir })
+    let heard = 0
+    link.on('folders', () => heard++)
+    link.start()
+    write(2, 'idle')
+    write(3, 'idle')
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(heard).toBe(0)
+    write(4, 'syncing')
+    await waitFor(() => heard === 1)
+    link.dispose()
+  })
+
   it('validates and normalises what ewe-sync writes', () => {
     const snapshot = parseSyncSnapshot(
       JSON.stringify({

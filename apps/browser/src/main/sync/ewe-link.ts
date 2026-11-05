@@ -1,10 +1,10 @@
 import { EventEmitter } from 'node:events'
-import { existsSync, watch, type FSWatcher } from 'node:fs'
+import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { eweCloudPath, readEweAccount } from '../ewe-account'
 import { runTool, toolPath } from '../files/places'
-import { NUDGE_FILE, SNAPSHOT_FILE } from './snapshot'
+import { NUDGE_FILE, SNAPSHOT_FILE, snapshotContent } from './snapshot'
 
 export interface EweSyncState {
   managed: boolean
@@ -133,6 +133,7 @@ export class EweLink extends EventEmitter<{
   private readonly browserFlag: () => Promise<boolean | null>
   private readonly watches: DirWatch[] = []
   private seq = 0
+  private foldersSeen: string | null = null
 
   constructor(options: EweLinkOptions) {
     super()
@@ -162,6 +163,7 @@ export class EweLink extends EventEmitter<{
   }
 
   start(): void {
+    this.foldersSeen = this.readFolders()
     if (this.state.managed) {
       void this.refresh()
       this.watches.push(
@@ -178,13 +180,30 @@ export class EweLink extends EventEmitter<{
         this.stateDir,
         [SNAPSHOT_FILE, NUDGE_FILE],
         (names) => {
-          if (names.has(SNAPSHOT_FILE)) this.emit('folders')
+          if (names.has(SNAPSHOT_FILE) && this.foldersChanged()) this.emit('folders')
           if (names.has(NUDGE_FILE) && existsSync(join(this.stateDir, NUDGE_FILE)))
             this.emit('nudge')
         },
         STATE_DEBOUNCE_MS,
       ),
     )
+  }
+
+  private readFolders(): string | null {
+    try {
+      return snapshotContent(readFileSync(this.snapshotPath(), 'utf8'))
+    } catch {
+      return null
+    }
+  }
+
+  // Every open file manager and Home tab refreshes on `folders`, so a rewrite that says the same
+  // thing is not news: ewe-sync up to 0.16.0 rewrote this file every 2.3 s (2026-11-05).
+  private foldersChanged(): boolean {
+    const now = this.readFolders()
+    if (now === this.foldersSeen) return false
+    this.foldersSeen = now
+    return true
   }
 
   async refresh(): Promise<void> {

@@ -61,6 +61,12 @@ export interface FsPlaceSync {
   error: string
 }
 
+// Plain data from one source, so the same order means the same text. A refresh that found nothing
+// new must not hand a keyed list new objects: it rebuilds every row.
+export function samePlaces(a: readonly FsPlace[], b: readonly FsPlace[]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 export function isInsidePath(child: string, parent: string): boolean {
   if (parent === '/') return child.startsWith('/')
   return child === parent || child.startsWith(`${parent}/`)

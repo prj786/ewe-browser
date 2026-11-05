@@ -1,5 +1,6 @@
 import { Show, createEffect, createSignal, type JSX } from 'solid-js'
 import { render } from 'solid-js/web'
+import { remoteFailure } from '@ewe/shared'
 import '../../ui/styles/base.css'
 import '../pages.css'
 import { EmptyState } from '../../ui/components/EmptyState'
@@ -197,8 +198,17 @@ function HttpsOnly(props: { url: string; error: string }): JSX.Element {
   )
 }
 
-function Remote(props: { url: string; name: string; message: string }): JSX.Element {
-  const human = () => props.message !== '' && !/^(net::)?ERR_[A-Z_]+$/.test(props.message)
+function Remote(props: {
+  url: string
+  name: string
+  message: string
+  code: string | null
+}): JSX.Element {
+  const failure = () => remoteFailure(props.code, props.name)
+  const human = () =>
+    props.message !== '' &&
+    props.code !== 'internal' &&
+    !/^(net::)?ERR_[A-Z_]+$/.test(props.message)
   return (
     <>
       <EmptyState
@@ -207,7 +217,7 @@ function Remote(props: { url: string; name: string; message: string }): JSX.Elem
         role="alert"
         icon="monitor"
         class="remote-error"
-        title={`${props.name} can’t be reached`}
+        title={failure().title}
         actions={
           <>
             <Show when={props.url !== ''}>
@@ -222,8 +232,7 @@ function Remote(props: { url: string; name: string; message: string }): JSX.Elem
           </>
         }
       >
-        This workspace browses from {props.name}, so its pages load only through it. Nothing was
-        sent from this computer directly.
+        {failure().text} Nothing was sent from this computer directly.
         <Show when={human()}>
           <span class="remote-message">{props.message}</span>
         </Show>
@@ -284,10 +293,11 @@ function SadTab(): JSX.Element {
   const error = params.get('error') ?? ''
   const kind = params.get('kind') ?? ''
   const remote = params.get('name') ?? ''
+  const remoteCode = params.get('code')
   const remoteUrl = /^(https?|wss?):\/\//i.test(url) ? url : ''
   document.title =
     kind === 'remote' && remote !== ''
-      ? `${remote} can’t be reached`
+      ? remoteFailure(remoteCode, remote).title
       : kind === 'https-only'
         ? `${hostOf(url)} has no secure connection`
         : explain(error, url).title
@@ -306,7 +316,7 @@ function SadTab(): JSX.Element {
             </Show>
           }
         >
-          <Remote url={remoteUrl} name={remote} message={error} />
+          <Remote url={remoteUrl} name={remote} message={error} code={remoteCode} />
         </Show>
       </div>
     </div>

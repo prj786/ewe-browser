@@ -30,6 +30,7 @@ import {
   type FsClipboard,
   type FsEntry,
   type FsListing,
+  samePlaces,
   type FsPlace,
   type FsPlaceGroup,
   type FsPlaceIcon,
@@ -234,7 +235,7 @@ function FilesApp(): JSX.Element {
   const [path, setPath] = createSignal('')
   const [listing, setListing] = createSignal<FsListing | null>(null)
   const [error, setError] = createSignal<string | null>(null)
-  const [places, setPlaces] = createSignal<FsPlace[]>([])
+  const [places, setPlaces] = createSignal<FsPlace[]>([], { equals: samePlaces })
   const [selected, setSelected] = createSignal<ReadonlySet<string>>(new Set())
   const [anchor, setAnchor] = createSignal<string | null>(null)
   const [renaming, setRenaming] = createSignal<string | null>(null)

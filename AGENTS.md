@@ -78,7 +78,8 @@ packages/shared/src/
   sites.ts                        SITES (the site search table), siteByName/siteByHost, domainOf,
                                   fill/withLocale, parseSiteQuery (@site), learnSearchTemplate
   remote-workspace.ts             RemoteBinding / RemoteComputer / RemoteChoice, isRemoteId, remotePartition,
-                                  cleanRemoteName, remoteChoices, matchComputer, canBrowseFrom
+                                  cleanRemoteName, remoteChoices, matchComputer, canBrowseFrom,
+                                  remoteFailure (the error page's headline by error code)
 apps/browser/
   electron.vite.config.ts         main/preload/renderer builds, seven HTML inputs, devCsp plugin, @ewe/shared alias
   electron-builder.yml            dir target, castlabs runtime from node_modules/electron/dist, app.asar
@@ -740,6 +741,10 @@ icon, action: {id, label}}`, keeps it 6 s (`TOAST_ACTION_MS`), and the overlay r
   with the default app (`home {op: 'open'}`, allowed only for paths the last `recents` answers
   returned). Ctrl/middle click opens a new tab. The context menu adds Play in mpv, Open with
   default app, Show in folder, Copy path/link and Remove from Recent.
+- A refresh leaves the page alone: every answer is a new array of new objects, and `<For>` rebuilt
+  every card and replayed its entrance on each one, so Recent is a store reconciled by `key` (only
+  what changed changes) and `places` a signal with `samePlaces` as its `equals` (the files page's
+  too).
 - Refresh: on load, on `ewe:home-changed` (main pushes it when `recent.json`, history, the music
   library or the number of completed downloads change), on `visibilitychange` and window focus.
   `visibilitychange` and `focus` do not fire for a window on a hidden Hyprland workspace, so the
@@ -813,7 +818,8 @@ icon, action: {id, label}}`, keeps it 6 s (`TOAST_ACTION_MS`), and the overlay r
   neither `EWE_USER_DATA` nor `EWE_SYNC_URL` is set (`EWE_SYNC_MANAGED=1|0` forces it), and then
   sync runs exactly when `cloud.json` names a server and a login and `ewe-conf get sync.browser`
   is not `false`; `EweLink` watches `$XDG_CONFIG_HOME/ewe/` (1 s debounce) and
-  `$XDG_STATE_HOME/ewe/` (`sync-now` → a cycle, `sync-folders.json` → `ewe:places-changed`),
+  `$XDG_STATE_HOME/ewe/` (`sync-now` → a cycle, `sync-folders.json` → `ewe:places-changed` when it says
+  something new: `snapshotContent` ignores `updated_at`, ewe-sync up to 0.16.0 rewrote it every 2.3 s),
   never creating either directory. Outside ewe `Settings.sync` toggles it. `ewe:sync` (invoke,
   `app://settings` only) returns or runs `SyncStatus` (`managed`, `signedIn` added), pushed as
   `ewe:sync-status`. Settings → Sync in managed mode shows what syncs, the status and "Manage in
@@ -1204,7 +1210,10 @@ proxyBypassRules: '<-loopback>'})`, `closeAllConnections()` when the port moved,
   fails with a tunnel error (`isTunnelError`: -20 blocked by the gate, -111, -115, -120, -121,
   -127, -130, -131, -336) runs `ensure(id, true)` once (the port may have moved → `setProxy`
   again) and loads the url again; a second tunnel error within 60 s for that url, or a failed
-  `tunnel`, loads `app://sad/?kind=remote&url=&name=&error=` ("work-pc can't be reached", the
+  `tunnel`, loads `app://sad/?kind=remote&url=&name=&error=&code=` (`remoteFailure(code, name)`:
+  "work-pc can't be reached" only for `unreachable` and `tunnel`, "work-pc isn't sharing", "work-pc
+  doesn't accept this computer", else "Couldn't connect to work-pc" with `internal` errors in
+  Details; no `code`, a tab restored from before it, reads as can't be reached; the
   reason, Try again → `tab.navigate`, Go back). A site that work-pc itself cannot open is the
   ordinary sad page (ssh answers the SOCKS request, then closes).
 - Activating a remote workspace warms its tunnel (`onWorkspaceActivated` → `ensure`).
