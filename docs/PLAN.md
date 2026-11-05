@@ -598,6 +598,22 @@ workspaces"):
 - [ ] A history of its own for remote workspaces (with icons fetched through the tunnel), if the
       owner wants one.
 
+## 0.8.2-beta — the error page says whose problem it is; Home stops blinking (2026-11-05)
+
+- The owner's laptop said "emoh can't be reached" while plain ssh worked: the failure was a bug on
+  this computer (ewe-remote's runtime directory, fixed in ewe 0.40.1). Every tunnel failure had that
+  headline. `remoteErrorUrl` now carries the error code and `remoteFailure` picks the words.
+- "Recent reappears constantly": ewe-sync rewrote `sync-folders.json` every 2.3 s (its own bug,
+  fixed in 0.16.1: reading `ewe.conf` woke its watcher), and each rewrite rebuilt every card, since
+  `<For>` got new objects. `EweLink` announces `folders` only when the snapshot says something new,
+  Recent is reconciled by key, and `places` compares by value on Home and in the files page, which
+  also ends the rebuild on every window focus.
+- [ ] Open: a restored tab can show the error page's title over Home (`app://home/`, "emoh can't
+      be reached", seen on the owner's laptop). Not going back between pages: that keeps its title
+      (checked with an e2e test on the old code). Cause not found.
+- Full e2e in cage: 73 passed, 12 skipped. The new Home check failed first on the old rendering: all
+  5 cards rebuilt by one refresh.
+
 ## 0.8.1-beta — no application menu (2026-11-01)
 
 Ctrl+M (mute, a page-first key) also reached Electron's default Linux menu, whose Window →
