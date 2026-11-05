@@ -1691,6 +1691,23 @@ test('home: big search, folder shortcuts, recent docs, videos, music and sites',
       /^data:image\/png/,
     )
 
+    // a refresh that finds nothing new leaves every card and shortcut in place (a rebuild replays
+    // their entrance: the owner's "reappears constantly"), and a real change touches only its card
+    await home.evaluate(() => {
+      for (const el of document.querySelectorAll('.rc-card, .home-places > *'))
+        el.setAttribute('data-kept', '')
+      window.dispatchEvent(new Event('focus'))
+    })
+    await home.waitForTimeout(800)
+    await expect(home.locator('.rc-card:not([data-kept])')).toHaveCount(0)
+    await expect(home.locator('.home-places > :not([data-kept])')).toHaveCount(0)
+    const flock = await windowWith(app, `${server.url}/flock.html`)
+    await flock.evaluate(() => {
+      document.title = 'Flock today'
+    })
+    await expect(home.locator('.rc-card[data-kind="web"] .rc-title')).toHaveText('Flock today')
+    await expect(home.locator('.rc-card:not([data-kept])')).toHaveCount(0)
+
     await home.locator('.home-seg [data-value="doc"]').click()
     await expect.poll(titles).toEqual(['handbook.pdf', 'notes.md'])
     await expect(home.locator('.rc-snippet')).toContainText('Shearing plan')

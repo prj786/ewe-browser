@@ -5,6 +5,17 @@ const MAX_FOLDERS = 200
 export const SNAPSHOT_FILE = 'sync-folders.json'
 export const NUDGE_FILE = 'sync-now'
 
+// What a snapshot says, without when it was written: ewe-sync stamps every write.
+export function snapshotContent(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(text), (key, value: unknown) =>
+      key === 'updated_at' ? undefined : value,
+    )
+  } catch {
+    return text
+  }
+}
+
 export interface SyncSnapshotFolder extends FsPlaceSync {
   key: string
   name: string

@@ -11,12 +11,14 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
+import { createStore, reconcile } from 'solid-js/store'
 import { render } from 'solid-js/web'
 import {
   HOME_RECENT_LIMIT,
   VIEWABLE_KINDS,
   filesUrl,
   isRecentFilter,
+  samePlaces,
   viewerUrl,
   type FileKind,
   type FsPlace,
@@ -347,9 +349,12 @@ function Home(): JSX.Element {
 
   const [now, setNow] = createSignal(Date.now())
   const [token, setToken] = createSignal('')
-  const [places, setPlaces] = createSignal<FsPlace[]>([])
+  const [places, setPlaces] = createSignal<FsPlace[]>([], { equals: samePlaces })
   const [filter, setFilter] = createSignal<RecentFilter>(loadFilter())
-  const [recents, setRecents] = createSignal<RecentItem[] | null>(null)
+  // Reconciled by key: every answer is a new array of new objects, and with those <For> rebuilt
+  // every card and replayed its entrance on each refresh. Now only what changed changes.
+  const [recentList, setRecentList] = createStore<{ items: RecentItem[] | null }>({ items: null })
+  const recents = () => recentList.items
   const [menu, setMenu] = createSignal<{ at: Point; items: MenuEntry[] } | null>(null)
   const [notice, setNotice] = createSignal<{ text: string; error: boolean } | null>(null)
   let noticeTimer: number | undefined
@@ -374,7 +379,7 @@ function Home(): JSX.Element {
     })
     if (id !== sequence) return
     setNow(Date.now())
-    setRecents(result.ok ? result.value : [])
+    setRecentList('items', reconcile(result.ok ? result.value : [], { key: 'key' }))
   }
 
   const loadPlaces = async () => {
