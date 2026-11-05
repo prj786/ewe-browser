@@ -137,8 +137,8 @@ function windowFor(url: string, remote: RemoteBinding | undefined): SessionWindo
   return { bounds: null, tabs, activeIndex: 0, workspaces: [workspace], activeWorkspace: 0 }
 }
 
-export function remoteErrorUrl(url: string, name: string, message: string): string {
-  const params = new URLSearchParams({ kind: 'remote', url, name, error: message })
+export function remoteErrorUrl(url: string, name: string, message: string, code: string): string {
+  const params = new URLSearchParams({ kind: 'remote', url, name, error: message, code })
   return `${SAD_TAB_URL}?${params.toString()}`
 }
 
@@ -1095,8 +1095,10 @@ export class WindowController {
     if (this.deps.remote.ready(remote.id)) return null
     return this.deps.remote
       .ensure(remote.id)
-      .then((result) => (result.ok ? null : remoteErrorUrl(url, remote.name, result.message)))
-      .catch(() => remoteErrorUrl(url, remote.name, 'ewe-remote did not answer'))
+      .then((result) =>
+        result.ok ? null : remoteErrorUrl(url, remote.name, result.message, result.error),
+      )
+      .catch(() => remoteErrorUrl(url, remote.name, 'ewe-remote did not answer', 'no-answer'))
   }
 
   private remoteLoadFailed(
@@ -1114,7 +1116,7 @@ export class WindowController {
     if (retried !== null && retried.url === url && now - retried.at < REMOTE_RETRY_MS) {
       tab.retry = null
       void contents
-        .loadURL(remoteErrorUrl(url, remote.name, tunnelErrorText(description)))
+        .loadURL(remoteErrorUrl(url, remote.name, tunnelErrorText(description), 'unreachable'))
         .catch(() => undefined)
       return true
     }
@@ -1130,8 +1132,11 @@ export class WindowController {
           return
         }
         tab.retry = null
-        const message = result?.ok === false ? result.message : 'ewe-remote did not answer'
-        void contents.loadURL(remoteErrorUrl(url, remote.name, message)).catch(() => undefined)
+        const failed = result?.ok === false ? result : null
+        const message = failed?.message ?? 'ewe-remote did not answer'
+        void contents
+          .loadURL(remoteErrorUrl(url, remote.name, message, failed?.error ?? 'no-answer'))
+          .catch(() => undefined)
       })
     return true
   }

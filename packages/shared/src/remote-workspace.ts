@@ -70,3 +70,35 @@ export function matchComputer(
   const byPrefix = computers.filter((c) => c.id.startsWith(lower))
   return byPrefix.length === 1 ? byPrefix[0] : undefined
 }
+
+export interface RemoteFailure {
+  title: string
+  text: string
+}
+
+const DID_NOT_ANSWER: ReadonlySet<string> = new Set(['unreachable', 'tunnel'])
+
+// The headline says whose problem it is: "emoh can’t be reached" over a bug on this computer
+// sent the owner looking at the network while plain ssh worked (2026-11-05). A null code is a
+// tab restored from before the code existed.
+export function remoteFailure(code: string | null, name: string): RemoteFailure {
+  if (code === null || DID_NOT_ANSWER.has(code))
+    return {
+      title: `${name} can’t be reached`,
+      text: `This workspace browses from ${name}, so its pages load only through it.`,
+    }
+  if (code === 'not-sharing')
+    return {
+      title: `${name} isn’t sharing`,
+      text: `Turn on Share this computer on ${name}, then try again.`,
+    }
+  if (code === 'not-paired' || code === 'not-allowed')
+    return {
+      title: `${name} doesn’t accept this computer`,
+      text: `Pair with it again, using the code ${name} shows.`,
+    }
+  return {
+    title: `Couldn’t connect to ${name}`,
+    text: `The problem is on this computer, so ${name} itself may be fine.`,
+  }
+}

@@ -6,6 +6,7 @@ import {
   isRemoteBinding,
   isRemoteId,
   matchComputer,
+  remoteFailure,
   remoteChoices,
   remotePartition,
   type RemoteComputer,
@@ -77,5 +78,30 @@ describe('remote workspaces', () => {
     expect(
       isShellCommand({ type: 'menu.open', menu: { kind: 'workspace-new', id: 'm' }, x: 1, y: 1 }),
     ).toBe(false)
+  })
+})
+
+describe('remoteFailure', () => {
+  it('says the computer cannot be reached only when it did not answer', () => {
+    expect(remoteFailure('unreachable', 'emoh').title).toBe('emoh can’t be reached')
+    expect(remoteFailure('tunnel', 'emoh').title).toBe('emoh can’t be reached')
+  })
+
+  it('does not blame the other computer for a failure on this one', () => {
+    for (const code of ['internal', 'no-answer', 'bad-answer', 'no-remote', 'proxy', 'failed']) {
+      const failure = remoteFailure(code, 'emoh')
+      expect(failure.title).toBe('Couldn’t connect to emoh')
+      expect(failure.text).toContain('on this computer')
+    }
+  })
+
+  it('names what the other computer refused', () => {
+    expect(remoteFailure('not-sharing', 'emoh').title).toBe('emoh isn’t sharing')
+    expect(remoteFailure('not-paired', 'emoh').title).toBe('emoh doesn’t accept this computer')
+    expect(remoteFailure('not-allowed', 'emoh').title).toBe('emoh doesn’t accept this computer')
+  })
+
+  it('keeps the old headline for a tab restored from before the code existed', () => {
+    expect(remoteFailure(null, 'emoh').title).toBe('emoh can’t be reached')
   })
 })
