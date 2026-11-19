@@ -111,6 +111,7 @@ export const PERMISSION_KINDS = [
   'local-network',
   'windows',
   'idle',
+  'apps',
 ] as const
 
 export type PermissionKind = (typeof PERMISSION_KINDS)[number]
@@ -128,6 +129,7 @@ export const PERMISSION_LABELS: Record<PermissionKind, string> = {
   'local-network': 'Local network',
   windows: 'Window placement',
   idle: 'Idle detection',
+  apps: 'Open apps',
 }
 
 export const PERMISSION_ASKS: Record<PermissionKind, string> = {
@@ -140,11 +142,13 @@ export const PERMISSION_ASKS: Record<PermissionKind, string> = {
   'local-network': 'Find and connect to devices on your network',
   windows: 'Manage windows on all your displays',
   idle: 'Know when you are away from the computer',
+  apps: 'Open links in apps on this computer',
 }
 
 export const PERMISSION_NOTES: Partial<Record<PermissionKind, string>> = {
   location:
     'ewe Browser has no location service on Linux, so a site gets no position even when you allow it.',
+  apps: 'Links such as mailto: or claude:// open in the app that handles them on this computer.',
 }
 
 export const PERMISSION_HINTS: Partial<Record<PermissionKind, string>> = {

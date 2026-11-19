@@ -103,8 +103,8 @@ export function MediaViewer(props: MediaViewerProps): JSX.Element {
             <Show when={kind() === 'video'}>
               <button
                 class="iconbtn mv-btn mv-mpv"
-                title="Play in mpv"
-                aria-label="Play in mpv"
+                title="Play in ewe Player"
+                aria-label="Play in ewe Player"
                 onClick={() => props.onMpv(current())}
               >
                 <Icon name="play" />
@@ -142,7 +142,7 @@ export function MediaViewer(props: MediaViewerProps): JSX.Element {
                   <span>This file cannot be shown here.</span>
                   <Show when={kind() === 'video'}>
                     <button class="btn btn--primary btn--sm" onClick={() => props.onMpv(current())}>
-                      Play in mpv
+                      Play in ewe Player
                     </button>
                   </Show>
                   <button

@@ -50,6 +50,11 @@ export function kindsFor(permission: string, mediaTypes: readonly string[] = [])
       return ['windows']
     case 'idle-detection':
       return ['idle']
+    // a link to another app (mailto:, claude://, zoommtg: …): Chromium hands it
+    // to Electron, which asks here and, when allowed, opens it with xdg-open.
+    // Denied silently until 0.8.4-beta, so claude.ai's "Open Claude" did nothing.
+    case 'openExternal':
+      return ['apps']
     default:
       return []
   }

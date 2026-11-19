@@ -44,6 +44,7 @@ export const PERMISSION_API_NAMES: Record<PermissionKind, string[]> = {
   'local-network': ['local-network-access', 'local-network', 'loopback-network'],
   windows: ['window-management'],
   idle: ['idle-detection'],
+  apps: [],
 }
 
 export interface FrameFlags {

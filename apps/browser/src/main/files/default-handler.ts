@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 export const DESKTOP_ID = 'ewe-browser-folders.desktop'
 const MIME = 'inode/directory'
-const FALLBACK = 'nemo.desktop'
+const FALLBACK = 'ewe-files-app.desktop' // ewe Files (ewe 0.44; Nemo before)
 
 export interface DefaultHandlerStatus {
   isDefault: boolean

@@ -125,6 +125,47 @@ test('site permissions ask on the page, remember the answer and agree with permi
   }
 })
 
+test('a link to another app asks once, then opens it with xdg-open (claude.ai "Open Claude")', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'ewe-e2e-apps-'))
+  const bin = mkdtempSync(join(tmpdir(), 'ewe-e2e-bin-'))
+  const log = join(bin, 'xdg-open.log')
+  writeFileSync(join(bin, 'xdg-open'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\n`, {
+    mode: 0o755,
+  })
+  const site = await serve({
+    '/open.html':
+      '<!doctype html><title>Finish sign-in</title><a id="go" href="ewe-e2e-app://login?code=1">Open the app</a>',
+  })
+  const origin = site.url
+  const opened = () => (existsSync(log) ? readFileSync(log, 'utf8') : '')
+  const app = await launch(userData, { PATH: `${bin}:${process.env.PATH ?? ''}` })
+  try {
+    const shell = await shellOf(app)
+    const overlay = await windowWith(app, '/ui/overlay/')
+    await visit(shell, `${origin}/open.html`)
+
+    await inPage(app, "document.getElementById('go').click(); 1", true)
+    expect(await promptKinds(overlay)).toEqual(['apps'])
+    await expect(overlay.locator('.perm-note')).toContainText('mailto:')
+    expect(opened()).toBe('')
+    await new Promise((r) => setTimeout(r, 600))
+    await overlay.locator('.perm-allow').click()
+    await expect.poll(opened, { timeout: 5000 }).toContain('ewe-e2e-app://login?code=1')
+    await expect
+      .poll(() => permissionsFile(userData), { timeout: 5000 })
+      .toMatchObject({ sites: [{ origin, permissions: { apps: 'allow' } }] })
+
+    // allowed: the next one opens without a prompt
+    await expect.poll(async () => (await overlayState(app)).visible).toBe(false)
+    await inPage(app, "document.getElementById('go').click(); 1", true)
+    await expect.poll(() => opened().split('\n').filter(Boolean).length, { timeout: 5000 }).toBe(2)
+    expect((await overlayState(app)).visible).toBe(false)
+  } finally {
+    await app.close()
+    site.close()
+  }
+})
+
 test('the lock opens site info: toggles, clear site data and the settings list', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'ewe-e2e-siteinfo-'))
   const site = await serve({ '/page.html': '<title>Wool</title><p>Wool</p>' })

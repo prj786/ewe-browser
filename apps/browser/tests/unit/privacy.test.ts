@@ -35,7 +35,7 @@ describe('site permissions', () => {
     expect(kindsFor('window-management')).toEqual(['windows'])
     expect(kindsFor('idle-detection')).toEqual(['idle'])
     expect(kindsFor('usb')).toEqual([])
-    expect(kindsFor('openExternal')).toEqual([])
+    expect(kindsFor('openExternal')).toEqual(['apps'])
   })
 
   it('allows only when every kind is allowed, blocks when any is blocked, else asks', () => {
