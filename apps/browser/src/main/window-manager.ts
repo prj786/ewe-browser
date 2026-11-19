@@ -1560,6 +1560,7 @@ export class WindowController {
 
 export class WindowManager {
   private readonly windows = new Map<number, WindowController>()
+  private lastFocusedId: number | null = null
   private readonly deps: Omit<WindowDeps, 'onClosed' | 'openWindow'>
 
   constructor(deps: Omit<WindowDeps, 'onClosed' | 'openWindow'>) {
@@ -1570,12 +1571,16 @@ export class WindowManager {
     const controller = new WindowController(
       {
         ...this.deps,
-        onClosed: (c) => this.windows.delete(c.id),
+        onClosed: (c) => {
+          this.windows.delete(c.id)
+          if (this.lastFocusedId === c.id) this.lastFocusedId = null
+        },
         openWindow: (init) => this.open(init),
       },
       initial,
     )
     this.windows.set(controller.id, controller)
+    controller.win.on('focus', () => (this.lastFocusedId = controller.id))
     return controller
   }
 
@@ -1600,7 +1605,13 @@ export class WindowManager {
 
   focused(): WindowController | undefined {
     const focused = BrowserWindow.getFocusedWindow()
-    return focused === null ? this.all()[0] : this.windows.get(focused.id)
+    if (focused !== null) return this.windows.get(focused.id)
+    // No browser window has the focus: the link came from a terminal or
+    // another app. Use the window used last; the first window ever opened
+    // (the old fallback) could sit on any Hyprland workspace, so a link from
+    // kitty opened out of sight.
+    const last = this.lastFocusedId === null ? undefined : this.windows.get(this.lastFocusedId)
+    return last ?? this.all()[0]
   }
 
   broadcastSettings(settings: Settings): void {

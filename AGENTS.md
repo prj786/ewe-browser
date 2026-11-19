@@ -1038,6 +1038,9 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
   (`SIDEBAR_HEADER`) and `PANEL_INSET` 6px right of the resize grip, raised between the sidebar
   and the overlay. `panel.add {url, title?}` / `panel.remove {id}` are allowed from the sidebar
   and `app://settings`; removing prunes the view and closes the sidebar if it showed it.
+- Links and files from another app (`second-instance` while no browser window has the focus) open in
+  the window used last: `WindowManager.focused()` falls back to the last-focused window, then the first
+  (0.8.3-beta; the first window could sit on any Hyprland workspace).
 - Resident process: `Settings.background` keeps the app alive on `window-all-closed`;
   `--background` starts without a window. `second-instance` with no windows flushes and
   reloads the session (or Home) and then opens any targets. `openArgs(argv, cwd, self)` skips
