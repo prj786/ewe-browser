@@ -598,6 +598,17 @@ workspaces"):
 - [ ] A history of its own for remote workspaces (with icons fetched through the tunnel), if the
       owner wants one.
 
+## 0.8.3-beta — a link from another app opens where you are (2026-11-19)
+
+- The owner: "i cant open link from terminal". With no browser window focused (the link came from
+  kitty or another app), `second-instance` → `openTargets` → `WindowManager.focused()` fell back to
+  `all()[0]`, the first window ever opened, which could sit on any Hyprland workspace, so the tab
+  opened out of sight. `focused()` now falls back to the window used last (`lastFocusedId`, kept on
+  every window's `focus`, cleared when it closes), then the first. ewe 0.43.0-beta did the other
+  half: `misc.focus_on_activate` with a token-checked activation, so that window comes forward.
+- Checks: typecheck, lint, prettier; unit tests (on Node 26 the three known `safe-save` cases fail,
+  as on main).
+
 ## 0.8.2-beta — the error page says whose problem it is; Home stops blinking (2026-11-05)
 
 - The owner's laptop said "emoh can't be reached" while plain ssh worked: the failure was a bug on
