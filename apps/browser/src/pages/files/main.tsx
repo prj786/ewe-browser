@@ -685,7 +685,7 @@ function FilesApp(): JSX.Element {
     if (!many && (entry.dir || VIEWABLE_KINDS.has(kind)))
       items.push(item('open-tab', 'Open in new tab', 'app-window', () => void open(entry, true)))
     if (!many && kind === 'video')
-      items.push(item('mpv', 'Play in mpv', 'play', () => void playInMpv(entry)))
+      items.push(item('mpv', 'Play in ewe Player', 'play', () => void playInMpv(entry)))
     if (!many && kind === 'archive')
       items.push(item('extract', 'Extract here', 'archive', () => void extract(entry)))
     if (!many && !entry.dir && (VIEWABLE_KINDS.has(kind) || kind === 'archive'))

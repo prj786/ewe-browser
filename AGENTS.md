@@ -708,7 +708,7 @@ icon, action: {id, label}}`, keeps it 6 s (`TOAST_ACTION_MS`), and the overlay r
   `$XDG_DATA_HOME/applications/ewe-browser-folders.desktop` (`NoDisplay`, only `inode/directory`,
   `Exec` = this Electron binary, plus the app path in dev) and runs
   `gio mime inode/directory ewe-browser-folders.desktop`, saving the previous default in
-  `default-handler.json`; "Give back" restores it (Nemo when unknown). `xdg-mime query` did not
+  `default-handler.json`; "Give back" restores it (ewe Files, `ewe-files-app.desktop`, when unknown; Nemo before ewe 0.44). `xdg-mime query` did not
   report what it had just set on this machine, so `gio mime` is used for both.
 
 ## Home (`app://home`)
@@ -739,7 +739,7 @@ icon, action: {id, label}}`, keeps it 6 s (`TOAST_ACTION_MS`), and the overlay r
   favicon on a white tile over its blurred copy. Click: sites navigate, music goes through
   `music.play`, viewable files open the files viewer (`viewerUrl(path)`), other documents open
   with the default app (`home {op: 'open'}`, allowed only for paths the last `recents` answers
-  returned). Ctrl/middle click opens a new tab. The context menu adds Play in mpv, Open with
+  returned). Ctrl/middle click opens a new tab. The context menu adds Play in ewe Player, Open with
   default app, Show in folder, Copy path/link and Remove from Recent.
 - A refresh leaves the page alone: every answer is a new array of new objects, and `<For>` rebuilt
   every card and replayed its entrance on each one, so Recent is a store reconciled by `key` (only
@@ -1099,13 +1099,15 @@ settings load and installed on both sessions.
   reads a renderer preference Electron cannot set, so it stays off. Workers do not get the property.
 - **Site permissions** (`permissions.ts`, `<userData>/permissions.json` `{version: 1, sites:
 [{origin, permissions: {kind: allow | block}, updated}]}`, 1000 origins): kinds `camera,
-microphone, location, notifications, clipboard, midi, local-network, windows, idle`
+microphone, location, notifications, clipboard, midi, local-network, windows, idle, apps`
   (`kindsFor` maps Chromium's `media` + mediaTypes, `geolocation`, `notifications`,
   `clipboard-read`, `midi`/`midiSysex`, `local-network-access`/`local-network`/`loopback-network`,
-  `window-management`, `idle-detection`). Fullscreen, pointer and keyboard lock, sanitized
-  clipboard writes, `mediaKeySystem` and `screen-wake-lock` are allowed silently (`SILENT_ALLOW`);
-  everything else (USB, HID, serial, external protocols, storage access, file system writes, …)
-  is denied as before. Decisions are per top-level origin (Chromium's permission delegation
+  `window-management`, `idle-detection`, and `openExternal` → `apps`: a link to another app,
+  `mailto:`, `claude://`, `zoommtg:` …, which Electron opens with `xdg-open` once allowed; until
+  0.8.4-beta it was denied silently, so claude.ai's "Open Claude" did nothing). Fullscreen,
+  pointer and keyboard lock, sanitized clipboard writes, `mediaKeySystem` and
+  `screen-wake-lock` are allowed silently (`SILENT_ALLOW`); everything else (USB, HID, serial,
+  storage access, file system writes, …) is denied as before. Decisions are per top-level origin (Chromium's permission delegation
   checks the iframe `allow` attribute first). `verdict`: every kind allowed → allow, any blocked →
   block, else ask. The check handler answers the same verdict (so `navigator.permissions.query`
   says granted only for allowed kinds); because Electron reports "denied" for anything not
@@ -1271,8 +1273,11 @@ browser. The palette shows "Search Zara" for `@zara …` (`parseSiteQuery` + `si
   iframe, where Chromium's own PDF viewer takes over. Raw URLs end in the file name
   (`/raw/<name>?path=…&t=…`) so the PDF toolbar and downloads show it. The page refocuses after
   the PDF loads so Esc still closes the overlay.
-- mpv: `fs {op: 'mpv'}` spawns `mpv --force-window=immediate -- <path>`; videos have Play in mpv in
-  the menu and the viewer, and the viewer offers it when Chromium cannot decode the file.
+- ewe Player: `fs {op: 'mpv'}` (the op keeps its old name) spawns `ewe-player <path>` (ewe's own
+  player since ewe 0.44, GStreamer with FFmpeg; `$EWE_PLAYER_BIN` replaces it, the e2e global
+  setup points it at nothing) and falls back to `mpv --force-window=immediate -- <path>` outside
+  ewe; videos have Play in ewe Player in the menu and the viewer, and the viewer offers it when
+  Chromium cannot decode the file.
 - Music (`app://music`, rail button, one tab: `open.internal music` activates an existing music
   tab): `MusicLibraryStore` walks `$EWE_MUSIC_DIR` or `XDG_MUSIC_DIR` (12 levels, 50000 tracks,
   four parsers at once), reuses entries whose mtime and size did not change, and keeps

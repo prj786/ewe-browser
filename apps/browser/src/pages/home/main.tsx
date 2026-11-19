@@ -461,7 +461,7 @@ function Home(): JSX.Element {
     const path = item.path
     if (path !== null) {
       if (item.kind === 'video')
-        items.push(entry('mpv', 'Play in mpv', 'play', () => run({ op: 'mpv', path })))
+        items.push(entry('mpv', 'Play in ewe Player', 'play', () => run({ op: 'mpv', path })))
       if (item.kind === 'audio' || viewable(item))
         items.push(
           entry('default', 'Open with default app', 'external-link', () =>

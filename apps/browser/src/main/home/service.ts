@@ -1,5 +1,5 @@
 import type { FsResult, HomeRequest } from '@ewe/shared'
-import { errorMessage, openWithDefault, playInMpv } from '../files/service'
+import { errorMessage, openWithDefault, playInPlayer } from '../files/service'
 import { computePlaces, systemPlacesEnv } from '../files/places'
 import type { RecentStore } from '../storage/recent-store'
 import type { RecentsService } from './recents'
@@ -34,12 +34,13 @@ export class HomeService {
           if (!this.deps.recents.knows(request.path)) return { ok: false, error: 'Not allowed' }
           const started =
             request.op === 'mpv'
-              ? await playInMpv(request.path)
+              ? await playInPlayer(request.path)
               : await openWithDefault(request.path)
           if (!started)
             return {
               ok: false,
-              error: request.op === 'mpv' ? 'mpv is not installed' : 'No app opens this file',
+              error:
+                request.op === 'mpv' ? 'No video player is installed' : 'No app opens this file',
             }
           this.deps.store.record(request.path, 'opened')
           return { ok: true, value: true }

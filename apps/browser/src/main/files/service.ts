@@ -184,17 +184,25 @@ export function openWithDefault(path: string): Promise<boolean> {
   })
 }
 
-export async function playInMpv(path: string): Promise<boolean> {
-  const child = spawn('mpv', ['--force-window=immediate', '--', path], {
-    detached: true,
-    stdio: 'ignore',
-  })
-  const started = await new Promise<boolean>((resolve) => {
+function spawnDetached(command: string, args: string[]): Promise<boolean> {
+  const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+  return new Promise<boolean>((resolve) => {
     child.once('error', () => resolve(false))
-    child.once('spawn', () => resolve(true))
+    child.once('spawn', () => {
+      child.unref()
+      resolve(true)
+    })
   })
-  child.unref()
-  return started
+}
+
+/**
+ * Videos (and what Chromium cannot decode) go to ewe Player, ewe's own player since ewe 0.44
+ * (GStreamer with FFmpeg, so nearly every format plays); outside ewe, or before it is installed,
+ * to mpv. `$EWE_PLAYER_BIN` replaces the ewe Player binary (tests point it at nothing).
+ */
+export async function playInPlayer(path: string): Promise<boolean> {
+  if (await spawnDetached(process.env.EWE_PLAYER_BIN ?? 'ewe-player', [path])) return true
+  return spawnDetached('mpv', ['--force-window=immediate', '--', path])
 }
 
 function dragIcon(): Electron.NativeImage {
@@ -282,7 +290,7 @@ export class FileService {
           return this.terminal(expandPath(request.path))
         case 'mpv': {
           const path = expandPath(request.path)
-          if (!(await playInMpv(path))) return fail('mpv is not installed')
+          if (!(await playInPlayer(path))) return fail('No video player is installed')
           this.host.onOpened?.(path)
           return ok(true)
         }

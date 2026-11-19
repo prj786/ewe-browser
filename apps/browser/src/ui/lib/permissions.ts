@@ -11,4 +11,5 @@ export const PERMISSION_ICONS: Record<PermissionKind, IconName> = {
   'local-network': 'network',
   windows: 'monitor',
   idle: 'moon',
+  apps: 'external-link',
 }

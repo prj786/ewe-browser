@@ -598,6 +598,22 @@ workspaces"):
 - [ ] A history of its own for remote workspaces (with icons fetched through the tunnel), if the
       owner wants one.
 
+## 0.8.4-beta — a link to another app asks, then opens it; videos go to ewe Player (2026-11-19)
+
+- The owner: claude.ai's "Finish sign-in in the Claude app" page, "Open Claude does nothing". A
+  link to another app (`claude://`, `mailto:`, `zoommtg:` …) reaches Electron as the
+  `openExternal` permission request, and `kindsFor` mapped it to no kind, so the handler denied it
+  without a word. It is now the `apps` kind ("Open apps", "Open links in apps on this computer"),
+  asked with the usual prompt, remembered per site like the others (Allow → Electron opens it with
+  `xdg-open`, `x-scheme-handler/<scheme>` decides the app), listed in site info and Settings once
+  decided. Chrome asks the same way.
+- Checks: typecheck, lint, prettier, unit tests (the three Node 26 `safe-save` cases as on main),
+  `privacy.spec.ts` in a headless cage (6 passed; the new test fails without the fix — no prompt).
+- ewe 0.44 ships ewe's own apps (ewe Files, ewe Player, ewe Viewer — repo ewe-apps) in place of
+  Nemo, mpv, Zathura and imv: "Play in mpv" became "Play in ewe Player" (`ewe-player`, mpv only
+  as the fallback outside ewe, `$EWE_PLAYER_BIN` for tests), and giving the folder default back
+  falls back to `ewe-files-app.desktop` instead of Nemo.
+
 ## 0.8.3-beta — a link from another app opens where you are (2026-11-19)
 
 - The owner: "i cant open link from terminal". With no browser window focused (the link came from
