@@ -18,6 +18,7 @@ import { socketPath } from './cli/socket'
 import { DownloadManager } from './downloads'
 import { DefaultHandler } from './files/default-handler'
 import { ExtensionHost } from './extensions'
+import { toolPath } from './files/places'
 import { FileService } from './files/service'
 import { HistoryService, registerHistoryIpc } from './history-service'
 import { RecentsService } from './home/recents'
@@ -50,6 +51,7 @@ import { RecentStore } from './storage/recent-store'
 import { SessionStore } from './storage/session-store'
 import { setShortcuts } from './shortcuts'
 import { SettingsStore } from './storage/settings-store'
+import { SpellingService } from './spelling'
 import { Startup } from './startup'
 import { EweLink } from './sync/ewe-link'
 import { SyncService } from './sync/service'
@@ -199,8 +201,14 @@ async function main(): Promise<void> {
       onShow: (path) => windows.focused()?.openFiles(dirname(path), basename(path)),
     },
   )
+  // ewe-conf answers in the background: sessions start on the automatic languages and
+  // take ewe.conf's as soon as it is read (no wait before the first window)
+  const spelling = new SpellingService({ userData, managed: toolPath('ewe-conf') !== null })
+  spelling.attach(session.defaultSession)
+  void spelling.start()
   const setupWebSession = (ses: Session, gate?: RequestGate, via?: string): void => {
     applyIdentity(ses, privacyHeaders)
+    spelling.attach(ses)
     installAppProtocol(
       ses,
       join(__dirname, '../renderer'),
@@ -286,6 +294,7 @@ async function main(): Promise<void> {
   const windows: WindowManager = new WindowManager({
     extensions,
     safe,
+    spelling,
     privacy: privacyService,
     permissions,
     siteInput: (input) => siteSearch.rewrite(input),
@@ -377,6 +386,7 @@ async function main(): Promise<void> {
     files.dispose()
     sync.dispose()
     eweLink.dispose()
+    spelling.dispose()
     historyService.dispose()
     void history.flush().then(() => history.close())
   })
@@ -406,6 +416,7 @@ async function main(): Promise<void> {
     sync,
     extensions,
     startup,
+    spelling,
   })
 
   const openSession = (saved: SessionWindow[]): void => {

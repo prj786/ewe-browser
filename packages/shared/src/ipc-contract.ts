@@ -220,6 +220,7 @@ export interface BrowserApi {
   sync(run?: boolean): Promise<SyncStatus | null>
   onSync(listener: (status: SyncStatus) => void): () => void
   startup(on?: boolean): Promise<{ available: boolean; on: boolean } | null>
+  spelling(request?: SpellingRequest): Promise<SpellingStatus | null>
   onState(listener: (snapshot: WindowSnapshot) => void): () => void
   onSettings(listener: (settings: Settings) => void): () => void
   onTheme(listener: (theme: ThemeTokens | null) => void): () => void
@@ -227,6 +228,28 @@ export interface BrowserApi {
   onUi(listener: (event: UiEvent) => void): () => void
   permissions<T = unknown>(request: PermissionsRequest): Promise<T | null>
   onPermissions(listener: () => void): () => void
+}
+
+/** Spell checking as ewe sets it (`[desktop.language]` in ewe.conf, ewe Settings → Language). */
+export interface SpellingStatus {
+  /** under ewe: the switch and the languages live in ewe.conf */
+  managed: boolean
+  enabled: boolean
+  /** no languages chosen in ewe Settings: the display language's and US English */
+  automatic: boolean
+  /** hunspell names (en_US, ka_GE …); `supported` = Chromium has a dictionary for it */
+  languages: { code: string; label: string; supported: boolean }[]
+}
+
+/** `ewe:spelling` (invoke, `app://settings` only): nothing = status. */
+export type SpellingRequest = { enabled: boolean } | { open: 'settings' }
+
+export function isSpellingRequest(value: unknown): value is SpellingRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  const keys = Object.keys(v)
+  if (keys.length !== 1) return false
+  return typeof v.enabled === 'boolean' || v.open === 'settings'
 }
 
 export const IPC = {
@@ -261,6 +284,7 @@ export const IPC = {
   syncStatus: 'ewe:sync-status',
   extensions: 'ewe:extensions',
   startup: 'ewe:startup',
+  spelling: 'ewe:spelling',
   musicChanged: 'ewe:music-changed',
   state: 'ewe:state',
   settings: 'ewe:settings',

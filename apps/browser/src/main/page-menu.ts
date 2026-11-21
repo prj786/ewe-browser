@@ -18,7 +18,7 @@ import {
   type ToastIcon,
 } from '@ewe/shared'
 import type { OverlayController } from './overlay'
-import { buildPageMenu, needsSafeProbe, savePageName } from './page-menu-model'
+import { buildPageMenu, needsSafeProbe, playerMediaUrl, savePageName } from './page-menu-model'
 import { uniquePath } from './storage/downloads-store'
 import type { Tab, TabManager } from './tab-manager'
 
@@ -45,6 +45,11 @@ export interface PageMenuHost {
   toast(message: string, icon: ToastIcon): void
   safeReady(): boolean
   armGenerate(contents: WebContents, frame: { processId: number; routingId: number }): void
+  /** `ewe-player <url>` (yt-dlp for web pages), mpv outside ewe */
+  play(url: string): void
+  /** spelling: ignore a word for this run, or note one added for good */
+  ignoreWord(contents: WebContents, word: string): void
+  wordAdded(word: string): void
 }
 
 interface OpenMenu {
@@ -294,6 +299,19 @@ export class PageMenus {
         return
       case 'spell.add':
         contents.session.addWordToSpellCheckerDictionary(s.misspelled)
+        this.host.wordAdded(s.misspelled)
+        return
+      case 'spell.ignore':
+        this.host.ignoreWord(contents, s.misspelled)
+        return
+      case 'player.link':
+        this.host.play(s.link)
+        return
+      case 'player.media':
+        this.host.play(playerMediaUrl(s.src, this.host.tabs.urlOf(tab)))
+        return
+      case 'player.page':
+        this.host.play(this.host.tabs.urlOf(tab))
         return
       case 'safe.fill':
         this.act(s.frame, 'safe.fill')

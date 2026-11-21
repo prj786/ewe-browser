@@ -184,7 +184,7 @@ export function openWithDefault(path: string): Promise<boolean> {
   })
 }
 
-function spawnDetached(command: string, args: string[]): Promise<boolean> {
+export function spawnDetached(command: string, args: string[]): Promise<boolean> {
   const child = spawn(command, args, { detached: true, stdio: 'ignore' })
   return new Promise<boolean>((resolve) => {
     child.once('error', () => resolve(false))

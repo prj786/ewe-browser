@@ -598,6 +598,22 @@ workspaces"):
 - [ ] A history of its own for remote workspaces (with icons fetched through the tunnel), if the
       owner wants one.
 
+## Spelling follows ewe; Play in ewe Player (wave A+L, 2026-11-21, branch `feat/spell-play`, for 0.9.0-beta)
+
+- Done: spell checking follows ewe.conf `[desktop.language]` (`spellcheck` languages, `check_spelling`
+  switch) live on every web session (`main/spelling.ts`); hunspell names map to Chromium's own
+  dictionaries, languages Chromium lacks (Georgian…) are skipped and shown as not checked yet.
+  The page menu's spelling rows gained Ignore (this run only). Settings → Browsing → Spelling: the
+  switch (writes ewe.conf; "Only on the ewe desktop" outside ewe), the languages, "Change in ewe
+  Settings" (`ewe-settings --page=language`). "Play in ewe Player" on a video link (YouTube,
+  Vimeo, Twitch, … — `isPlayableUrl`), a video or audio element (its file, or the page when it
+  streams from a blob) and a video page: `ewe-player <url>` (yt-dlp is ewe Player's side).
+- Open: a dictionary for the languages Chromium lacks would need hunspell → .bdic conversion
+  (Chromium's `convert_dict`) or a renderer spell-check provider; Chromium downloads its .bdic
+  files from Google's dictionary server on first use of a language (as Chrome does).
+- Verified: unit (`spelling.test.ts`, `player.test.ts`, the menu rows) and e2e
+  (`tests/e2e/spelling.spec.ts`, 2 tests) in a headless cage; screenshots dark and light.
+
 ## 0.8.4-beta — a link to another app asks, then opens it; videos go to ewe Player (2026-11-19)
 
 - The owner: claude.ai's "Finish sign-in in the Claude app" page, "Open Claude does nothing". A

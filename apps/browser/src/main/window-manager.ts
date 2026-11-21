@@ -71,6 +71,8 @@ import { PanelHost, panelBounds, panelId } from './panels'
 import { FindController } from './find'
 import { PageMenus, printPage, viewSource } from './page-menu'
 import type { SafeService } from './safe/service'
+import type { SpellingService } from './spelling'
+import { playInPlayer } from './files/service'
 import { SafeWindow } from './safe/window'
 import { SwipeController, go } from './swipe'
 import type { PermissionStore } from './privacy/permissions'
@@ -98,6 +100,7 @@ export interface WindowDeps {
   downloads: DownloadManager
   extensions?: ExtensionHost | undefined
   safe?: SafeService | undefined
+  spelling?: SpellingService | undefined
   privacy?: PrivacyService | undefined
   permissions?: PermissionStore | undefined
   siteInput?: ((input: string) => string | null) | undefined
@@ -334,6 +337,14 @@ export class WindowController {
       toast: (message, icon) => this.toast(message, icon),
       safeReady: () => this.safeUi !== null && deps.safe?.pageState().enabled === true,
       armGenerate: (contents, frame) => this.safeUi?.armGenerate(contents, frame),
+      play: (url) => {
+        this.toast('Opening in ewe Player…', 'check')
+        void playInPlayer(url).then((ok) => {
+          if (!ok) this.toast('ewe Player is not installed', 'alert')
+        })
+      },
+      ignoreWord: (contents, word) => deps.spelling?.ignore(contents.session, word),
+      wordAdded: (word) => deps.spelling?.added(word),
     })
 
     const privacy = deps.privacy

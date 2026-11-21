@@ -77,6 +77,7 @@ packages/shared/src/
                                   permission kinds, labels and asks, PermissionPrompt, SiteInfo, origins
   sites.ts                        SITES (the site search table), siteByName/siteByHost, domainOf,
                                   fill/withLocale, parseSiteQuery (@site), learnSearchTemplate
+  player.ts                       isPlayableUrl: video pages of yt-dlp sites and direct media files (Play in ewe Player)
   remote-workspace.ts             RemoteBinding / RemoteComputer / RemoteChoice, isRemoteId, remotePartition,
                                   cleanRemoteName, remoteChoices, matchComputer, canBrowseFrom,
                                   remoteFailure (the error page's headline by error code)
@@ -92,7 +93,10 @@ apps/browser/
   src/main/find.ts                FindController (find bar: findInPage, count, prefill), ownsFind()
   src/main/swipe.ts               SwipeController (the swipe arrow, back/forward at the end), go()
   src/main/page-menu.ts           PageMenus: the right-click menu on web pages (open, Safe probe, run)
-  src/main/page-menu-model.ts     buildPageMenu() from ContextMenuParams (pure), shownUrl, savePageName
+  src/main/page-menu-model.ts     buildPageMenu() from ContextMenuParams (pure), shownUrl, savePageName,
+                                  playerMediaUrl
+  src/main/spelling.ts            SpellingService: ewe.conf [desktop.language] → every web session's
+                                  spellchecker (languages, on/off), Ignore for this run, `ewe:spelling`
   src/main/page-input.ts          `ewe:page-input` handler → WindowController.pageInput
   src/main/ipc.ts                 ipcMain handlers, sender-frame checks, per-layer command policy
   src/main/protocol.ts            app:// scheme (prod from out/renderer with CSP, dev proxied to Vite)
@@ -289,6 +293,10 @@ Input adds `ewe:page-input` (invoke, `isPageInput`: swipe reports from page main
 http(s) and `app://`, side buttons from the shell, overlay and sidebar layers, the Safe probe
 from http(s) frames) and `ewe:page-action` (main → one frame, `isPageAction`: media toggles
 and Safe opens); see Input below. `ewe:passwords` and the ewe-pass route are gone (Safe only).
+Spelling adds `ewe:spelling` (invoke, `app://settings` only, `isSpellingRequest`: nothing →
+`SpellingStatus {managed, enabled, automatic, languages: [{code, label, supported}]}`,
+`{enabled}` writes `desktop.language.check_spelling` through ewe-conf, `{open: 'settings'}` runs
+`ewe-settings --page=language`); see Spelling below.
 Privacy adds `ewe:permissions` (invoke, `app://settings` only: `{op: 'list'}` → `PermissionSite[]`,
 `{op: 'status'}` → `PrivacyStatus`), `ewe:permissions-changed` (main → settings pages) and
 `ewe:privacy-frame` (a synchronous `sendSync` from the page preload of every http(s) frame:
@@ -627,7 +635,11 @@ icon, action: {id, label}}`, keeps it 6 s (`TOAST_ACTION_MS`), and the overlay r
   save http(s)/data/blob srcs, copy image at the point, copy address, play/pause, mute, loop,
   controls through `ewe:page-action` to the clicked frame, applied by its preload to the
   right-clicked element), selection (copy, search with the Settings engine, Go to), spelling
-  (`replaceMisspelling`, `addWordToSpellCheckerDictionary`), Safe (`safe.fill` opens Safe's list
+  (`replaceMisspelling`, `addWordToSpellCheckerDictionary`, Ignore = added for this run and
+  removed from every session's dictionary at the next start), Play in ewe Player (`player.link` on
+  a video link, `player.media` on a video/audio element — its http(s) file, else the page when the
+  page is a video page, `player.page` on a video page; `isPlayableUrl`; `playInPlayer(url)` =
+  `ewe-player <url>`, mpv outside ewe, a toast "Opening in ewe Player…"), Safe (`safe.fill` opens Safe's list
   for that field; `safe.generate` arms `SafeWindow.armGenerate` for that frame only and opens it,
   and Safe's `open` from that frame with trigger `key` within 3 s then generates and fills both
   new-password fields straight away), editing
@@ -1048,6 +1060,37 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
   writes `apps.startup` through `ewe-conf get/set`, adding `{ name: 'ewe Browser' (an old 'ewe browser' entry is recognised and replaced), exec:
 '<app> --background' }`; `ewe:startup` (invoke, `app://settings` only, optional boolean)
   returns `{ available, on }`.
+
+## Spelling (wave A+L, 2026-11-21)
+
+- ewe decides (`main/spelling.ts`, `SpellingService`, created in `main()` and attached to the
+  default session and every web session in `setupWebSession`): ewe.conf `[desktop.language]`
+  `spellcheck` (hunspell names: en_US, de_DE, ka_GE, es …; unset or empty = the display language's
+  (`LANG`) and US English) and `check_spelling` (default true), read with `ewe-conf get
+  desktop.language` and followed through a `DirWatch` on `~/.config/ewe/ewe.conf` (500 ms).
+  Managed = `ewe-conf` found (`toolPath`); without it the browser checks the display language +
+  US English and the switch reads "Only on the ewe desktop".
+- Chromium checks with its own .bdic dictionaries in `<userData>/Dictionaries` (downloaded by
+  Chromium from Google's dictionary server the first time a language is used, as in Chrome).
+  `chromiumLanguage(name, session.availableSpellCheckerLanguages)` maps a hunspell name to the
+  exact tag (en_US → en-US) or the language (de_AT → de); a language Chromium has no dictionary
+  for (Georgian, …) is skipped (`supported: false`), and none left = the spellchecker off.
+  The system hunspell dictionaries (packages `hunspell-*`, installed from ewe Settings) serve
+  Firefox, Thunderbird, LibreOffice and enchant apps, not Chromium (it reads only .bdic).
+- Ignore: `addWordToSpellCheckerDictionary` plus `<userData>/spelling-ignored.json`
+  (`{version: 1, words}`, 500 at most); each session attached at the next start removes those
+  words again. Add to dictionary takes a word off that list.
+- Settings → Browsing → Spelling (`pages/settings/main.tsx` `Spelling`): the switch, the
+  languages (unsupported ones named "… isn't checked in ewe Browser yet"), Change in ewe Settings.
+- Tests: `tests/unit/spelling.test.ts` (the table, automatic languages, Chromium mapping and
+  labels, the service against fake sessions, Ignore across runs, the request validator, the
+  playable flags of `buildPageMenu`), `packages/shared/src/player.test.ts`, the menu rows in
+  `input.test.ts`, and `tests/e2e/spelling.spec.ts` (2 tests; a fake `ewe-conf` and `ewe-player`
+  on `EWE_BIN` / `EWE_PLAYER_BIN`: suggestions, Add to dictionary + Ignore, Ignore written and
+  honoured, a suggestion replacing the word, the settings group and its switch writing ewe.conf
+  and turning the session's spellchecker off; Play in ewe Player on a YouTube link and an .mp4
+  link, not on a plain link). `EWE_TEST_BDIC_DIR` seeds the profile's Dictionaries (else
+  Chromium downloads en-US), `EWE_SPELL_SHOTS=<dir>` saves the menus and the settings group.
 
 ## Privacy and security (wave 2, 2026-10-18)
 

@@ -35,6 +35,7 @@ import {
   type SettingsSectionId,
   type ShortcutId,
   type ShortcutMap,
+  type SpellingStatus,
 } from '@ewe/shared'
 import '../../ui/styles/base.css'
 import '../pages.css'
@@ -53,7 +54,7 @@ type Update = (patch: Partial<Settings>) => void
 
 const SUBTITLES: Record<SettingsSectionId, string> = {
   appearance: 'How ewe Browser looks. Changes apply right away.',
-  browsing: 'Search, history and how a new window starts. Changes apply right away.',
+  browsing: 'Search, spelling, history and how a new window starts. Changes apply right away.',
   privacy: 'What sites can learn about you, and how ewe Browser reaches them.',
   permissions: 'What each site may use. Sites ask before they use any of it.',
   passwords: 'Logins, passkeys, cards and addresses come from ewe Safe.',
@@ -294,6 +295,79 @@ function Appearance(props: { settings: () => Settings; update: Update }): JSX.El
   )
 }
 
+// Spell checking is ewe's (ewe Settings → Language, `[desktop.language]` in ewe.conf):
+// the switch writes there, the languages are only shown, with the ones Chromium has no
+// dictionary for marked. Outside ewe it checks the display language and US English.
+function Spelling(): JSX.Element {
+  const [status, setStatus] = createSignal<SpellingStatus | null>(null)
+  const [busy, setBusy] = createSignal(false)
+  const refresh = () => void api.spelling().then(setStatus)
+  onMount(() => {
+    refresh()
+    window.addEventListener('focus', refresh)
+    onCleanup(() => window.removeEventListener('focus', refresh))
+  })
+  const setOn = (on: boolean) => {
+    setBusy(true)
+    void api.spelling({ enabled: on }).then((next) => {
+      setStatus(next)
+      setBusy(false)
+    })
+  }
+  const languages = () => {
+    const s = status()
+    return s === null ? 'Checking…' : s.languages.map((l) => l.label).join(', ')
+  }
+  const missing = () => status()?.languages.filter((l) => !l.supported) ?? []
+  return (
+    <Group title="Spelling">
+      <Row
+        title="Check spelling as you type"
+        description={
+          status()?.managed === false
+            ? 'Only on the ewe desktop'
+            : 'Misspelled words get a red line; right-click one for suggestions'
+        }
+      >
+        <Switch
+          label="Check spelling as you type"
+          class="settings-spelling"
+          checked={status()?.enabled ?? true}
+          disabled={busy() || status()?.managed !== true}
+          onChange={setOn}
+        />
+      </Row>
+      <Divider />
+      <Row
+        title="Languages"
+        description={
+          <>
+            <span class="settings-spelling-languages">{languages()}</span>
+            <Show when={missing().length > 0}>
+              {'. '}
+              <span class="settings-spelling-missing">
+                {missing()
+                  .map((l) => l.label)
+                  .join(', ')}{' '}
+                {missing().length === 1 ? "isn't" : "aren't"} checked in ewe Browser yet
+              </span>
+            </Show>
+          </>
+        }
+      >
+        <Show when={status()?.managed === true}>
+          <button
+            class="btn btn--secondary btn--sm settings-spelling-open"
+            onClick={() => void api.spelling({ open: 'settings' })}
+          >
+            Change in ewe Settings
+          </button>
+        </Show>
+      </Row>
+    </Group>
+  )
+}
+
 function Browsing(props: {
   settings: () => Settings
   update: Update
@@ -367,6 +441,7 @@ function Browsing(props: {
           />
         </Row>
       </Group>
+      <Spelling />
       <Group title="History">
         <Row title="Keep history for" description="Applies to all your computers while sync is on">
           <Select

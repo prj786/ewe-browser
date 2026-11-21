@@ -163,6 +163,8 @@ export interface PageMenuLink {
   url: string
   text: string
   openable: boolean
+  /** a video page or a media file ewe Player can take (`isPlayableUrl`) */
+  playable: boolean
 }
 
 export interface PageMenuMedia {
@@ -175,6 +177,8 @@ export interface PageMenuMedia {
   muted: boolean
   loop: boolean
   controls: boolean
+  /** an http(s) media file, or a stream (blob:) on a video page: Play in ewe Player */
+  playable: boolean
 }
 
 export interface PageMenuEdit {
@@ -195,6 +199,8 @@ export interface PageMenuPage {
   bookmarkable: boolean
   bookmarked: boolean
   web: boolean
+  /** the page itself is a video ewe Player can play (YouTube watch page, Vimeo …) */
+  playable: boolean
 }
 
 export interface PageMenu {
@@ -227,6 +233,10 @@ export type PageMenuAction =
   | 'selection.open'
   | `spell.${number}`
   | 'spell.add'
+  | 'spell.ignore'
+  | 'player.link'
+  | 'player.media'
+  | 'player.page'
   | 'safe.fill'
   | 'safe.generate'
   | 'edit.undo'
@@ -284,6 +294,7 @@ function linkItems(link: PageMenuLink): PageMenuEntry[] {
     item('link.tab', 'Open link in new tab', { disabled: closed }),
     item('link.workspace', 'Open link in new workspace', { disabled: closed }),
     item('link.window', 'Open link in new window', { disabled: closed }),
+    ...(link.playable ? [item('player.link', 'Play in ewe Player')] : []),
     { type: 'separator' },
     item('link.save', 'Save link', { disabled: closed }),
     item('link.copy', 'Copy link'),
@@ -305,6 +316,7 @@ function mediaItems(media: PageMenuMedia): PageMenuEntry[] {
     item('media.loop', 'Loop', { on: media.loop }),
     item('media.controls', 'Show controls', { on: media.controls }),
     { type: 'separator' },
+    ...(media.playable ? [item('player.media', 'Play in ewe Player')] : []),
     item('media.tab', `Open ${noun} in new tab`, { disabled: !media.openable }),
     item('media.save', `Save ${noun}`, { disabled: !media.savable }),
     item('media.copyUrl', `Copy ${noun} address`, { disabled: media.url === '' }),
@@ -319,7 +331,9 @@ function editItems(edit: PageMenuEdit): PageMenuEntry[] {
       .forEach((word, i) => out.push(item(`spell.${i}`, word)))
     if (edit.suggestions.length === 0)
       out.push(item('spell.0', 'No suggestions', { disabled: true }))
-    out.push(item('spell.add', 'Add to dictionary'), { type: 'separator' })
+    out.push(item('spell.add', 'Add to dictionary'), item('spell.ignore', 'Ignore'), {
+      type: 'separator',
+    })
   }
   if (edit.safe === 'new-password')
     out.push(item('safe.generate', 'Use a strong password'), { type: 'separator' })
@@ -357,6 +371,9 @@ function selectionItems(menu: PageMenu): PageMenuEntry[] {
 
 function pageItems(page: PageMenuPage): PageMenuEntry[] {
   return [
+    ...(page.playable
+      ? [item('player.page', 'Play in ewe Player'), { type: 'separator' } as const]
+      : []),
     item('page.back', 'Back', { hint: 'Alt+←', disabled: !page.back }),
     item('page.forward', 'Forward', { hint: 'Alt+→', disabled: !page.forward }),
     item('page.reload', 'Reload', { hint: 'Ctrl+R' }),
