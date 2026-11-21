@@ -1067,7 +1067,7 @@ username | password | code, rect, trigger: focus | click | key | icon}`, `move {
   default session and every web session in `setupWebSession`): ewe.conf `[desktop.language]`
   `spellcheck` (hunspell names: en_US, de_DE, ka_GE, es …; unset or empty = the display language's
   (`LANG`) and US English) and `check_spelling` (default true), read with `ewe-conf get
-  desktop.language` and followed through a `DirWatch` on `~/.config/ewe/ewe.conf` (500 ms).
+desktop.language` and followed through a `DirWatch` on `~/.config/ewe/ewe.conf` (500 ms).
   Managed = `ewe-conf` found (`toolPath`); without it the browser checks the display language +
   US English and the switch reads "Only on the ewe desktop".
 - Chromium checks with its own .bdic dictionaries in `<userData>/Dictionaries` (downloaded by
