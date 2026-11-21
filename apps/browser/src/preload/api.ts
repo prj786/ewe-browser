@@ -12,6 +12,7 @@ import {
   type MusicRequest,
   type ExtensionsState,
   type SyncStatus,
+  type SpellingStatus,
   type FsResult,
   type HistoryRequest,
   type HistoryVisit,
@@ -68,6 +69,8 @@ export function createApi(layer: ApiLayer): BrowserApi {
     onSync: (listener) => subscribe(IPC.syncStatus, (p) => listener(p as SyncStatus)),
     startup: (on) =>
       ipcRenderer.invoke(IPC.startup, on) as Promise<{ available: boolean; on: boolean } | null>,
+    spelling: (request) =>
+      ipcRenderer.invoke(IPC.spelling, request) as Promise<SpellingStatus | null>,
     onMusic: (listener) => subscribe(IPC.musicChanged, (p) => listener(p as MusicLibrary)),
     onFsChanged: (listener) => subscribe(IPC.fsChanged, (p) => listener(p as string)),
     onPlacesChanged: (listener) => subscribe(IPC.placesChanged, () => listener()),

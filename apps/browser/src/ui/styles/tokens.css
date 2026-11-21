@@ -105,8 +105,9 @@
   --tracking-snug: -0.01em;
   --tracking-normal: 0;
   --tracking-wide: 0.06em;
-  --font-sans: 'Geist', 'Noto Sans Georgian', system-ui, sans-serif;
-  --font-mono: 'Geist Mono', 'Noto Sans Georgian', ui-monospace, monospace;
+  --font-sans: 'Geist', 'Noto Sans Georgian', 'Noto Sans Arabic UI', 'Noto Sans Hebrew', sans-serif;
+  --font-mono:
+    'Geist Mono', 'Noto Sans Georgian', 'Noto Sans Arabic UI', 'Noto Sans Hebrew', monospace;
 
   --space-xxs: 2px;
   --space-xs: 4px;

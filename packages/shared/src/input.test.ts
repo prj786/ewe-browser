@@ -211,7 +211,14 @@ const base: PageMenu = {
   selection: '',
   selectionUrl: null,
   edit: null,
-  page: { back: true, forward: false, bookmarkable: true, bookmarked: false, web: true },
+  page: {
+    back: true,
+    forward: false,
+    bookmarkable: true,
+    bookmarked: false,
+    web: true,
+    playable: false,
+  },
 }
 
 const actions = (entries: PageMenuEntry[]) =>
@@ -242,7 +249,10 @@ describe('pageMenuItems', () => {
   })
 
   it('builds link items and keeps non-web links copy-only', () => {
-    const menu = { ...base, link: { url: 'https://example.org', text: 'x', openable: true } }
+    const menu = {
+      ...base,
+      link: { url: 'https://example.org', text: 'x', openable: true, playable: false },
+    }
     expect(actions(pageMenuItems(menu))).toEqual([
       'link.tab',
       'link.workspace',
@@ -255,10 +265,31 @@ describe('pageMenuItems', () => {
     ])
     const mail = pageMenuItems({
       ...base,
-      link: { url: 'mailto:a@b.c', text: '', openable: false },
+      link: { url: 'mailto:a@b.c', text: '', openable: false, playable: false },
     })
     expect(labelOf(mail, 'link.tab')).toMatchObject({ disabled: true })
     expect(labelOf(mail, 'link.copy')).not.toHaveProperty('disabled')
+  })
+
+  it('offers Play in ewe Player for a video link, a video and a video page', () => {
+    const link = pageMenuItems({
+      ...base,
+      link: { url: 'https://youtu.be/dQw4w9WgXcQ', text: 'x', openable: true, playable: true },
+    })
+    expect(actions(link).slice(0, 5)).toEqual([
+      'link.tab',
+      'link.workspace',
+      'link.window',
+      'player.link',
+      '|',
+    ])
+    expect(labelOf(link, 'player.link')).toMatchObject({ label: 'Play in ewe Player' })
+    const page = pageMenuItems({ ...base, page: { ...base.page, playable: true } })
+    expect(actions(page).slice(0, 3)).toEqual(['player.page', '|', 'page.back'])
+    expect(pageMenuAllows({ ...base, page: { ...base.page, playable: true } }, 'player.page')).toBe(
+      true,
+    )
+    expect(pageMenuAllows(base, 'player.page')).toBe(false)
   })
 
   it('builds image and video items with their state', () => {
@@ -272,6 +303,7 @@ describe('pageMenuItems', () => {
       muted: false,
       loop: false,
       controls: false,
+      playable: false,
     }
     expect(actions(pageMenuItems({ ...base, media: image }))).toEqual([
       'media.tab',
@@ -290,6 +322,14 @@ describe('pageMenuItems', () => {
     expect(labelOf(video, 'media.loop')).toMatchObject({ on: true })
     expect(labelOf(video, 'media.controls')).toMatchObject({ on: false })
     expect(labelOf(video, 'media.tab')).toMatchObject({ label: 'Open video in new tab' })
+    expect(labelOf(video, 'player.media')).toBeUndefined()
+    const playable = pageMenuItems({
+      ...base,
+      media: { ...image, kind: 'video', playable: true },
+    })
+    expect(actions(playable)).toContain('player.media')
+    const picture = pageMenuItems({ ...base, media: { ...image, playable: true } })
+    expect(actions(picture)).not.toContain('player.media')
   })
 
   it('offers copy, a web search and Go to for a selection', () => {
@@ -326,6 +366,7 @@ describe('pageMenuItems', () => {
       'spell.0',
       'spell.1',
       'spell.add',
+      'spell.ignore',
       '|',
       'safe.fill',
       '|',

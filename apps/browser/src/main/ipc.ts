@@ -10,6 +10,7 @@ import {
   isFsRequest,
   isHomeRequest,
   isShellCommand,
+  isSpellingRequest,
   type Account,
   type ApiLayer,
   type ThemeTokens,
@@ -24,6 +25,7 @@ import { registerSafeIpc } from './safe/ipc'
 import type { SafeService } from './safe/service'
 import type { SyncService } from './sync/service'
 import { registerPageInputIpc } from './page-input'
+import type { SpellingService } from './spelling'
 import type { Startup } from './startup'
 import type { BookmarksStore } from './storage/bookmarks-store'
 import type { DownloadsStore } from './storage/downloads-store'
@@ -44,6 +46,7 @@ export interface IpcDeps {
   sync: SyncService
   extensions: ExtensionHost
   startup: Startup
+  spelling: SpellingService
   getTheme(): ThemeTokens | null
   getAccount(): Account | null
   history: HistoryStore
@@ -177,6 +180,18 @@ export function registerIpc(windows: WindowManager, settings: SettingsStore, dep
     const frameUrl = senderFrameUrl(event, owner.layer)
     if (!(frameUrl?.startsWith(SETTINGS_URL) ?? false)) return null
     return typeof on === 'boolean' ? deps.startup.set(on) : deps.startup.status()
+  })
+
+  ipcMain.handle(IPC.spelling, async (event, raw: unknown) => {
+    const owner = windows.fromContents(event.sender)
+    if (owner?.layer !== 'page') return null
+    const frameUrl = senderFrameUrl(event, owner.layer)
+    if (!(frameUrl?.startsWith(SETTINGS_URL) ?? false)) return null
+    if (raw === undefined || raw === null) return deps.spelling.status()
+    if (!isSpellingRequest(raw)) return null
+    if ('enabled' in raw) return deps.spelling.setEnabled(raw.enabled)
+    await deps.spelling.openSettings()
+    return deps.spelling.status()
   })
 
   ipcMain.handle(IPC.defaultHandler, (event, set: unknown) => {

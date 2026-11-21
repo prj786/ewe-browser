@@ -79,7 +79,12 @@ describe('buildPageMenu', () => {
       params({ linkURL: 'https://example.org/b', linkText: '  Read   more  ' }),
       ctx,
     ).link
-    expect(link).toEqual({ url: 'https://example.org/b', text: 'Read more', openable: true })
+    expect(link).toEqual({
+      url: 'https://example.org/b',
+      text: 'Read more',
+      openable: true,
+      playable: false,
+    })
     expect(buildPageMenu(params({ linkURL: 'javascript:alert(1)' }), ctx).link?.openable).toBe(
       false,
     )

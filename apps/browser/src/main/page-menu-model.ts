@@ -1,6 +1,7 @@
 import type { ContextMenuParams } from 'electron'
 import {
   PAGE_MENU_SUGGESTIONS,
+  isPlayableUrl,
   resolveInput,
   shortText,
   type PageMenu,
@@ -61,7 +62,19 @@ export function needsSafeProbe(params: Pick<PageMenuParams, 'isEditable' | 'form
   return params.isEditable && SAFE_CONTROLS.has(params.formControlType)
 }
 
-function mediaOf(params: PageMenuParams): PageMenuMedia | null {
+// a video or audio element ewe Player can take: its own http(s) file, or, for a stream
+// the page feeds itself (YouTube's blob: MSE source), the page when it is a video page
+function mediaPlayable(kind: string, src: string, pageUrl: string): boolean {
+  if (kind !== 'video' && kind !== 'audio') return false
+  return WEB.test(src) || isPlayableUrl(pageUrl)
+}
+
+/** What "Play in ewe Player" on a media element plays: its http(s) file, else the page. */
+export function playerMediaUrl(src: string, pageUrl: string): string {
+  return WEB.test(src) ? src : pageUrl
+}
+
+function mediaOf(params: PageMenuParams, pageUrl: string): PageMenuMedia | null {
   const kind = params.mediaType
   if (kind !== 'image' && kind !== 'video' && kind !== 'audio') return null
   if (kind === 'image' && params.srcURL === '' && !params.hasImageContents) return null
@@ -75,6 +88,7 @@ function mediaOf(params: PageMenuParams): PageMenuMedia | null {
     muted: params.mediaFlags.isMuted,
     loop: params.mediaFlags.isLooping,
     controls: params.mediaFlags.isControlsVisible,
+    playable: mediaPlayable(kind, params.srcURL, pageUrl),
   }
 }
 
@@ -97,8 +111,9 @@ export function buildPageMenu(params: PageMenuParams, ctx: PageMenuContext): Pag
             url: params.linkURL,
             text: shortText(params.linkText, LINK_TEXT_MAX),
             openable: WEB.test(params.linkURL),
+            playable: isPlayableUrl(params.linkURL),
           },
-    media: mediaOf(params),
+    media: mediaOf(params, ctx.pageUrl),
     selection,
     selectionUrl: selectionUrlOf(selection, ctx.engine),
     edit: params.isEditable
@@ -120,6 +135,7 @@ export function buildPageMenu(params: PageMenuParams, ctx: PageMenuContext): Pag
       bookmarkable: ctx.bookmarkable,
       bookmarked: ctx.bookmarked,
       web: WEB.test(ctx.pageUrl),
+      playable: isPlayableUrl(ctx.pageUrl),
     },
   }
 }

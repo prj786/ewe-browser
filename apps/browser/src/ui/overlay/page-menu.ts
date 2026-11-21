@@ -18,6 +18,10 @@ const ICONS: Partial<Record<PageMenuAction, IconName>> = {
   'selection.search': 'search',
   'selection.open': 'globe',
   'spell.add': 'book-plus',
+  'spell.ignore': 'eye-off',
+  'player.link': 'play',
+  'player.media': 'play',
+  'player.page': 'play',
   'safe.fill': 'key-round',
   'safe.generate': 'sparkles',
   'edit.undo': 'undo-2',
@@ -41,7 +45,8 @@ function iconFor(menu: PageMenu, action: PageMenuAction, on: boolean | undefined
   if (action === 'media.play') return menu.media?.paused === false ? 'pause' : 'play'
   if (action === 'media.mute') return menu.media?.muted === true ? 'volume-2' : 'volume-x'
   if (action === 'page.bookmark') return 'star'
-  if (action.startsWith('spell.') && action !== 'spell.add') return 'spell-check'
+  if (action.startsWith('spell.') && action !== 'spell.add' && action !== 'spell.ignore')
+    return 'spell-check'
   return ICONS[action] ?? 'chevron-right'
 }
 
